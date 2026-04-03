@@ -1,0 +1,183 @@
+================================================================================
+                       EPO TRACKER BACKEND - QUICK START
+================================================================================
+
+INSTALLATION (2 minutes)
+========================
+
+1. Install Python packages:
+   pip install -r requirements.txt
+
+2. Run the server:
+   python run.py
+
+3. Open API docs:
+   http://localhost:8000/docs
+
+================================================================================
+
+DEMO FOR VIDEO (5 minutes)
+==========================
+
+Terminal 1: Start server
+   python run.py
+
+Terminal 2: Run demo commands
+
+# 1. Register a test company
+TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@stancil.com",
+    "full_name": "Admin User",
+    "password": "password123",
+    "company_name": "Stancil Painting & Drywall",
+    "industry": "paint"
+  }' | jq -r '.access_token')
+
+# 2. Seed with 25 demo EPOs
+curl -X POST http://localhost:8000/api/demo/seed \
+  -H "Authorization: Bearer $TOKEN"
+
+# 3. Simulate receiving an email (no Gmail setup needed!)
+curl -X POST http://localhost:8000/api/demo/simulate-email \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email_subject": "Extra Work Order - Community: Mallard Park, Lot L-042",
+    "email_body": "Pulte Homes requesting $500 drywall work. PO-12345",
+    "vendor_email": "orders@pultehomes.com"
+  }'
+
+# 4. Check dashboard stats
+curl http://localhost:8000/api/epos/stats/dashboard \
+  -H "Authorization: Bearer $TOKEN" | jq .
+
+# 5. Reset for next demo
+curl -X POST http://localhost:8000/api/demo/reset \
+  -H "Authorization: Bearer $TOKEN"
+
+================================================================================
+
+KEY ENDPOINTS
+=============
+
+Auth:
+  POST   /api/auth/register       - Create account
+  POST   /api/auth/login          - Login
+  GET    /api/auth/me             - Current user
+
+EPOs:
+  GET    /api/epos                - List all
+  POST   /api/epos                - Create one
+  GET    /api/epos/{id}           - Get details
+  PUT    /api/epos/{id}           - Update
+  GET    /api/epos/stats/dashboard - Dashboard stats
+  POST   /api/epos/{id}/followup  - Add followup
+
+Demo:
+  POST   /api/demo/seed           - Load 25 EPOs
+  POST   /api/demo/simulate-email - Test parser
+  POST   /api/demo/reset          - Reset
+
+Email:
+  POST   /api/email/connect       - Add email
+  GET    /api/email/status        - Check status
+
+================================================================================
+
+DATABASE
+========
+
+Location: ./epo_tracker.db (auto-created)
+Type: SQLite
+
+Tables:
+  companies        - Company info + industry + tier
+  users            - Users + passwords + roles
+  email_connections - Email provider credentials
+  epos             - EPO data + parse model + confidence
+  epo_followups    - Follow-up emails
+
+================================================================================
+
+CONFIG
+======
+
+File: .env
+
+Key settings:
+  DATABASE_URL = sqlite+aiosqlite:///./epo_tracker.db
+  SECRET_KEY = your-secret-key
+  ANTHROPIC_API_KEY = (optional, for Claude)
+  GOOGLE_AI_API_KEY = (optional, for Gemini)
+  DEBUG = True (for development)
+
+================================================================================
+
+FEATURES
+========
+
+Email Parser (3-Tier):
+  1. Regex patterns (free, instant)
+  2. Google Gemini Flash (if API key)
+  3. Claude Haiku fallback
+
+Automatically:
+  - Extracts vendor, amount, lot, community
+  - Calculates confidence score
+  - Sets needs_review flag
+  - Returns which model was used
+
+Database:
+  - Auto-creates on startup
+  - No migrations needed
+  - Async throughout
+  - SQLite for dev, PostgreSQL ready
+
+Authentication:
+  - JWT tokens
+  - Bcrypt hashing
+  - HTTPBearer scheme
+
+================================================================================
+
+DEMO DATA
+=========
+
+Companies: Pulte Homes, Summit Builders, DRB Homes, K. Hovnanian, Ryan Homes,
+           Meritage Homes
+
+Communities: Mallard Park, Odell Park, Galloway, Cedar Hills, Olmsted, Ridgeview
+
+Statuses: 40% confirmed, 35% pending, 15% denied, 10% discount
+
+Amounts: $150 to $1200
+
+Ages: 0-30 days old
+
+All seeded on /api/demo/seed
+
+================================================================================
+
+DOCS
+====
+
+README.md              - Overview + features
+SETUP.md              - Detailed setup guide
+IMPLEMENTATION.md     - Technical details
+QUICK_START.txt       - This file
+
+================================================================================
+
+SUPPORT
+=======
+
+All code compiles without errors.
+Database auto-creates on startup.
+No migrations needed.
+No real email setup required.
+
+Ready for video demonstration immediately.
+
+================================================================================

@@ -1,0 +1,76 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;450;500;600&family=Roboto+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  background: #0a0a0a;
+}
+
+body {
+  background: #0a0a0a;
+  color: rgba(255, 255, 255, 0.85);
+  font-family: 'DM Sans', -apple-system, system-ui, sans-serif;
+}
+
+/* Number/date/amount text always uses mono */
+.mono {
+  font-family: 'Roboto Mono', monospace;
+}
+
+/* Labels */
+.label {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: rgba(255, 255, 255, 0.30);
+}
+
+/* Card base */
+.card {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  backdrop-filter: blur(4px);
+}
+
+/* Button styles */
+.btn-primary {
+  @apply px-4 py-2 bg-white text-black font-medium rounded-lg transition-all hover:bg-gray-100;
+}
+
+.btn-secondary {
+  @apply px-4 py-2 border border-border-lt text-text2 font-medium rounded-lg transition-all hover:bg-surface hover:text-text1;
+}
+
+/* Status badge */
+.status-badge {
+  @apply inline-flex items-center gap-2 px-3 py-1 rounded-lg text-sm font-medium;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.15);
+}

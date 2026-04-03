@@ -1,0 +1,243 @@
+from typing import List, Optional
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from sqlalchemy import select, func, and_
+from sqlalchemy.orm import selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..core.database import get_db
+from ..core.auth import get_current_user
+from ..models.models import EPO, EPOFollowup, User, EPOStatus, FollowupStatus
+from ..models.schemas import (
+    EPOCreate,
+    EPOUpdate,
+    EPOResponse,
+    EPODetailResponse,
+    EPOStats,
+    DashboardStats,
+    EPOFollowupResponse,
+    EPOFollowupCreate,
+)
+
+router = APIRouter(prefix="/api/epos", tags=["epos"])
+
+
+@router.post("", response_model=EPOResponse)
+async def create_epo(
+    epo_create: EPOCreate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> EPOResponse:
+    """Create a new EPO"""
+    epo = EPO(
+        company_id=current_user.company_id,
+        created_by_id=current_user.id,
+        **epo_create.model_dump(),
+    )
+    session.add(epo)
+    await session.commit()
+    await session.refresh(epo)
+    return EPOResponse.model_validate(epo)
+
+
+@router.get("", response_model=List[EPOResponse])
+async def list_epos(
+    status_filter: Optional[EPOStatus] = Query(None),
+    vendor: Optional[str] = Query(None),
+    community: Optional[str] = Query(None),
+    needs_review: Optional[bool] = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> List[EPOResponse]:
+    """List EPOs for the current company with filtering"""
+    query = select(EPO).where(EPO.company_id == current_user.company_id)
+
+    if status_filter:
+        query = query.where(EPO.status == status_filter)
+
+    if vendor:
+        query = query.where(EPO.vendor_name.ilike(f"%{vendor}%"))
+
+    if community:
+        query = query.where(EPO.community.ilike(f"%{community}%"))
+
+    if needs_review is not None:
+        query = query.where(EPO.needs_review == needs_review)
+
+    query = query.order_by(EPO.created_at.desc()).offset(skip).limit(limit)
+
+    result = await session.execute(query)
+    epos = result.scalars().all()
+    return [EPOResponse.model_validate(epo) for epo in epos]
+
+
+@router.get("/{epo_id}", response_model=EPODetailResponse)
+async def get_epo(
+    epo_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> EPODetailResponse:
+    """Get a specific EPO with followups"""
+    query = (
+        select(EPO)
+        .options(selectinload(EPO.followups))
+        .where(and_(EPO.id == epo_id, EPO.company_id == current_user.company_id))
+    )
+    result = await session.execute(query)
+    epo = result.scalars().first()
+
+    if not epo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="EPO not found",
+        )
+
+    return EPODetailResponse.model_validate(epo)
+
+
+@router.put("/{epo_id}", response_model=EPOResponse)
+async def update_epo(
+    epo_id: int,
+    epo_update: EPOUpdate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> EPOResponse:
+    """Update an EPO"""
+    query = select(EPO).where(
+        and_(EPO.id == epo_id, EPO.company_id == current_user.company_id)
+    )
+    result = await session.execute(query)
+    epo = result.scalars().first()
+
+    if not epo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="EPO not found",
+        )
+
+    # Update only provided fields
+    update_data = epo_update.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(epo, field, value)
+
+    await session.commit()
+    await session.refresh(epo)
+    return EPOResponse.model_validate(epo)
+
+
+@router.get("/stats/dashboard", response_model=DashboardStats)
+async def get_dashboard_stats(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> DashboardStats:
+    """Get dashboard statistics and analytics for EPOs"""
+
+    company_id = current_user.company_id
+
+    # Count EPOs by status
+    total_query = select(func.count(EPO.id)).where(EPO.company_id == company_id)
+    total_result = await session.execute(total_query)
+    total_epos = total_result.scalar() or 0
+
+    pending_query = select(func.count(EPO.id)).where(
+        and_(EPO.company_id == company_id, EPO.status == EPOStatus.PENDING)
+    )
+    pending_result = await session.execute(pending_query)
+    pending_count = pending_result.scalar() or 0
+
+    confirmed_query = select(func.count(EPO.id)).where(
+        and_(EPO.company_id == company_id, EPO.status == EPOStatus.CONFIRMED)
+    )
+    confirmed_result = await session.execute(confirmed_query)
+    confirmed_count = confirmed_result.scalar() or 0
+
+    denied_query = select(func.count(EPO.id)).where(
+        and_(EPO.company_id == company_id, EPO.status == EPOStatus.DENIED)
+    )
+    denied_result = await session.execute(denied_query)
+    denied_count = denied_result.scalar() or 0
+
+    discount_query = select(func.count(EPO.id)).where(
+        and_(EPO.company_id == company_id, EPO.status == EPOStatus.DISCOUNT)
+    )
+    discount_result = await session.execute(discount_query)
+    discount_count = discount_result.scalar() or 0
+
+    needs_review_query = select(func.count(EPO.id)).where(
+        and_(EPO.company_id == company_id, EPO.needs_review == True)
+    )
+    needs_review_result = await session.execute(needs_review_query)
+    needs_review_count = needs_review_result.scalar() or 0
+
+    # Calculate amounts
+    avg_amount_query = select(func.avg(EPO.amount)).where(EPO.company_id == company_id)
+    avg_amount_result = await session.execute(avg_amount_query)
+    average_amount = avg_amount_result.scalar()
+
+    total_amount_query = select(func.sum(EPO.amount)).where(EPO.company_id == company_id)
+    total_amount_result = await session.execute(total_amount_query)
+    total_amount = total_amount_result.scalar()
+
+    stats = EPOStats(
+        total_epos=total_epos,
+        pending_count=pending_count,
+        confirmed_count=confirmed_count,
+        denied_count=denied_count,
+        discount_count=discount_count,
+        needs_review_count=needs_review_count,
+        average_amount=average_amount,
+        total_amount=total_amount,
+    )
+
+    # Get recent EPOs
+    recent_epos_query = (
+        select(EPO)
+        .where(EPO.company_id == company_id)
+        .order_by(EPO.created_at.desc())
+        .limit(10)
+    )
+    recent_epos_result = await session.execute(recent_epos_query)
+    recent_epos = [
+        EPOResponse.model_validate(epo) for epo in recent_epos_result.scalars().all()
+    ]
+
+    return DashboardStats(
+        stats=stats,
+        recent_epos=recent_epos,
+    )
+
+
+@router.post("/{epo_id}/followup", response_model=EPOFollowupResponse)
+async def create_followup(
+    epo_id: int,
+    followup_create: EPOFollowupCreate,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> EPOFollowupResponse:
+    """Create a followup for an EPO"""
+
+    # Verify EPO exists and belongs to company
+    query = select(EPO).where(
+        and_(EPO.id == epo_id, EPO.company_id == current_user.company_id)
+    )
+    result = await session.execute(query)
+    epo = result.scalars().first()
+
+    if not epo:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="EPO not found",
+        )
+
+    followup = EPOFollowup(
+        company_id=current_user.company_id,
+        epo_id=epo_id,
+        **followup_create.model_dump(),
+    )
+    session.add(followup)
+    await session.commit()
+    await session.refresh(followup)
+    return EPOFollowupResponse.model_validate(followup)
