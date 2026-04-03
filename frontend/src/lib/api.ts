@@ -145,24 +145,11 @@ export async function getEPOs(status?: string, supervisorId?: number): Promise<E
       const data = await res.json();
       return Array.isArray(data) ? data : data.epos || [];
     } catch {
-      // Fall through to demo
+      return [];
     }
   }
 
-  // Demo mode — use /api/demo endpoints (no auth)
-  try {
-    const params = new URLSearchParams();
-    if (status && status !== "all") params.set("status", status);
-    if (supervisorId) params.set("supervisor_id", supervisorId.toString());
-    const qs = params.toString();
-    const url = `${API_BASE}/api/demo/epos${qs ? `?${qs}` : ""}`;
-    const response = await fetch(url);
-    if (!response.ok) return getDemoEPOs();
-    const data = await response.json();
-    return data.epos || [];
-  } catch {
-    return getDemoEPOs();
-  }
+  return [];
 }
 
 export async function getStats(supervisorId?: number): Promise<Stats> {
@@ -188,22 +175,11 @@ export async function getStats(supervisorId?: number): Promise<Stats> {
         avg_amount: s.average_amount || s.avg_amount || 0,
       };
     } catch {
-      // Fall through to demo
+      return { total: 0, confirmed: 0, pending: 0, denied: 0, discount: 0, total_value: 0, capture_rate: 0, needs_followup: 0, avg_amount: 0 };
     }
   }
 
-  // Demo mode
-  try {
-    const params = new URLSearchParams();
-    if (supervisorId) params.set("supervisor_id", supervisorId.toString());
-    const qs = params.toString();
-    const url = `${API_BASE}/api/demo/stats${qs ? `?${qs}` : ""}`;
-    const response = await fetch(url);
-    if (!response.ok) return getDemoStats();
-    return await response.json();
-  } catch {
-    return getDemoStats();
-  }
+  return { total: 0, confirmed: 0, pending: 0, denied: 0, discount: 0, total_value: 0, capture_rate: 0, needs_followup: 0, avg_amount: 0 };
 }
 
 export async function updateEPO(id: number, updates: Partial<EPO>): Promise<EPO> {
@@ -451,15 +427,7 @@ export async function getActivityFeed(limit: number = 20, days: number = 7): Pro
     } catch {}
   }
 
-  // Demo fallback
-  return {
-    feed: [
-      { type: "epo_created", timestamp: new Date().toISOString(), title: "New EPO from Summit Builders", description: "Mallard Park Lot 142 — $285.00", status: "pending", epo_id: 1, icon: "inbox" },
-      { type: "followup_sent", timestamp: new Date(Date.now() - 3600000).toISOString(), title: "Follow-up sent to Pulte Homes", description: "EPO Confirmation - Odell Park Lot 67", status: "sent", epo_id: 2, icon: "mail" },
-      { type: "epo_created", timestamp: new Date(Date.now() - 7200000).toISOString(), title: "New EPO from DRB Homes", description: "Galloway Lot 33 — $720.00", status: "pending", epo_id: 3, icon: "inbox" },
-    ],
-    total: 3,
-  };
+  return { feed: [], total: 0 };
 }
 
 export async function getTodayStats(): Promise<any> {
@@ -470,7 +438,7 @@ export async function getTodayStats(): Promise<any> {
       if (res.ok) return res.json();
     } catch {}
   }
-  return { today_new: 3, today_value: 1455, needs_attention: 5, needs_attention_value: 4200 };
+  return { today_new: 0, today_value: 0, needs_attention: 0, needs_attention_value: 0 };
 }
 
 // ─── Follow-up API ──────────────────────────────
@@ -517,20 +485,3 @@ export async function healthCheck(): Promise<boolean> {
   }
 }
 
-// ─── Fallback Demo Data ──────────────────────────
-function getDemoStats(): Stats {
-  return {
-    total: 25, confirmed: 10, pending: 9, denied: 4, discount: 2,
-    total_value: 16850, capture_rate: 40, needs_followup: 5, avg_amount: 674,
-  };
-}
-
-function getDemoEPOs(): EPO[] {
-  return [
-    { id: 1, vendor_name: "Summit Builders", vendor_email: "epo@summit.com", community: "Mallard Park", lot_number: "142", description: "Touch-up paint after drywall repair, master bedroom ceiling", amount: 285, status: "pending", confirmation_number: null, days_open: 1, needs_review: false, confidence_score: 0.92, parse_model: "regex", synced_from_email: true, created_at: new Date().toISOString() },
-    { id: 2, vendor_name: "Pulte Homes", vendor_email: "orders@pulte.com", community: "Odell Park", lot_number: "67", description: "Extra coat exterior trim - color mismatch", amount: 450, status: "confirmed", confirmation_number: "PO-4421", days_open: 6, needs_review: false, confidence_score: 0.95, parse_model: "regex", synced_from_email: true, created_at: new Date(Date.now() - 6 * 86400000).toISOString() },
-    { id: 3, vendor_name: "DRB Homes", vendor_email: "sub@drb.com", community: "Galloway", lot_number: "33", description: "Ceiling repair and repaint after plumbing leak", amount: 720, status: "pending", confirmation_number: null, days_open: 9, needs_review: true, confidence_score: 0.88, parse_model: "gemini", synced_from_email: true, created_at: new Date(Date.now() - 9 * 86400000).toISOString() },
-    { id: 4, vendor_name: "K. Hovnanian", vendor_email: "extra@khov.com", community: "Cedar Hills", lot_number: "201", description: "Exterior siding paint correction", amount: 890, status: "confirmed", confirmation_number: "PO-4398", days_open: 4, needs_review: false, confidence_score: 0.97, parse_model: "regex", synced_from_email: true, created_at: new Date(Date.now() - 4 * 86400000).toISOString() },
-    { id: 5, vendor_name: "Ryan Homes", vendor_email: "epo@ryan.com", community: "Ridgeview", lot_number: "88", description: "Accent wall repaint - homeowner change order", amount: 165, status: "denied", confirmation_number: null, days_open: 16, needs_review: false, confidence_score: 0.91, parse_model: "haiku", synced_from_email: true, created_at: new Date(Date.now() - 16 * 86400000).toISOString() },
-  ];
-}

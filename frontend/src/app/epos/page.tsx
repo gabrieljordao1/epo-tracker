@@ -92,7 +92,7 @@ export default function EPOsPage() {
         status: filter !== "all" ? filter : undefined,
       });
     } catch {
-      // Demo mode fallback
+      // Export failed
     } finally {
       setExporting(false);
     }

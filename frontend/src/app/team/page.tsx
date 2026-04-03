@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Users, ChevronRight, AlertTriangle, CheckCircle } from "lucide-react";
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface TeamMember {
   id: number;
@@ -39,7 +39,7 @@ export default function TeamPage() {
     fetch(`${API_BASE}/api/team/members`)
       .then((r) => r.json())
       .then((d) => setMembers(d.members?.filter((m: TeamMember) => m.role !== "admin") || []))
-      .catch(() => setMembers(getDemoMembers()));
+      .catch(() => setMembers([]));
   }, []);
 
   const handleSelectMember = async (member: TeamMember) => {
@@ -220,26 +220,3 @@ export default function TeamPage() {
   );
 }
 
-// Fallback demo data when backend isn't running
-function getDemoMembers(): TeamMember[] {
-  return [
-    {
-      id: 2, full_name: "Marcus Rivera", email: "marcus@stancil.com", role: "field",
-      communities: ["Mallard Park", "Odell Park"],
-      stats: { total: 8, confirmed: 4, pending: 3, denied: 1, total_value: 6342, capture_rate: 50, needs_followup: 2, overdue: 1 },
-      health: "red",
-    },
-    {
-      id: 3, full_name: "Tyler Brooks", email: "tyler@stancil.com", role: "field",
-      communities: ["Galloway", "Cedar Hills"],
-      stats: { total: 8, confirmed: 3, pending: 4, denied: 1, total_value: 6816, capture_rate: 38, needs_followup: 3, overdue: 0 },
-      health: "amber",
-    },
-    {
-      id: 4, full_name: "James Whitfield", email: "james@stancil.com", role: "field",
-      communities: ["Olmsted", "Ridgeview"],
-      stats: { total: 9, confirmed: 3, pending: 4, denied: 2, total_value: 6662, capture_rate: 33, needs_followup: 1, overdue: 0 },
-      health: "amber",
-    },
-  ];
-}

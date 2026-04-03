@@ -65,21 +65,8 @@ export default function AnalyticsPage() {
     loadData();
   }, [supervisorId]);
 
-  // Fallback demo data
-  const commData = communities.length > 0 ? communities : [
-    { name: "Mallard Park", count: 4, amount: 1530, captureRate: 75 },
-    { name: "Odell Park", count: 3, amount: 1215, captureRate: 67 },
-    { name: "Galloway", count: 2, amount: 720, captureRate: 50 },
-    { name: "Cedar Hills", count: 1, amount: 890, captureRate: 0 },
-    { name: "Olmsted", count: 1, amount: 380, captureRate: 0 },
-  ];
-
-  const vendData = vendors.length > 0 ? vendors : [
-    { name: "Pulte Homes", count: 3, amount: 810 },
-    { name: "Summit Builders", count: 2, amount: 665 },
-    { name: "DRB Homes", count: 2, amount: 930 },
-    { name: "K. Hovnanian", count: 1, amount: 890 },
-  ];
+  const commData = communities;
+  const vendData = vendors;
 
   return (
     <div className="p-8 space-y-6">
@@ -92,61 +79,67 @@ export default function AnalyticsPage() {
         </p>
       </div>
 
-      <div className="grid grid-cols-2 gap-8">
-        {/* By Community */}
-        <div>
-          <h2 className="label mb-6">By Community</h2>
-          <div className="space-y-6">
-            {commData.map((c) => (
-              <div key={c.name} className="card p-6">
-                <div className="flex justify-between items-start mb-4">
-                  <h3 className="font-semibold text-text1">{c.name}</h3>
-                  <span className="font-mono text-sm text-text2">
-                    ${c.amount.toLocaleString()}
-                  </span>
+      {commData.length > 0 || vendData.length > 0 ? (
+        <div className="grid grid-cols-2 gap-8">
+          {/* By Community */}
+          <div>
+            <h2 className="label mb-6">By Community</h2>
+            <div className="space-y-6">
+              {commData.map((c) => (
+                <div key={c.name} className="card p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="font-semibold text-text1">{c.name}</h3>
+                    <span className="font-mono text-sm text-text2">
+                      ${c.amount.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 bg-surface rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full transition-all duration-500"
+                      style={{
+                        width: `${c.captureRate}%`,
+                        backgroundColor: c.captureRate >= 60 ? "rgb(52,211,153)" : c.captureRate > 0 ? "rgb(251,191,36)" : "rgba(255,255,255,0.3)",
+                        opacity: 0.7,
+                      }}
+                    />
+                  </div>
+                  <div className="mt-3 flex justify-between text-xs text-text3">
+                    <span className="font-mono">{c.count} EPOs</span>
+                    <span className="font-mono" style={{ color: c.captureRate >= 60 ? "rgb(52,211,153)" : c.captureRate > 0 ? "rgb(251,191,36)" : undefined }}>
+                      {c.captureRate}% capture
+                    </span>
+                  </div>
                 </div>
-                <div className="w-full h-1.5 bg-surface rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${c.captureRate}%`,
-                      backgroundColor: c.captureRate >= 60 ? "rgb(52,211,153)" : c.captureRate > 0 ? "rgb(251,191,36)" : "rgba(255,255,255,0.3)",
-                      opacity: 0.7,
-                    }}
-                  />
-                </div>
-                <div className="mt-3 flex justify-between text-xs text-text3">
-                  <span className="font-mono">{c.count} EPOs</span>
-                  <span className="font-mono" style={{ color: c.captureRate >= 60 ? "rgb(52,211,153)" : c.captureRate > 0 ? "rgb(251,191,36)" : undefined }}>
-                    {c.captureRate}% capture
-                  </span>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* By Vendor */}
-        <div>
-          <h2 className="label mb-6">By Vendor</h2>
-          <div className="space-y-4">
-            {vendData.map((v) => (
-              <div key={v.name} className="card p-6 flex items-center justify-between">
-                <div className="flex items-center gap-4 flex-1">
-                  <div className="w-10 h-10 rounded-lg bg-surface border border-borderLt flex items-center justify-center">
-                    <span className="font-mono text-sm text-text2">{v.name.charAt(0)}</span>
+          {/* By Vendor */}
+          <div>
+            <h2 className="label mb-6">By Vendor</h2>
+            <div className="space-y-4">
+              {vendData.map((v) => (
+                <div key={v.name} className="card p-6 flex items-center justify-between">
+                  <div className="flex items-center gap-4 flex-1">
+                    <div className="w-10 h-10 rounded-lg bg-surface border border-borderLt flex items-center justify-center">
+                      <span className="font-mono text-sm text-text2">{v.name.charAt(0)}</span>
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-text1">{v.name}</h3>
+                      <span className="font-mono text-xs text-text3">{v.count} EPOs</span>
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="font-semibold text-text1">{v.name}</h3>
-                    <span className="font-mono text-xs text-text3">{v.count} EPOs</span>
-                  </div>
+                  <span className="font-mono text-lg text-text1">${v.amount.toLocaleString()}</span>
                 </div>
-                <span className="font-mono text-lg text-text1">${v.amount.toLocaleString()}</span>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="card p-12 text-center">
+          <p className="text-text3 text-sm">No analytics data available yet</p>
+        </div>
+      )}
     </div>
   );
 }

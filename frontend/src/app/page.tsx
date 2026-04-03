@@ -33,7 +33,6 @@ import {
 } from "@/lib/api";
 import type { ActivityItem } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
-import { DemoControls } from "@/components/DemoControls";
 
 const stagger = {
   hidden: {},
@@ -114,14 +113,16 @@ export default function Dashboard() {
     }
   };
 
-  const chartData = [
-    { month: "Jan", value: 12500 },
-    { month: "Feb", value: 19200 },
-    { month: "Mar", value: 15800 },
-    { month: "Apr", value: 22100 },
-    { month: "May", value: 18900 },
-    { month: "Jun", value: 25400 },
-  ];
+  // Revenue chart uses real EPO data grouped by month
+  const chartData = epos.length > 0
+    ? Object.entries(
+        epos.reduce((acc: Record<string, number>, epo) => {
+          const month = new Date(epo.created_at).toLocaleString("default", { month: "short" });
+          acc[month] = (acc[month] || 0) + epo.amount;
+          return acc;
+        }, {})
+      ).map(([month, value]) => ({ month, value }))
+    : [];
 
   const statusData = [
     { status: "Confirmed", count: stats.confirmed || 0, color: "#34d399" },
@@ -130,12 +131,25 @@ export default function Dashboard() {
     { status: "Discount", count: stats.discount || 0, color: "#c0a0ff" },
   ];
 
-  const monthlyData = [
-    { month: "Week 1", volume: 45 },
-    { month: "Week 2", volume: 52 },
-    { month: "Week 3", volume: 38 },
-    { month: "Week 4", volume: 61 },
-  ];
+  // Weekly volume from real EPO data
+  const monthlyData = epos.length > 0
+    ? (() => {
+        const now = new Date();
+        const weeks: Record<string, number> = {};
+        for (let i = 3; i >= 0; i--) {
+          weeks[`Week ${4 - i}`] = 0;
+        }
+        epos.forEach((epo) => {
+          const created = new Date(epo.created_at);
+          const weeksAgo = Math.floor((now.getTime() - created.getTime()) / (7 * 86400000));
+          if (weeksAgo < 4) {
+            const key = `Week ${4 - weeksAgo}`;
+            if (weeks[key] !== undefined) weeks[key]++;
+          }
+        });
+        return Object.entries(weeks).map(([month, volume]) => ({ month, volume }));
+      })()
+    : [];
 
   const MetricCard = ({
     label,
@@ -311,6 +325,11 @@ export default function Dashboard() {
         {/* Revenue Trend */}
         <div className="col-span-2 card p-6">
           <h3 className="label mb-6">Revenue Trend</h3>
+          {chartData.length === 0 ? (
+            <div className="flex items-center justify-center h-[300px] text-[rgba(255,255,255,0.4)] text-sm">
+              No EPO data yet. Create your first EPO to see trends here.
+            </div>
+          ) : (
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={chartData}>
               <defs>
@@ -358,6 +377,7 @@ export default function Dashboard() {
               />
             </AreaChart>
           </ResponsiveContainer>
+          )}
         </div>
 
         {/* Activity Feed */}
@@ -513,8 +533,6 @@ export default function Dashboard() {
           </BarChart>
         </ResponsiveContainer>
       </motion.div>
-
-      <DemoControls onDataUpdated={() => loadData()} />
     </motion.div>
   );
 }

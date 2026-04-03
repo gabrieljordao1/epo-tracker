@@ -226,16 +226,6 @@ export default function LoginPage() {
             </button>
           </form>
 
-          {/* Demo mode link */}
-          <div className="mt-6 text-center">
-            <button
-              onClick={() => router.push("/")}
-              className="text-sm text-white/30 hover:text-white/50 transition-colors"
-            >
-              Continue in demo mode (no account needed)
-            </button>
-          </div>
-
           {/* Toggle login/register */}
           <div className="mt-8 text-center border-t border-white/5 pt-6">
             {mode === "login" ? (
