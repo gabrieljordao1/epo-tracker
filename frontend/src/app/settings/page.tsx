@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   ChevronRight,
@@ -18,6 +18,14 @@ import {
 } from "@/lib/api";
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div className="p-8">Loading settings...</div>}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
   const searchParams = useSearchParams();
   const oauthSuccess = searchParams.get("success");
   const oauthError = searchParams.get("error");

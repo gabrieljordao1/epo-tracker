@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   CheckCircle,
@@ -23,6 +23,14 @@ import {
 import type { VendorEPO, VendorHistory } from "@/lib/api";
 
 export default function VendorPortalPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a] flex items-center justify-center"><p className="text-white/50">Loading...</p></div>}>
+      <VendorContent />
+    </Suspense>
+  );
+}
+
+function VendorContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
 
