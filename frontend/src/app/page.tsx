@@ -162,11 +162,11 @@ export default function Dashboard() {
     change: number;
     isPositive: boolean;
   }) => (
-    <motion.div className="card p-6" variants={fadeUp}>
-      <p className="label mb-4">{label}</p>
+    <motion.div className="card p-4 md:p-6" variants={fadeUp}>
+      <p className="label mb-2 md:mb-4">{label}</p>
       <div className="flex items-end justify-between">
         <motion.div
-          className="font-mono text-2xl font-semibold"
+          className="font-mono text-xl md:text-2xl font-semibold"
           key={value}
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -199,7 +199,7 @@ export default function Dashboard() {
 
   return (
     <motion.div
-      className="p-8 space-y-8"
+      className="p-4 md:p-8 space-y-6 md:space-y-8"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
@@ -212,7 +212,7 @@ export default function Dashboard() {
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       >
         <div>
-          <h1 className="text-3xl font-semibold mb-1">Dashboard</h1>
+          <h1 className="text-2xl md:text-3xl font-semibold mb-1">Dashboard</h1>
           <AnimatePresence mode="wait">
             <motion.p
               key={activeUser?.id || "all"}
@@ -243,7 +243,7 @@ export default function Dashboard() {
       {/* Batch Follow-up Banner */}
       {stats.needs_followup > 0 && (
         <motion.div
-          className="card p-4 border-amber-bdr bg-amber-dim flex items-center justify-between"
+          className="card p-4 border-amber-bdr bg-amber-dim flex flex-col sm:flex-row items-start sm:items-center gap-3 sm:justify-between"
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
@@ -275,7 +275,7 @@ export default function Dashboard() {
 
       {/* Metrics Row */}
       <motion.div
-        className="grid grid-cols-4 gap-6"
+        className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-6"
         variants={stagger}
         initial="hidden"
         animate="visible"
@@ -313,7 +313,7 @@ export default function Dashboard() {
 
       {/* Charts + Activity Feed Row */}
       <motion.div
-        className="grid grid-cols-3 gap-6"
+        className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{
@@ -323,8 +323,8 @@ export default function Dashboard() {
         }}
       >
         {/* Revenue Trend */}
-        <div className="col-span-2 card p-6">
-          <h3 className="label mb-6">Revenue Trend</h3>
+        <div className="md:col-span-2 card p-4 md:p-6">
+          <h3 className="label mb-4 md:mb-6">Revenue Trend</h3>
           {chartData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-[rgba(255,255,255,0.4)] text-sm">
               No EPO data yet. Create your first EPO to see trends here.
@@ -415,7 +415,7 @@ export default function Dashboard() {
 
       {/* Status Breakdown + Today's Stats */}
       <motion.div
-        className="grid grid-cols-3 gap-6"
+        className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{
@@ -425,8 +425,8 @@ export default function Dashboard() {
         }}
       >
         {/* Status Breakdown */}
-        <div className="col-span-2 card p-6">
-          <h3 className="label mb-6">Status Breakdown</h3>
+        <div className="md:col-span-2 card p-4 md:p-6">
+          <h3 className="label mb-4 md:mb-6">Status Breakdown</h3>
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
             {statusData.map((item, i) => (
               <motion.div

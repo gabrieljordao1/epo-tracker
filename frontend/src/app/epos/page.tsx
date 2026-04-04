@@ -143,32 +143,31 @@ export default function EPOsPage() {
   ).length;
 
   return (
-    <div className="p-8 space-y-6">
+    <div className="p-4 md:p-8 space-y-4 md:space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-semibold mb-2">EPOs</h1>
-          <p className="text-text2">
+          <h1 className="text-2xl md:text-3xl font-semibold mb-1">EPOs</h1>
+          <p className="text-text2 text-sm">
             {isBossView
-              ? "All extra purchase orders across communities"
+              ? "All extra purchase orders"
               : `${activeUser?.full_name} — ${activeUser?.communities.join(
                   ", "
                 )}`}
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2 sm:gap-3">
           <button
             onClick={handleExport}
             disabled={exporting}
-            className="btn-secondary flex items-center gap-2"
+            className="btn-secondary flex items-center gap-2 text-sm"
           >
             <Download size={16} />
-            {exporting ? "Exporting..." : "Export CSV"}
+            <span className="hidden sm:inline">{exporting ? "Exporting..." : "Export CSV"}</span>
           </button>
-          <button className="btn-secondary">Sync</button>
           <button
             onClick={() => setShowAddModal(true)}
-            className="btn-primary flex items-center gap-2"
+            className="btn-primary flex items-center gap-2 text-sm"
           >
             <Plus size={18} />
             Add EPO
@@ -177,7 +176,7 @@ export default function EPOsPage() {
       </div>
 
       {/* Filter Tabs */}
-      <div className="flex gap-4 border-b border-card-border pb-4">
+      <div className="flex gap-2 md:gap-4 border-b border-card-border pb-4 overflow-x-auto">
         {(
           ["all", "pending", "confirmed", "denied", "discount"] as const
         ).map((tab) => (
@@ -220,8 +219,8 @@ export default function EPOsPage() {
         />
       </div>
 
-      {/* Table */}
-      <div className="card overflow-hidden">
+      {/* Desktop Table — hidden on mobile */}
+      <div className="card overflow-hidden hidden md:block">
         <table className="w-full">
           <thead className="border-b border-card-border">
             <tr>
@@ -273,7 +272,6 @@ export default function EPOsPage() {
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-2">
-                    {/* Follow-up button — only for pending EPOs 4+ days */}
                     {epo.status === "pending" &&
                       (epo.days_open || 0) >= 4 && (
                         <button
@@ -290,8 +288,6 @@ export default function EPOsPage() {
                           Follow up
                         </button>
                       )}
-
-                    {/* Show result inline */}
                     {followupResult?.id === epo.id && (
                       <span
                         className={`text-xs ${
@@ -305,8 +301,6 @@ export default function EPOsPage() {
                         )}
                       </span>
                     )}
-
-                    {/* Builder portal link for confirmed EPOs */}
                     {epo.status === "confirmed" &&
                       epo.confirmation_number && (
                         <span className="text-xs text-green font-mono">
@@ -326,6 +320,73 @@ export default function EPOsPage() {
         )}
       </div>
 
+      {/* Mobile Cards — hidden on desktop */}
+      <div className="md:hidden space-y-3">
+        {filteredEpos.map((epo) => (
+          <div key={epo.id} className="card p-4 space-y-3">
+            {/* Top row: builder + status */}
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-text1 font-medium">{epo.vendor_name || "Unknown"}</p>
+                <p className="text-text3 text-sm">{epo.community || "—"}</p>
+              </div>
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${getStatusColor(
+                  epo.status
+                )}`}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-current"></div>
+                {epo.status.charAt(0).toUpperCase() + epo.status.slice(1)}
+              </span>
+            </div>
+
+            {/* Details row */}
+            <div className="flex items-center gap-3 text-sm">
+              <span className="font-mono bg-blue/15 text-blue px-2 py-0.5 rounded text-xs">
+                Lot {epo.lot_number || "—"}
+              </span>
+              <span className="font-mono text-text1">
+                {epo.amount != null ? `$${epo.amount.toLocaleString()}` : "—"}
+              </span>
+              <span className={`font-mono text-xs ${getAgeColor(epo.days_open || 0)}`}>
+                {epo.days_open || 0}d ago
+              </span>
+            </div>
+
+            {/* Description */}
+            {epo.description && (
+              <p className="text-text2 text-sm line-clamp-2">{epo.description}</p>
+            )}
+
+            {/* Actions */}
+            {epo.status === "pending" && (epo.days_open || 0) >= 4 && (
+              <button
+                onClick={() => handleFollowup(epo.id)}
+                disabled={followingUp === epo.id}
+                className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-amber bg-amber-dim border border-amber-bdr rounded-lg hover:bg-amber/20 transition-colors disabled:opacity-50"
+              >
+                {followingUp === epo.id ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Send size={12} />
+                )}
+                Follow up
+              </button>
+            )}
+            {followupResult?.id === epo.id && (
+              <span className={`text-xs ${followupResult.ok ? "text-green" : "text-red"}`}>
+                {followupResult.ok ? "Sent!" : followupResult.msg}
+              </span>
+            )}
+          </div>
+        ))}
+        {filteredEpos.length === 0 && (
+          <div className="py-12 text-center">
+            <p className="text-text3">No EPOs found</p>
+          </div>
+        )}
+      </div>
+
       {/* Add EPO Modal */}
       <AddEPOModal
         open={showAddModal}
@@ -335,11 +396,11 @@ export default function EPOsPage() {
 
       {/* Follow-up Alert with Batch Action */}
       {needsFollowupCount > 0 && (
-        <div className="card p-6 border-amber-bdr bg-amber-dim">
-          <div className="flex items-start justify-between">
-            <div className="flex items-start gap-4">
+        <div className="card p-4 md:p-6 border-amber-bdr bg-amber-dim">
+          <div className="flex flex-col sm:flex-row items-start gap-4 sm:justify-between">
+            <div className="flex items-start gap-3">
               <AlertCircle
-                className="text-amber flex-shrink-0 mt-1"
+                className="text-amber flex-shrink-0 mt-0.5"
                 size={20}
               />
               <div>
