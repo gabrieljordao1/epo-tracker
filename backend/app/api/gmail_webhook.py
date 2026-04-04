@@ -191,18 +191,7 @@ async def gmail_webhook(
         if len(_recent_notifications) > 10000:
             _recent_notifications.clear()
 
-        # Log the webhook
-        payload_hash = hashlib.sha256(message_data.encode()).hexdigest()
-        webhook_log = WebhookLog(
-            company_id=0,  # Will be updated when we find the company
-            source="gmail",
-            payload_hash=payload_hash,
-            status="received",
-        )
-        session.add(webhook_log)
-        await session.commit()
-
-        # Find the email connection
+        # Find the email connection first (need company_id for webhook log)
         email_conn_query = select(EmailConnection).where(
             EmailConnection.email_address == email_address
         )
@@ -211,13 +200,17 @@ async def gmail_webhook(
 
         if not email_conn:
             logger.warning(f"No email connection found for {email_address}")
-            webhook_log.status = "completed"
-            webhook_log.error_message = "No email connection found"
-            await session.commit()
             return {"status": "ok"}
 
-        # Update webhook log with company ID
-        webhook_log.company_id = email_conn.company_id
+        # Log the webhook with valid company_id
+        payload_hash = hashlib.sha256(message_data.encode()).hexdigest()
+        webhook_log = WebhookLog(
+            company_id=email_conn.company_id,
+            source="gmail",
+            payload_hash=payload_hash,
+            status="received",
+        )
+        session.add(webhook_log)
         await session.commit()
 
         # Queue background task
