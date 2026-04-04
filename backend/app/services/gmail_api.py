@@ -34,28 +34,37 @@ class GmailAPIService:
         Check if token is expired and refresh if needed.
         Returns (valid_access_token, new_expiry_time)
         """
-        # Always refresh if: no expiry set, or expiry is within 5 minutes
-        needs_refresh = (
-            not token_expires_at
-            or datetime.utcnow() > (token_expires_at - timedelta(minutes=5))
-        )
+        try:
+            # Strip timezone info for comparison (DB may store tz-aware datetimes)
+            now = datetime.utcnow()
+            expiry_naive = token_expires_at
+            if token_expires_at and token_expires_at.tzinfo is not None:
+                expiry_naive = token_expires_at.replace(tzinfo=None)
 
-        if needs_refresh and refresh_token:
-            try:
-                creds = Credentials(
-                    token=access_token,
-                    refresh_token=refresh_token,
-                    client_id=self.client_id,
-                    client_secret=self.client_secret,
-                    token_uri="https://oauth2.googleapis.com/token",
-                )
-                creds.refresh(Request())
-                new_expiry = creds.expiry if creds.expiry else datetime.utcnow() + timedelta(hours=1)
-                logger.info(f"Token refreshed successfully, new expiry: {new_expiry}")
-                return creds.token, new_expiry
-            except Exception as e:
-                logger.error(f"Token refresh failed: {e}")
-                return access_token, token_expires_at
+            # Always refresh if: no expiry set, or expiry is within 5 minutes
+            needs_refresh = (
+                not expiry_naive
+                or now > (expiry_naive - timedelta(minutes=5))
+            )
+
+            if needs_refresh and refresh_token:
+                try:
+                    creds = Credentials(
+                        token=access_token,
+                        refresh_token=refresh_token,
+                        client_id=self.client_id,
+                        client_secret=self.client_secret,
+                        token_uri="https://oauth2.googleapis.com/token",
+                    )
+                    creds.refresh(Request())
+                    new_expiry = creds.expiry if creds.expiry else datetime.utcnow() + timedelta(hours=1)
+                    logger.info(f"Token refreshed successfully, new expiry: {new_expiry}")
+                    return creds.token, new_expiry
+                except Exception as e:
+                    logger.error(f"Token refresh failed: {e}")
+                    # Fall through to return original token
+        except Exception as e:
+            logger.error(f"Token validation error: {e}")
 
         return access_token, token_expires_at
 

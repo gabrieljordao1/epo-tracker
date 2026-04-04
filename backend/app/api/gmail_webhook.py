@@ -283,6 +283,27 @@ async def setup_gmail_webhook(
         latest_expiration = None
         for email_conn in email_conns:
             try:
+                # Force token refresh before watch setup to ensure fresh access token
+                from ..services.gmail_sync import GmailSyncService
+                sync_service = GmailSyncService(
+                    client_id=settings.GOOGLE_CLIENT_ID,
+                    client_secret=settings.GOOGLE_CLIENT_SECRET,
+                    redirect_uri=settings.GOOGLE_REDIRECT_URI,
+                )
+                refresh_result = await sync_service.refresh_access_token(
+                    email_conn.refresh_token
+                )
+                if refresh_result.get("success"):
+                    email_conn.access_token = refresh_result["access_token"]
+                    from datetime import timedelta
+                    email_conn.token_expires_at = datetime.utcnow() + timedelta(hours=1)
+                    logger.info(f"Refreshed token for {email_conn.email_address} before watch setup")
+                else:
+                    logger.warning(
+                        f"Token refresh failed for {email_conn.email_address}: "
+                        f"{refresh_result.get('error')}. Trying with existing token."
+                    )
+
                 watch_result = await gmail_api.setup_watch(
                     access_token=email_conn.access_token,
                     refresh_token=email_conn.refresh_token,
@@ -298,6 +319,7 @@ async def setup_gmail_webhook(
 
                     logger.info(
                         f"Gmail watch registered for {email_conn.email_address}, "
+                        f"history_id={watch_result.get('history_id')}, "
                         f"expires: {latest_expiration}"
                     )
                 else:
