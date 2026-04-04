@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import get_settings
 from ..core.database import get_db
 from ..core.auth import get_current_user
-from ..models.models import EmailConnection, User, WebhookLog
+from ..models.models import EmailConnection, User, WebhookLog, EPO, EPOStatus
 from ..models.schemas import GmailWebhookPayload, WebhookSetupResponse, AgentProcessingResult
 from ..services.gmail_api import GmailAPIService
 from ..services.agent_pipeline import AgentPipelineService
@@ -191,7 +191,7 @@ async def _process_gmail_notification(
         # Process each message
         for message_id in message_ids:
             try:
-                # Fetch full message
+                # Fetch full message (now includes threadId, In-Reply-To, attachments)
                 msg_result = await gmail_api.get_message(
                     access_token=access_token,
                     refresh_token=refresh_token,
@@ -203,16 +203,95 @@ async def _process_gmail_notification(
                     logger.warning(f"Failed to fetch message {message_id}")
                     continue
 
-                # === NEW WORKFLOW ===
-                # FROM = submitter (field manager who sent the EPO request)
-                # TO = builder (the recipient at the builder company)
-                # CC = stancil.field.tracker@gmail.com (how we received it)
-
                 from_field = msg_result.get("from", "")
                 to_field = msg_result.get("to", "")
                 cc_field = msg_result.get("cc", "")
                 subject = msg_result.get("subject", "")
                 body = msg_result.get("body", "")
+                thread_id = msg_result.get("thread_id", "")
+                in_reply_to = msg_result.get("in_reply_to", "")
+                image_attachments = msg_result.get("image_attachments", [])
+
+                # ── REPLY DETECTION ──────────────────────────────────
+                # Check if this email is a reply to an existing EPO thread.
+                # Strategy:
+                #   1. Match by gmail_thread_id (most reliable)
+                #   2. Match by In-Reply-To header → gmail_message_id
+                #   3. If sender is an external builder with a pending EPO, treat as reply
+
+                matched_epo = None
+
+                # Strategy 1: Thread ID match
+                if thread_id:
+                    epo_query = select(EPO).where(
+                        (EPO.gmail_thread_id == thread_id)
+                        & (EPO.company_id == company_id)
+                        & (EPO.status == EPOStatus.PENDING)
+                    ).order_by(EPO.created_at.desc())
+                    epo_result = await session.execute(epo_query)
+                    matched_epo = epo_result.scalars().first()
+                    if matched_epo:
+                        logger.info(
+                            f"REPLY DETECTED (thread match): message {message_id} "
+                            f"→ EPO #{matched_epo.id} (thread={thread_id})"
+                        )
+
+                # Strategy 2: In-Reply-To header match
+                if not matched_epo and in_reply_to:
+                    epo_query = select(EPO).where(
+                        (EPO.gmail_message_id == in_reply_to.strip("<>"))
+                        & (EPO.company_id == company_id)
+                    )
+                    epo_result = await session.execute(epo_query)
+                    matched_epo = epo_result.scalars().first()
+                    if matched_epo:
+                        logger.info(
+                            f"REPLY DETECTED (In-Reply-To match): message {message_id} "
+                            f"→ EPO #{matched_epo.id}"
+                        )
+
+                # Strategy 3: Sender is external builder with pending EPO
+                if not matched_epo:
+                    sender_email = _extract_email_address(from_field)
+                    if sender_email and not _is_internal_email(sender_email, internal_addresses, internal_domains):
+                        # External sender — check if they have any pending EPOs
+                        epo_query = select(EPO).where(
+                            (EPO.vendor_email == sender_email)
+                            & (EPO.company_id == company_id)
+                            & (EPO.status == EPOStatus.PENDING)
+                        ).order_by(EPO.created_at.desc())
+                        epo_result = await session.execute(epo_query)
+                        matched_epo = epo_result.scalars().first()
+                        if matched_epo:
+                            logger.info(
+                                f"REPLY DETECTED (builder email match): {sender_email} "
+                                f"→ EPO #{matched_epo.id}"
+                            )
+
+                # ── ROUTE: Reply vs New EPO ──────────────────────────
+                if matched_epo:
+                    # This is a REPLY — process through reply intelligence
+                    reply_result = await agent.process_reply_email(
+                        session=session,
+                        epo=matched_epo,
+                        email_subject=subject,
+                        email_body=body,
+                        image_attachments=image_attachments,
+                        gmail_api=gmail_api,
+                        access_token=access_token,
+                        refresh_token=refresh_token,
+                        token_expires_at=token_expires_at,
+                        message_id=message_id,
+                    )
+                    logger.info(
+                        f"Reply processed for EPO #{matched_epo.id}: "
+                        f"intent={reply_result.get('intent')}, "
+                        f"status={reply_result.get('new_status')}, "
+                        f"image_parsed={reply_result.get('image_parsed')}"
+                    )
+                    continue
+
+                # ── NEW EPO FLOW (original logic) ────────────────────
 
                 # 1) Identify the SUBMITTER from the FROM field
                 submitter_email = _extract_email_address(from_field)
@@ -221,7 +300,6 @@ async def _process_gmail_notification(
                     continue
 
                 # Match submitter to a User record to get created_by_id
-                # Check both login email and work_email for flexibility
                 submitted_by_id = None
                 user_query = select(User).where(
                     or_(
@@ -238,7 +316,6 @@ async def _process_gmail_notification(
                     logger.warning(f"No User record found for submitter: {submitter_email}")
 
                 # 2) Identify the BUILDER from the TO recipients
-                #    The builder is the non-internal recipient
                 all_to = _extract_all_emails(to_field)
                 all_cc = _extract_all_emails(cc_field)
                 all_recipients = all_to + all_cc
@@ -261,7 +338,7 @@ async def _process_gmail_notification(
                 # Get email connection ID
                 email_connection_id = email_conn.id if email_conn else None
 
-                # Process through agent pipeline
+                # Process through agent pipeline (now with thread tracking)
                 pipeline_result = await agent.process_new_email(
                     session=session,
                     email_subject=subject,
@@ -273,6 +350,8 @@ async def _process_gmail_notification(
                     builder_email=builder_email,
                     submitter_email=submitter_email,
                     submitted_by_id=submitted_by_id,
+                    gmail_thread_id=thread_id,
+                    gmail_message_id=message_id,
                 )
 
                 confidence = pipeline_result.get('confidence_score', 0)

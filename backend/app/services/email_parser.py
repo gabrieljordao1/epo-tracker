@@ -1,10 +1,13 @@
 import json
 import re
-from typing import Dict, Any, Optional, Tuple
+import base64
+import logging
+from typing import Dict, Any, Optional, Tuple, List
 from ..core.config import get_settings
 from .sanitize import sanitize_email_body, sanitize_text_field
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class EmailParserService:
@@ -459,3 +462,243 @@ Return ONLY this JSON format:
                 "needs_review": True,
                 "parse_model": "haiku",
             }
+
+    # ── Reply Intelligence ──────────────────────────────────────────────
+
+    async def classify_reply(
+        self,
+        email_subject: str,
+        email_body: str,
+        original_epo_context: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Classify an email reply's intent using Gemini.
+
+        Returns:
+            {
+                "intent": "confirmation" | "denial" | "discount_request" | "question" | "unknown",
+                "confirmation_number": str | None,
+                "discount_details": str | None,
+                "summary": str,
+                "confidence": float
+            }
+        """
+        # Try Gemini first, fall back to keyword matching
+        if settings.GOOGLE_AI_API_KEY:
+            result = await self._classify_reply_gemini(email_subject, email_body, original_epo_context)
+            if result and result.get("confidence", 0) >= 0.5:
+                return result
+
+        # Keyword fallback
+        return self._classify_reply_keywords(email_subject, email_body)
+
+    async def _classify_reply_gemini(
+        self,
+        email_subject: str,
+        email_body: str,
+        original_epo_context: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Use Gemini to classify reply intent."""
+        try:
+            from google import genai
+
+            client = genai.Client(api_key=settings.GOOGLE_AI_API_KEY)
+
+            context_hint = ""
+            if original_epo_context:
+                context_hint = f"\nOriginal EPO context: {original_epo_context}"
+
+            prompt = f"""You are analyzing a reply email in a construction EPO (Extra Purchase Order) workflow.
+A field manager sent an EPO request to a builder. The builder has replied. Classify the builder's reply intent.
+
+INTENTS:
+- "confirmation": Builder confirms the EPO, may include a PO/confirmation number. Look for: "approved", "confirmed", "PO#", "submitted", "processed", "done", "entered", "taken care of"
+- "denial": Builder denies or rejects the EPO. Look for: "denied", "rejected", "cannot approve", "not authorized", "declined"
+- "discount_request": Builder asks for a discount or price reduction. Look for: "discount", "reduce", "lower price", "negotiate", "too much", "credit"
+- "question": Builder asks a question or needs clarification. Look for: questions, "what lot?", "which community?", "can you clarify?"
+- "unknown": Cannot determine intent
+
+Reply Email Subject: {email_subject}
+Reply Email Body:
+{email_body}{context_hint}
+
+Extract:
+- intent: One of the above intents (string)
+- confirmation_number: PO#, confirmation#, or reference number if present (string or null). Look for patterns like "PO-12345", "CO#4567", or just a number the builder provides as confirmation.
+- discount_details: If discount request, what discount are they requesting? (string or null)
+- summary: One-sentence summary of what the builder is saying (string)
+- confidence: 0-1 how confident you are in the classification (float)
+
+Return ONLY valid JSON:
+{{"intent": "confirmation", "confirmation_number": "PO-12345", "discount_details": null, "summary": "Builder confirmed and provided PO number", "confidence": 0.95}}"""
+
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+
+            response_text = response.text.strip()
+
+            # Strip markdown code fences
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                response_text = "\n".join(lines).strip()
+
+            result = json.loads(response_text)
+            result["parse_model"] = "gemini"
+            logger.info(f"Reply classified by Gemini: intent={result.get('intent')}, conf={result.get('confidence')}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Gemini reply classification failed: {e}")
+            return None
+
+    def _classify_reply_keywords(self, email_subject: str, email_body: str) -> Dict[str, Any]:
+        """Keyword-based fallback for reply classification."""
+        combined = f"{email_subject} {email_body}".lower()
+
+        # Check confirmation keywords
+        confirm_kw = ["approved", "confirmed", "confirm", "processed", "submitted", "done", "entered", "taken care of", "completed"]
+        deny_kw = ["denied", "rejected", "decline", "cannot", "not authorized", "unable to approve"]
+        discount_kw = ["discount", "reduce", "lower", "negotiate", "credit", "too much", "too high"]
+        question_kw = ["?", "what lot", "which community", "clarify", "can you", "please explain", "not sure"]
+
+        # Extract confirmation number with regex
+        confirmation_number = None
+        for pattern in self.CONFIRMATION_PATTERNS:
+            match = re.search(pattern, email_body or "")
+            if match:
+                confirmation_number = match.group(1)
+                break
+
+        if any(kw in combined for kw in confirm_kw) or confirmation_number:
+            return {
+                "intent": "confirmation",
+                "confirmation_number": confirmation_number,
+                "discount_details": None,
+                "summary": "Builder appears to confirm the EPO",
+                "confidence": 0.7 if confirmation_number else 0.5,
+                "parse_model": "keywords",
+            }
+        elif any(kw in combined for kw in deny_kw):
+            return {
+                "intent": "denial",
+                "confirmation_number": None,
+                "discount_details": None,
+                "summary": "Builder appears to deny the EPO",
+                "confidence": 0.6,
+                "parse_model": "keywords",
+            }
+        elif any(kw in combined for kw in discount_kw):
+            return {
+                "intent": "discount_request",
+                "confirmation_number": None,
+                "discount_details": "Builder requested a discount (details unclear from keywords)",
+                "summary": "Builder appears to request a discount",
+                "confidence": 0.5,
+                "parse_model": "keywords",
+            }
+        elif any(kw in combined for kw in question_kw):
+            return {
+                "intent": "question",
+                "confirmation_number": None,
+                "discount_details": None,
+                "summary": "Builder appears to have a question",
+                "confidence": 0.5,
+                "parse_model": "keywords",
+            }
+
+        return {
+            "intent": "unknown",
+            "confirmation_number": None,
+            "discount_details": None,
+            "summary": "Could not determine reply intent",
+            "confidence": 0.2,
+            "parse_model": "keywords",
+        }
+
+    # ── Gemini Vision — Image/Screenshot Parsing ────────────────────────
+
+    async def parse_image_for_confirmation(
+        self,
+        image_bytes: bytes,
+        mime_type: str = "image/png",
+        epo_context: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Use Gemini Vision to extract confirmation/PO numbers from
+        screenshot attachments builders send as proof of submission.
+
+        Returns:
+            {
+                "confirmation_number": str | None,
+                "intent": "confirmation" | "unknown",
+                "details": str,
+                "confidence": float
+            }
+        """
+        if not settings.GOOGLE_AI_API_KEY:
+            logger.warning("No GOOGLE_AI_API_KEY for Vision parsing")
+            return None
+
+        try:
+            from google import genai
+            from google.genai import types
+
+            client = genai.Client(api_key=settings.GOOGLE_AI_API_KEY)
+
+            context_hint = ""
+            if epo_context:
+                context_hint = f"\nEPO context: {epo_context}"
+
+            prompt = f"""You are analyzing a screenshot/image attachment from a builder in a construction EPO (Extra Purchase Order) workflow.
+Builders often send screenshots of their portal showing that they've submitted or approved a purchase order.
+
+Look for:
+1. PO numbers, confirmation numbers, reference numbers, order numbers
+2. Status indicators: "approved", "submitted", "confirmed", "processed"
+3. Any dollar amounts visible
+4. Builder portal names (BuildPro, SupplyPro, etc.)
+{context_hint}
+
+Extract:
+- confirmation_number: The PO/confirmation/reference number visible in the image (string or null)
+- intent: "confirmation" if the image shows a confirmed/submitted PO, otherwise "unknown"
+- details: Describe what you see in the image relevant to the EPO (string)
+- amount: Dollar amount if visible (float or null)
+- confidence: 0-1 confidence in extraction (float)
+
+Return ONLY valid JSON:
+{{"confirmation_number": "PO-12345", "intent": "confirmation", "details": "Screenshot shows BuildPro portal with submitted PO", "amount": 350.00, "confidence": 0.9}}"""
+
+            # Build the multimodal request with image
+            image_part = types.Part.from_bytes(
+                data=image_bytes,
+                mime_type=mime_type,
+            )
+            text_part = types.Part.from_text(text=prompt)
+
+            response = client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=[text_part, image_part],
+            )
+
+            response_text = response.text.strip()
+
+            # Strip markdown code fences
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                response_text = "\n".join(lines).strip()
+
+            result = json.loads(response_text)
+            logger.info(
+                f"Vision parsed image: conf#={result.get('confirmation_number')}, "
+                f"intent={result.get('intent')}, confidence={result.get('confidence')}"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Gemini Vision parsing failed: {e}")
+            return None

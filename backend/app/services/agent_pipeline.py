@@ -6,7 +6,7 @@ Orchestrates parsing, EPO creation, vendor confirmation, and follow-up logic.
 import logging
 import secrets
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from sqlalchemy import select
@@ -48,6 +48,8 @@ class AgentPipelineService:
         builder_email: Optional[str] = None,
         submitter_email: Optional[str] = None,
         submitted_by_id: Optional[int] = None,
+        gmail_thread_id: Optional[str] = None,
+        gmail_message_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Main pipeline: parse email → create EPO → send confirmation request.
@@ -135,6 +137,8 @@ class AgentPipelineService:
                 synced_from_email=True,
                 vendor_token=vendor_token,
                 needs_review=needs_review,
+                gmail_thread_id=gmail_thread_id,
+                gmail_message_id=gmail_message_id,
             )
 
             session.add(epo)
@@ -235,117 +239,148 @@ class AgentPipelineService:
             await session.rollback()
             return result
 
-    async def process_vendor_reply(
+    async def process_reply_email(
         self,
         session: AsyncSession,
+        epo: "EPO",
         email_subject: str,
         email_body: str,
-        vendor_email: str,
-        company_id: int,
+        image_attachments: Optional[list] = None,
+        gmail_api: Optional[Any] = None,
+        access_token: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+        token_expires_at: Optional[Any] = None,
+        message_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Detect vendor confirmations/disputes from replies.
-        Looks for confirmation numbers and confirmation keywords.
+        Process a reply email matched to an existing EPO.
+        Uses Gemini to classify intent and extract confirmation numbers.
+        If image attachments are present, uses Gemini Vision to parse them.
 
-        Returns:
-            Dict with epo_id, new_status, changes_made, etc.
+        Flow:
+        1. Classify reply intent (confirmation, denial, discount, question)
+        2. If images attached, parse with Gemini Vision for PO screenshots
+        3. Update EPO status based on combined intelligence
         """
         result = {
             "success": False,
-            "epo_id": None,
+            "epo_id": epo.id,
+            "intent": None,
             "new_status": None,
+            "confirmation_number": None,
             "changes_made": False,
+            "image_parsed": False,
             "error": None,
         }
 
         try:
-            # Find matching EPO
-            epo_query = select(EPO).where(
-                (EPO.vendor_email == vendor_email)
-                & (EPO.company_id == company_id)
-                & (EPO.status == EPOStatus.PENDING)
+            # Build context from the original EPO for smarter classification
+            epo_context = (
+                f"Builder: {epo.vendor_name}, Community: {epo.community}, "
+                f"Lot: {epo.lot_number}, Amount: ${epo.amount or 'N/A'}, "
+                f"Description: {epo.description or 'N/A'}"
             )
-            epo_result = await session.execute(epo_query)
-            epo = epo_result.scalars().first()
 
-            if not epo:
-                result["error"] = "No matching pending EPO found"
-                return result
+            # Step 1: Classify the reply text
+            classification = await self.parser.classify_reply(
+                email_subject=email_subject,
+                email_body=email_body,
+                original_epo_context=epo_context,
+            )
 
-            result["epo_id"] = epo.id
+            intent = classification.get("intent", "unknown")
+            confirmation_number = classification.get("confirmation_number")
+            result["intent"] = intent
 
-            # Check for confirmation keywords
-            body_lower = (email_body or "").lower()
-            subject_lower = (email_subject or "").lower()
-            combined_lower = f"{subject_lower} {body_lower}"
+            logger.info(
+                f"Reply for EPO #{epo.id}: intent={intent}, "
+                f"conf#={confirmation_number}, "
+                f"confidence={classification.get('confidence', 0):.2f}"
+            )
 
-            confirmation_keywords = [
-                "approved",
-                "confirmed",
-                "confirm",
-                "approval granted",
-                "ok",
-                "accepted",
-            ]
+            # Step 2: Parse image attachments with Gemini Vision
+            vision_confirmation = None
+            if image_attachments and gmail_api and access_token and message_id:
+                for attachment in image_attachments[:3]:  # Limit to 3 images
+                    try:
+                        image_bytes = await gmail_api.get_attachment(
+                            access_token=access_token,
+                            refresh_token=refresh_token,
+                            token_expires_at=token_expires_at,
+                            message_id=message_id,
+                            attachment_id=attachment["attachmentId"],
+                        )
+                        if image_bytes:
+                            vision_result = await self.parser.parse_image_for_confirmation(
+                                image_bytes=image_bytes,
+                                mime_type=attachment.get("mimeType", "image/png"),
+                                epo_context=epo_context,
+                            )
+                            if vision_result:
+                                result["image_parsed"] = True
+                                if vision_result.get("confirmation_number"):
+                                    vision_confirmation = vision_result["confirmation_number"]
+                                    logger.info(
+                                        f"Vision extracted conf#={vision_confirmation} "
+                                        f"from {attachment.get('filename')}"
+                                    )
+                                # If vision says it's a confirmation, upgrade intent
+                                if vision_result.get("intent") == "confirmation" and intent != "confirmation":
+                                    if vision_result.get("confidence", 0) >= 0.7:
+                                        intent = "confirmation"
+                                        result["intent"] = intent
+                                        logger.info(
+                                            f"Vision upgraded intent to 'confirmation' for EPO #{epo.id}"
+                                        )
+                    except Exception as e:
+                        logger.error(f"Error parsing attachment {attachment.get('filename')}: {e}")
 
-            is_confirmed = any(kw in combined_lower for kw in confirmation_keywords)
+            # Use the best confirmation number available
+            final_confirmation = vision_confirmation or confirmation_number
+            result["confirmation_number"] = final_confirmation
 
-            # Extract confirmation number if present
-            confirmation_patterns = [
-                r"(?:PO|CO|Conf)\s*[-#:]\s*([A-Z0-9][\w\-]{2,19})",
-                r"Confirmation\s*#?\s*:?\s*([A-Z0-9][\w\-]{2,19})",
-                r"(?:PO|CO)-(\d{3,})",
-            ]
-
-            confirmation_number = None
-            for pattern in confirmation_patterns:
-                match = re.search(pattern, email_body or "")
-                if match:
-                    confirmation_number = match.group(1)
-                    break
-
-            # Check for dispute/denial keywords
-            dispute_keywords = [
-                "deny",
-                "denied",
-                "reject",
-                "rejected",
-                "cannot",
-                "unable",
-                "no",
-            ]
-            is_disputed = any(kw in combined_lower for kw in dispute_keywords)
-
-            # Update EPO status
+            # Step 3: Update EPO based on intent
             changes_made = False
-            if is_confirmed:
+
+            if intent == "confirmation":
                 epo.status = EPOStatus.CONFIRMED
-                epo.confirmation_number = confirmation_number or epo.confirmation_number
+                if final_confirmation:
+                    epo.confirmation_number = final_confirmation
                 changes_made = True
-                result["new_status"] = EPOStatus.CONFIRMED
+                result["new_status"] = "confirmed"
+                logger.info(f"EPO #{epo.id} CONFIRMED, conf#={final_confirmation}")
 
-                logger.info(
-                    f"EPO #{epo.id} confirmed by vendor, conf#={confirmation_number}"
-                )
-
-            elif is_disputed:
+            elif intent == "denial":
                 epo.status = EPOStatus.DENIED
                 changes_made = True
-                result["new_status"] = EPOStatus.DENIED
+                result["new_status"] = "denied"
+                logger.info(f"EPO #{epo.id} DENIED by builder")
 
-                logger.info(f"EPO #{epo.id} disputed by vendor")
+            elif intent == "discount_request":
+                epo.status = EPOStatus.DISCOUNT
+                epo.needs_review = True
+                changes_made = True
+                result["new_status"] = "discount"
+                logger.info(
+                    f"EPO #{epo.id} discount requested: "
+                    f"{classification.get('discount_details', 'no details')}"
+                )
+
+            elif intent == "question":
+                # Don't change status, but flag for review
+                epo.needs_review = True
+                changes_made = True
+                logger.info(f"EPO #{epo.id} flagged — builder has a question")
 
             if changes_made:
                 result["changes_made"] = True
-                result["success"] = True
                 await session.commit()
-            else:
-                result["success"] = True
 
+            result["success"] = True
             return result
 
         except Exception as e:
-            logger.error(f"Vendor reply processing error: {e}", exc_info=True)
+            logger.error(f"Reply processing error for EPO #{epo.id}: {e}", exc_info=True)
             result["error"] = str(e)
             await session.rollback()
             return result

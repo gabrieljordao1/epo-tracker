@@ -149,6 +149,10 @@ class EPO(Base):
     synced_from_email = Column(Boolean, default=False, nullable=False)
     vendor_token = Column(String(64), unique=True, nullable=True, index=True)
 
+    # Gmail thread tracking for reply intelligence
+    gmail_thread_id = Column(String(255), nullable=True, index=True)
+    gmail_message_id = Column(String(255), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

@@ -175,6 +175,7 @@ class GmailAPIService:
     ) -> Dict[str, Any]:
         """
         Fetch full email message by ID.
+        Returns threadId, In-Reply-To/References headers, and image attachments.
         """
         try:
             # Ensure token is valid
@@ -195,6 +196,9 @@ class GmailAPIService:
 
             message_data = response.json()
 
+            # Extract threadId from top-level Gmail response
+            thread_id = message_data.get("threadId", "")
+
             # Parse headers
             headers_list = message_data.get("payload", {}).get("headers", [])
             headers_dict = {h["name"]: h["value"] for h in headers_list}
@@ -202,19 +206,92 @@ class GmailAPIService:
             # Extract body
             body = self._extract_message_body(message_data.get("payload", {}))
 
+            # Extract image attachments metadata
+            image_attachments = self._extract_image_attachments(message_data.get("payload", {}))
+
             return {
                 "success": True,
                 "message_id": message_id,
+                "thread_id": thread_id,
                 "subject": headers_dict.get("Subject", ""),
                 "from": headers_dict.get("From", ""),
                 "to": headers_dict.get("To", ""),
                 "cc": headers_dict.get("Cc", ""),
                 "date": headers_dict.get("Date", ""),
+                "in_reply_to": headers_dict.get("In-Reply-To", ""),
+                "references": headers_dict.get("References", ""),
                 "body": body,
+                "image_attachments": image_attachments,
             }
         except Exception as e:
             logger.error(f"Get message error: {e}")
             return {"success": False, "error": str(e)}
+
+    def _extract_image_attachments(self, payload: Dict[str, Any]) -> List[Dict[str, str]]:
+        """
+        Extract image attachment metadata from Gmail payload.
+        Returns list of {filename, mimeType, attachmentId, size} for each image.
+        """
+        attachments = []
+        self._find_image_parts(payload, attachments)
+        return attachments
+
+    def _find_image_parts(self, part: Dict[str, Any], attachments: List[Dict[str, str]]):
+        """Recursively find image parts in MIME structure."""
+        mime_type = part.get("mimeType", "")
+
+        # Check if this part is an image
+        if mime_type.startswith("image/"):
+            attachment_id = part.get("body", {}).get("attachmentId")
+            if attachment_id:
+                attachments.append({
+                    "filename": part.get("filename", "image"),
+                    "mimeType": mime_type,
+                    "attachmentId": attachment_id,
+                    "size": part.get("body", {}).get("size", 0),
+                })
+
+        # Recurse into sub-parts
+        for sub_part in part.get("parts", []):
+            self._find_image_parts(sub_part, attachments)
+
+    async def get_attachment(
+        self,
+        access_token: str,
+        refresh_token: str,
+        token_expires_at: Optional[datetime],
+        message_id: str,
+        attachment_id: str,
+    ) -> Optional[bytes]:
+        """
+        Download an attachment by ID and return raw bytes.
+        Used for Gemini Vision to parse screenshot/image attachments.
+        """
+        try:
+            access_token, token_expires_at = self._ensure_valid_token(
+                access_token, refresh_token, token_expires_at
+            )
+
+            url = (
+                f"{self.GMAIL_API_BASE}/users/me/messages/{message_id}"
+                f"/attachments/{attachment_id}"
+            )
+            headers = {"Authorization": f"Bearer {access_token}"}
+
+            async with httpx.AsyncClient() as client:
+                response = await client.get(url, headers=headers, timeout=30.0)
+
+            if response.status_code != 200:
+                logger.error(f"Get attachment failed: {response.text}")
+                return None
+
+            data = response.json().get("data", "")
+            if data:
+                return base64.urlsafe_b64decode(data)
+            return None
+        except Exception as e:
+            logger.error(f"Get attachment error: {e}")
+            return None
 
     def _extract_message_body(self, payload: Dict[str, Any]) -> str:
         """Extract text body from Gmail payload."""
