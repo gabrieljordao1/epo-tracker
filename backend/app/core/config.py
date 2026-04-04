@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # Gmail OAuth
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
-    GOOGLE_REDIRECT_URI: str = "http://localhost:8000/api/email/oauth/callback"
+    GOOGLE_REDIRECT_URI: str = ""  # Auto-derived from API_URL if not set
 
     # App Settings
     APP_NAME: str = "EPO Tracker"
@@ -71,6 +71,15 @@ class Settings(BaseSettings):
             # Comma-separated fallback
             return [origin.strip() for origin in v.split(",") if origin.strip()]
         return v
+
+    @field_validator("GOOGLE_REDIRECT_URI", mode="before")
+    @classmethod
+    def set_google_redirect_uri(cls, v: str, info) -> str:
+        if v:
+            return v
+        # Auto-derive from API_URL
+        api_url = info.data.get("API_URL", "http://localhost:8000")
+        return f"{api_url.rstrip('/')}/api/email/oauth/callback"
 
     @field_validator("SECRET_KEY", mode="before")
     @classmethod
