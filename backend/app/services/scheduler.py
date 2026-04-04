@@ -147,6 +147,108 @@ async def update_days_open():
         logger.info(f"Updated days_open for {updated}/{len(epos)} pending EPOs")
 
 
+async def renew_gmail_watches():
+    """
+    Renew Gmail watch subscriptions every 6 days.
+    Gmail watches expire after 7 days, so we renew them proactively.
+    """
+    from .gmail_api import GmailAPIService
+
+    logger.info("Renewing Gmail watch subscriptions...")
+
+    gmail_api = GmailAPIService(
+        client_id=settings.GOOGLE_CLIENT_ID,
+        client_secret=settings.GOOGLE_CLIENT_SECRET,
+    )
+
+    async with async_session_maker() as session:
+        # Find all active Gmail connections with expiring watches
+        from datetime import timedelta
+
+        expiring_threshold = datetime.utcnow() + timedelta(days=1)
+
+        query = select(EmailConnection).where(
+            (EmailConnection.provider == "gmail")
+            & (EmailConnection.is_active == True)
+            & (
+                (EmailConnection.watch_expiration == None)
+                | (EmailConnection.watch_expiration < expiring_threshold)
+            )
+        )
+        result = await session.execute(query)
+        connections = result.scalars().all()
+
+        renewed_count = 0
+        for conn in connections:
+            try:
+                if not settings.GMAIL_PUBSUB_TOPIC:
+                    logger.warning("GMAIL_PUBSUB_TOPIC not set, skipping watch renewal")
+                    continue
+
+                watch_result = await gmail_api.setup_watch(
+                    access_token=conn.access_token,
+                    refresh_token=conn.refresh_token,
+                    token_expires_at=conn.token_expires_at,
+                    email_address=conn.email_address,
+                    pubsub_topic=settings.GMAIL_PUBSUB_TOPIC,
+                )
+
+                if watch_result.get("success"):
+                    conn.gmail_history_id = watch_result.get("history_id")
+                    conn.watch_expiration = watch_result.get("watch_expiration")
+                    renewed_count += 1
+                    logger.info(f"Gmail watch renewed for {conn.email_address}")
+                else:
+                    logger.error(
+                        f"Failed to renew watch for {conn.email_address}: "
+                        f"{watch_result.get('error')}"
+                    )
+
+            except Exception as e:
+                logger.error(f"Error renewing watch for {conn.email_address}: {e}")
+                continue
+
+        await session.commit()
+        logger.info(f"Gmail watch renewal complete: {renewed_count} renewed")
+
+
+async def run_smart_followup_check():
+    """
+    Run smart follow-up check for all companies.
+    Sends follow-ups at strategic times: 3, 5, and 7 days.
+    """
+    from .agent_pipeline import AgentPipelineService
+
+    logger.info("Running smart follow-up check...")
+
+    agent = AgentPipelineService()
+
+    async with async_session_maker() as session:
+        # Get all companies
+        company_query = select(Company)
+        company_result = await session.execute(company_query)
+        companies = company_result.scalars().all()
+
+        total_followups_sent = 0
+        for company in companies:
+            try:
+                result = await agent.run_followup_check(session, company.id)
+                if result.get("success"):
+                    total_followups_sent += result.get("followups_sent", 0)
+                    logger.info(
+                        f"Company {company.name}: {result.get('epos_checked')} EPOs checked, "
+                        f"{result.get('followups_sent')} follow-ups sent"
+                    )
+                else:
+                    logger.error(f"Follow-up check failed for {company.name}")
+
+            except Exception as e:
+                logger.error(f"Error running follow-up check for {company.name}: {e}")
+                continue
+
+        logger.info(f"Smart follow-up check complete: {total_followups_sent} total follow-ups sent")
+
+
 async def run_all_scheduled_tasks():
     """Run all scheduled tasks. Called by the scheduler or manually."""
     await update_days_open()
@@ -178,6 +280,22 @@ def start_scheduler():
             run_auto_followups,
             CronTrigger(hour=9, minute=0),  # 9:00 AM
             id="auto_followups",
+            replace_existing=True,
+        )
+
+        # Renew Gmail watches every 6 days at 2 AM
+        scheduler.add_job(
+            renew_gmail_watches,
+            CronTrigger(hour=2, minute=0, day_of_week="0"),  # Every Monday at 2 AM
+            id="renew_gmail_watches",
+            replace_existing=True,
+        )
+
+        # Smart follow-up check daily at 10 AM
+        scheduler.add_job(
+            run_smart_followup_check,
+            CronTrigger(hour=10, minute=0),  # 10:00 AM
+            id="smart_followup_check",
             replace_existing=True,
         )
 

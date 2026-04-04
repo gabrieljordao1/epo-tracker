@@ -192,6 +192,37 @@ class SimulateEmailResponse(BaseModel):
     parse_model: str
 
 
+# ===== Webhook/Agent Schemas =====
+class GmailWebhookPayload(BaseModel):
+    """Google Cloud Pub/Sub push notification format"""
+    message: dict  # Contains 'data' field with base64-encoded JSON
+    subscription: str
+
+
+class GmailHistoryData(BaseModel):
+    """Decoded Gmail history message"""
+    email_address: str
+    history_id: str
+
+
+class WebhookSetupResponse(BaseModel):
+    """Response from webhook setup endpoint"""
+    success: bool
+    message: str
+    watch_expiration: Optional[datetime] = None
+
+
+class AgentProcessingResult(BaseModel):
+    """Result of AI agent processing an email"""
+    epo_id: int
+    vendor_token: str
+    confidence_score: float
+    parse_model: str
+    needs_review: bool
+    confirmation_email_sent: bool
+    created: bool
+
+
 # Update forward references
 EPODetailResponse.model_rebuild()
 DashboardStats.model_rebuild()

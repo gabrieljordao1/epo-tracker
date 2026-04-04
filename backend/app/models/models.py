@@ -102,6 +102,16 @@ class EmailConnection(Base):
     provider = Column(String(50), nullable=False)  # gmail, outlook, imap
     is_active = Column(Boolean, default=True, nullable=False)
     last_sync_at = Column(DateTime(timezone=True), nullable=True)
+
+    # OAuth tokens (encrypted in production)
+    access_token = Column(String(1024), nullable=True)
+    refresh_token = Column(String(1024), nullable=True)
+    token_expires_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Gmail watch tracking
+    gmail_history_id = Column(String(255), nullable=True)
+    watch_expiration = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
@@ -200,3 +210,19 @@ class CommunityAssignment(Base):
     # Relationships
     company = relationship("Company")
     supervisor = relationship("User", back_populates="community_assignments")
+
+
+class WebhookLog(Base):
+    """Tracks incoming webhook notifications"""
+    __tablename__ = "webhook_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    source = Column(String(50), nullable=False)  # gmail, outlook, etc.
+    payload_hash = Column(String(64), nullable=False)  # SHA-256 hash of payload
+    status = Column(String(50), nullable=False)  # received, processing, completed, failed
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    # Relationships
+    company = relationship("Company")

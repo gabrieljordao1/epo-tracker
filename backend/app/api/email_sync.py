@@ -178,14 +178,26 @@ async def gmail_oauth_callback(
     result = await session.execute(query)
     connection = result.scalars().first()
 
+    # Calculate token expiration datetime
+    from datetime import datetime, timedelta
+    expires_in = token_data.get("token_expires_at") or token_data.get("expires_in", 3600)
+    token_expires_at = datetime.utcnow() + timedelta(seconds=int(expires_in))
+
     if connection:
         connection.is_active = True
+        connection.access_token = token_data.get("access_token")
+        connection.refresh_token = token_data.get("refresh_token")
+        connection.token_expires_at = token_expires_at
+        connection.email_address = email_address
     else:
         connection = EmailConnection(
             company_id=company_id,
             email_address=email_address,
             provider="gmail",
             is_active=True,
+            access_token=token_data.get("access_token"),
+            refresh_token=token_data.get("refresh_token"),
+            token_expires_at=token_expires_at,
         )
         session.add(connection)
 

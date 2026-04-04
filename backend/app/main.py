@@ -14,7 +14,7 @@ from sqlalchemy import select
 from .core.config import get_settings
 from .core.database import init_db, close_db, get_db
 from .core.auth import get_current_user, decode_token, security
-from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity
+from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook
 from .models.models import User
 
 settings = get_settings()
@@ -172,6 +172,7 @@ def create_app() -> FastAPI:
     app.include_router(vendor_portal.router)
     app.include_router(exports.router)
     app.include_router(activity.router)
+    app.include_router(gmail_webhook.router)
 
     # ─── Health check ───
     @app.get("/api/health")

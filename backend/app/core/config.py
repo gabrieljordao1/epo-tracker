@@ -53,6 +53,14 @@ class Settings(BaseSettings):
     # Security
     ALLOWED_HOSTS: List[str] = ["*"]
 
+    # Gmail Webhooks
+    GMAIL_PUBSUB_TOPIC: str = ""  # Google Cloud Pub/Sub topic name
+    GMAIL_WEBHOOK_URL: str = ""  # The webhook URL for Gmail notifications
+
+    # Agent Pipeline
+    AGENT_AUTO_CONFIRM_THRESHOLD: float = 0.9  # Confidence threshold for auto-confirm
+    AGENT_FOLLOWUP_DAYS: List[int] = [3, 5, 7]  # Days to send follow-ups
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def parse_cors_origins(cls, v):
