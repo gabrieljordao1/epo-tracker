@@ -57,12 +57,25 @@ async def _process_gmail_notification(
         )
         agent = AgentPipelineService()
 
+        # Get email connection to use stored history_id as start point
+        email_conn_query = select(EmailConnection).where(
+            EmailConnection.email_address == email_address
+        )
+        email_conn_result = await session.execute(email_conn_query)
+        email_conn = email_conn_result.scalars().first()
+
+        # Use stored history_id (last known) instead of notification's history_id
+        # Gmail history API returns changes AFTER startHistoryId, so we need our
+        # last checkpoint, not the notification's ID which points to the change itself
+        stored_history_id = email_conn.gmail_history_id if email_conn else history_id
+        logger.info(f"Using stored history_id={stored_history_id} (notification={history_id})")
+
         # Fetch history to get message IDs
         history_result = await gmail_api.get_history(
             access_token=access_token,
             refresh_token=refresh_token,
             token_expires_at=token_expires_at,
-            start_history_id=history_id,
+            start_history_id=stored_history_id,
         )
 
         if not history_result.get("success"):
@@ -71,13 +84,6 @@ async def _process_gmail_notification(
 
         message_ids = history_result.get("messages", [])
         logger.info(f"Found {len(message_ids)} new messages")
-
-        # Get email connection for history_id update (needed even if 0 messages)
-        email_conn_query = select(EmailConnection).where(
-            EmailConnection.email_address == email_address
-        )
-        email_conn_result = await session.execute(email_conn_query)
-        email_conn = email_conn_result.scalars().first()
 
         # Process each message
         for message_id in message_ids:
