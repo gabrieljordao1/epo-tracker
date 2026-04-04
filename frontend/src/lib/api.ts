@@ -28,6 +28,15 @@ function authHeaders(): HeadersInit {
   return headers;
 }
 
+/** Handle 401 responses by clearing token and redirecting to login */
+function handleUnauthorized(res: Response): Response {
+  if (res.status === 401 && typeof window !== "undefined") {
+    setAuthToken(null);
+    window.location.href = "/login";
+  }
+  return res;
+}
+
 // ─── Types ───────────────────────────────────────
 export interface EPO {
   id: number;
@@ -480,6 +489,7 @@ export async function startGmailOAuth(): Promise<{ auth_url: string }> {
   const res = await fetch(`${API_BASE}/api/email/oauth/gmail/start`, {
     headers: authHeaders(),
   });
+  handleUnauthorized(res);
   if (!res.ok) throw new Error("Failed to start Gmail OAuth");
   return res.json();
 }
