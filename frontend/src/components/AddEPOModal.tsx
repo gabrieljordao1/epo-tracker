@@ -85,26 +85,26 @@ export function AddEPOModal({ open, onClose, onCreated }: AddEPOModalProps) {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-1.5">
-                Vendor Name *
+                Builder Name *
               </label>
               <input
                 type="text"
                 value={vendorName}
                 onChange={(e) => setVendorName(e.target.value)}
-                placeholder="Summit Builders"
+                placeholder="Meritage Homes"
                 required
                 className="w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 text-sm"
               />
             </div>
             <div>
               <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-1.5">
-                Vendor Email *
+                Builder Email *
               </label>
               <input
                 type="email"
                 value={vendorEmail}
                 onChange={(e) => setVendorEmail(e.target.value)}
-                placeholder="epo@summit.com"
+                placeholder="contact@meritagehomes.com"
                 required
                 className="w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-lg text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 text-sm"
               />

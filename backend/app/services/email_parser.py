@@ -72,6 +72,23 @@ class EmailParserService:
         # If all fail, return low-confidence regex result
         return regex_result
 
+    # Standardized subject pattern: "EPO - Community - Lot # - Builder"
+    SUBJECT_PATTERN = re.compile(
+        r"EPO\s*[-–—]\s*(.+?)\s*[-–—]\s*(?:Lot\s*#?\s*)(.+?)\s*[-–—]\s*(.+)",
+        re.IGNORECASE,
+    )
+
+    def _parse_subject_format(self, subject: str) -> Dict[str, Optional[str]]:
+        """Try to parse the standardized subject: EPO - Community - Lot # - Builder"""
+        match = self.SUBJECT_PATTERN.match(subject.strip())
+        if match:
+            return {
+                "community": match.group(1).strip(),
+                "lot_number": match.group(2).strip(),
+                "builder_name": match.group(3).strip(),
+            }
+        return {}
+
     def _parse_regex(
         self,
         email_subject: str,
@@ -84,21 +101,34 @@ class EmailParserService:
         combined_text = f"{email_subject}\n{email_body}"
         confidence_score = 0.0
 
-        # Try to extract vendor name and email
-        vendor_name = self._extract_vendor_name(email_subject, email_body)
+        # First try standardized subject format: "EPO - Community - Lot # - Builder"
+        subject_parsed = self._parse_subject_format(email_subject)
+
+        # Try to extract vendor/builder name
+        vendor_name = subject_parsed.get("builder_name") or self._extract_vendor_name(email_subject, email_body)
         vendor_email = vendor_email or self._extract_email(email_body)
 
         # Try to extract amount
         amount, amount_conf = self._extract_amount(combined_text)
 
-        # Try to extract lot number
-        lot_number, lot_conf = self._extract_lot(combined_text)
+        # Try to extract lot number (prefer subject format)
+        lot_number = subject_parsed.get("lot_number")
+        lot_conf = 0.95 if lot_number else 0.0
+        if not lot_number:
+            lot_number, lot_conf = self._extract_lot(combined_text)
 
-        # Try to extract community
-        community, comm_conf = self._extract_community(combined_text)
+        # Try to extract community (prefer subject format)
+        community = subject_parsed.get("community")
+        comm_conf = 0.95 if community else 0.0
+        if not community:
+            community, comm_conf = self._extract_community(combined_text)
 
         # Try to extract confirmation number
         confirmation, conf_conf = self._extract_confirmation(combined_text)
+
+        # Boost confidence if subject was in standardized format
+        if subject_parsed:
+            confidence_score = 0.85  # Standardized subject = high confidence
 
         # Calculate overall confidence
         field_scores = {
@@ -112,18 +142,19 @@ class EmailParserService:
 
         # Overall confidence is average of filled fields
         filled_fields = [s for s in field_scores.values() if s > 0]
-        confidence_score = sum(filled_fields) / len(filled_fields) if filled_fields else 0.1
+        if not subject_parsed:
+            confidence_score = sum(filled_fields) / len(filled_fields) if filled_fields else 0.1
 
         # Check if we have minimum viable info
-        has_vendor = bool(vendor_name or vendor_email)
+        has_builder = bool(vendor_name or vendor_email)
         has_amount = amount is not None
         has_location = bool(community or lot_number)
 
-        # High confidence if we have vendor + amount + location
-        if has_vendor and has_amount and has_location:
+        # High confidence if we have builder + amount + location
+        if has_builder and has_amount and has_location:
             confidence_score = max(confidence_score, 0.75)
 
-        needs_review = confidence_score < 0.7 or not (has_vendor and has_amount)
+        needs_review = confidence_score < 0.7 or not (has_builder and has_amount)
 
         return {
             "vendor_name": vendor_name,
@@ -280,25 +311,29 @@ class EmailParserService:
 
             client = genai.Client(api_key=settings.GOOGLE_AI_API_KEY)
 
-            prompt = f"""Parse this construction EPO (Extra Paint/Work Order) email and extract structured data.
+            prompt = f"""Parse this construction EPO (Extra Purchase Order) email and extract structured data.
+
+The subject line typically follows this format: "EPO - Community - Lot # - Builder"
+Example: "EPO - Galloway - Lot 12 - Meritage Homes"
+
+The builder name may also be in the subject. The email body contains the work description, amount, and other details.
 
 Email Subject: {email_subject}
 Email Body:
 {email_body}
 
-Extract:
-- vendor_name: Company name (string)
-- vendor_email: Email address (string)
-- community: Subdivision/community name (string)
-- lot_number: Lot number (string)
+Extract these fields:
+- community: Subdivision/community name from subject or body (string)
+- lot_number: Lot number from subject or body (string)
+- builder_name: Builder/homebuilder company name from subject (string, e.g. "Meritage Homes", "Pulte", "DR Horton")
 - description: Work description (string)
-- amount: Dollar amount as number
-- confirmation_number: PO or confirmation number (string)
+- amount: Dollar amount as number (float)
+- confirmation_number: PO or confirmation number if present (string)
 - confidence_score: Your confidence 0-1
 - needs_review: Boolean, true if uncertain about critical fields
 
 Return ONLY valid JSON:
-{{"vendor_name": "...", "vendor_email": "...", "community": "...", "lot_number": "...", "description": "...", "amount": 0, "confirmation_number": "...", "confidence_score": 0.8, "needs_review": false}}"""
+{{"community": "...", "lot_number": "...", "builder_name": "...", "description": "...", "amount": 0, "confirmation_number": "...", "confidence_score": 0.8, "needs_review": false}}"""
 
             response = client.models.generate_content(
                 model="gemini-2.0-flash",

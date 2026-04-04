@@ -7,6 +7,7 @@ import logging
 import json
 import base64
 import hashlib
+import re
 from typing import Optional
 from datetime import datetime
 
@@ -29,6 +30,70 @@ router = APIRouter(prefix="/api/webhook", tags=["webhooks"])
 
 # In-memory deduplication cache for recent historyIds
 _recent_notifications = set()
+
+# Known internal email addresses to exclude when identifying the builder
+INTERNAL_EMAIL_PATTERNS = [
+    "stancil.field.tracker@gmail.com",
+    "paintingepo@stancilservices.com",
+    "@stancilservices.com",
+]
+
+
+def _extract_email_address(raw: str) -> str:
+    """Extract email from 'Name <email@domain.com>' format."""
+    match = re.search(r"<(.+?)>", raw)
+    if match:
+        return match.group(1).strip().lower()
+    if "@" in raw:
+        return raw.strip().lower()
+    return ""
+
+
+def _extract_all_emails(header_value: str) -> list:
+    """Extract all email addresses from a TO/CC header (comma-separated)."""
+    if not header_value:
+        return []
+    parts = header_value.split(",")
+    emails = []
+    for part in parts:
+        email = _extract_email_address(part.strip())
+        if email:
+            emails.append(email)
+    return emails
+
+
+def _is_internal_email(email: str) -> bool:
+    """Check if an email matches any known internal address/pattern."""
+    email_lower = email.lower()
+    for pattern in INTERNAL_EMAIL_PATTERNS:
+        if pattern.startswith("@"):
+            # Domain pattern
+            if email_lower.endswith(pattern):
+                return True
+        else:
+            # Exact match
+            if email_lower == pattern:
+                return True
+    return False
+
+
+def _builder_name_from_domain(email: str) -> str:
+    """
+    Derive builder name from email domain.
+    e.g. john@meritagehomes.com → Meritage Homes
+         info@dr-horton.com → Dr Horton
+    """
+    try:
+        domain = email.split("@")[1]
+        # Remove TLD
+        name_part = domain.rsplit(".", 1)[0]
+        # Remove common subdomains
+        name_part = re.sub(r"^(mail|email|info|sales|www)\.", "", name_part)
+        # Split on hyphens and dots, capitalize each word
+        words = re.split(r"[-.]", name_part)
+        return " ".join(w.capitalize() for w in words if w)
+    except Exception:
+        return "Unknown Builder"
 
 
 async def _process_gmail_notification(
@@ -100,35 +165,80 @@ async def _process_gmail_notification(
                     logger.warning(f"Failed to fetch message {message_id}")
                     continue
 
-                # Extract vendor email from "From" field
+                # === NEW WORKFLOW ===
+                # FROM = submitter (field manager who sent the EPO request)
+                # TO = builder (the recipient at the builder company)
+                # CC = stancil.field.tracker@gmail.com (how we received it)
+
                 from_field = msg_result.get("from", "")
-                vendor_email = from_field.split("<")[-1].rstrip(">") if "<" in from_field else from_field
-                vendor_email = vendor_email.strip()
-
-                if not vendor_email:
-                    logger.warning(f"Could not extract vendor email from: {from_field}")
-                    continue
-
-                # Process through agent pipeline
+                to_field = msg_result.get("to", "")
+                cc_field = msg_result.get("cc", "")
                 subject = msg_result.get("subject", "")
                 body = msg_result.get("body", "")
 
-                # Get email connection ID (email_conn already fetched above)
+                # 1) Identify the SUBMITTER from the FROM field
+                submitter_email = _extract_email_address(from_field)
+                if not submitter_email:
+                    logger.warning(f"Could not extract submitter email from: {from_field}")
+                    continue
+
+                # Match submitter to a User record to get created_by_id
+                submitted_by_id = None
+                user_query = select(User).where(
+                    User.email.ilike(submitter_email)
+                )
+                user_result = await session.execute(user_query)
+                submitter_user = user_result.scalars().first()
+                if submitter_user:
+                    submitted_by_id = submitter_user.id
+                    logger.info(f"Matched submitter {submitter_email} → User #{submitter_user.id} ({submitter_user.full_name})")
+                else:
+                    logger.warning(f"No User record found for submitter: {submitter_email}")
+
+                # 2) Identify the BUILDER from the TO recipients
+                #    The builder is the non-internal recipient
+                all_to = _extract_all_emails(to_field)
+                all_cc = _extract_all_emails(cc_field)
+                all_recipients = all_to + all_cc
+
+                builder_email = ""
+                for recipient in all_recipients:
+                    if not _is_internal_email(recipient) and recipient != submitter_email:
+                        builder_email = recipient
+                        break
+
+                # Derive builder name from domain
+                builder_name = _builder_name_from_domain(builder_email) if builder_email else "Unknown Builder"
+
+                logger.info(
+                    f"Email routing: submitter={submitter_email}, "
+                    f"builder={builder_email} ({builder_name}), "
+                    f"subject={subject}"
+                )
+
+                # Get email connection ID
                 email_connection_id = email_conn.id if email_conn else None
 
+                # Process through agent pipeline
                 pipeline_result = await agent.process_new_email(
                     session=session,
                     email_subject=subject,
                     email_body=body,
-                    vendor_email=vendor_email,
+                    vendor_email=builder_email or submitter_email,
                     company_id=company_id,
                     email_connection_id=email_connection_id,
+                    builder_name=builder_name,
+                    builder_email=builder_email,
+                    submitter_email=submitter_email,
+                    submitted_by_id=submitted_by_id,
                 )
 
+                confidence = pipeline_result.get('confidence_score', 0)
                 logger.info(
                     f"Message {message_id} processed: "
                     f"created={pipeline_result.get('created')}, "
-                    f"confidence={pipeline_result.get('confidence_score'):.2f}"
+                    f"confidence={confidence:.2f}, "
+                    f"submitter={submitter_email}, builder={builder_name}"
                 )
 
             except Exception as e:

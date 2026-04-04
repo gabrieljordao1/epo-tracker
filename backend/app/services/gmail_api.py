@@ -208,6 +208,7 @@ class GmailAPIService:
                 "subject": headers_dict.get("Subject", ""),
                 "from": headers_dict.get("From", ""),
                 "to": headers_dict.get("To", ""),
+                "cc": headers_dict.get("Cc", ""),
                 "date": headers_dict.get("Date", ""),
                 "body": body,
             }

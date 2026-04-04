@@ -44,9 +44,18 @@ class AgentPipelineService:
         vendor_email: str,
         company_id: int,
         email_connection_id: Optional[int] = None,
+        builder_name: Optional[str] = None,
+        builder_email: Optional[str] = None,
+        submitter_email: Optional[str] = None,
+        submitted_by_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Main pipeline: parse email → create EPO → send confirmation request.
+
+        New workflow:
+        - builder_name/builder_email: The builder company this EPO is for (from TO recipients)
+        - submitter_email: The field manager who sent the email (from FROM field)
+        - submitted_by_id: The User.id of the submitter (matched from email)
 
         Returns:
             Dict with epo_id, vendor_token, confidence_score, needs_review, etc.
@@ -77,7 +86,14 @@ class AgentPipelineService:
                 return result
 
             # Extract parsed data
-            vendor_name = parsed.get("vendor_name") or "Unknown Vendor"
+            # Use builder_name from webhook (derived from TO email domain) if provided,
+            # then try parser's builder_name or vendor_name, finally fallback
+            vendor_name = (
+                builder_name
+                or parsed.get("builder_name")
+                or parsed.get("vendor_name")
+                or "Unknown Builder"
+            )
             community = parsed.get("community")
             lot_number = parsed.get("lot_number")
             description = parsed.get("description")
@@ -103,8 +119,9 @@ class AgentPipelineService:
             epo = EPO(
                 company_id=company_id,
                 email_connection_id=email_connection_id,
-                vendor_name=vendor_name,
-                vendor_email=vendor_email,
+                created_by_id=submitted_by_id,
+                vendor_name=vendor_name,  # Stores builder name
+                vendor_email=builder_email or vendor_email,  # Stores builder email
                 community=community,
                 lot_number=lot_number,
                 description=description,

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
-from ..models.models import EPO, EPOFollowup, User, EPOStatus, FollowupStatus
+from ..models.models import EPO, EPOFollowup, User, EPOStatus, FollowupStatus, UserRole
 from ..models.schemas import (
     EPOCreate,
     EPOUpdate,
@@ -52,8 +52,14 @@ async def list_epos(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> List[EPOResponse]:
-    """List EPOs for the current company with filtering"""
+    """List EPOs for the current company with filtering.
+    Field role users only see their own EPOs. Admin/Manager see all company EPOs.
+    """
     query = select(EPO).where(EPO.company_id == current_user.company_id)
+
+    # Field users only see their own EPOs
+    if current_user.role == UserRole.FIELD:
+        query = query.where(EPO.created_by_id == current_user.id)
 
     if status_filter:
         query = query.where(EPO.status == status_filter)
@@ -133,51 +139,50 @@ async def get_dashboard_stats(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> DashboardStats:
-    """Get dashboard statistics and analytics for EPOs"""
+    """Get dashboard statistics and analytics for EPOs.
+    Field role users see stats for their own EPOs only.
+    """
 
     company_id = current_user.company_id
 
+    # Base filter: company scope + optional user scope for field users
+    def _scope(q):
+        q = q.where(EPO.company_id == company_id)
+        if current_user.role == UserRole.FIELD:
+            q = q.where(EPO.created_by_id == current_user.id)
+        return q
+
     # Count EPOs by status
-    total_query = select(func.count(EPO.id)).where(EPO.company_id == company_id)
+    total_query = _scope(select(func.count(EPO.id)))
     total_result = await session.execute(total_query)
     total_epos = total_result.scalar() or 0
 
-    pending_query = select(func.count(EPO.id)).where(
-        and_(EPO.company_id == company_id, EPO.status == EPOStatus.PENDING)
-    )
+    pending_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.PENDING)
     pending_result = await session.execute(pending_query)
     pending_count = pending_result.scalar() or 0
 
-    confirmed_query = select(func.count(EPO.id)).where(
-        and_(EPO.company_id == company_id, EPO.status == EPOStatus.CONFIRMED)
-    )
+    confirmed_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.CONFIRMED)
     confirmed_result = await session.execute(confirmed_query)
     confirmed_count = confirmed_result.scalar() or 0
 
-    denied_query = select(func.count(EPO.id)).where(
-        and_(EPO.company_id == company_id, EPO.status == EPOStatus.DENIED)
-    )
+    denied_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.DENIED)
     denied_result = await session.execute(denied_query)
     denied_count = denied_result.scalar() or 0
 
-    discount_query = select(func.count(EPO.id)).where(
-        and_(EPO.company_id == company_id, EPO.status == EPOStatus.DISCOUNT)
-    )
+    discount_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.DISCOUNT)
     discount_result = await session.execute(discount_query)
     discount_count = discount_result.scalar() or 0
 
-    needs_review_query = select(func.count(EPO.id)).where(
-        and_(EPO.company_id == company_id, EPO.needs_review == True)
-    )
+    needs_review_query = _scope(select(func.count(EPO.id))).where(EPO.needs_review == True)
     needs_review_result = await session.execute(needs_review_query)
     needs_review_count = needs_review_result.scalar() or 0
 
     # Calculate amounts
-    avg_amount_query = select(func.avg(EPO.amount)).where(EPO.company_id == company_id)
+    avg_amount_query = _scope(select(func.avg(EPO.amount)))
     avg_amount_result = await session.execute(avg_amount_query)
     average_amount = avg_amount_result.scalar()
 
-    total_amount_query = select(func.sum(EPO.amount)).where(EPO.company_id == company_id)
+    total_amount_query = _scope(select(func.sum(EPO.amount)))
     total_amount_result = await session.execute(total_amount_query)
     total_amount = total_amount_result.scalar()
 
@@ -193,12 +198,7 @@ async def get_dashboard_stats(
     )
 
     # Get recent EPOs
-    recent_epos_query = (
-        select(EPO)
-        .where(EPO.company_id == company_id)
-        .order_by(EPO.created_at.desc())
-        .limit(10)
-    )
+    recent_epos_query = _scope(select(EPO)).order_by(EPO.created_at.desc()).limit(10)
     recent_epos_result = await session.execute(recent_epos_query)
     recent_epos = [
         EPOResponse.model_validate(epo) for epo in recent_epos_result.scalars().all()

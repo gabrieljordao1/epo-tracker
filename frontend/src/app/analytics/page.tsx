@@ -114,9 +114,9 @@ export default function AnalyticsPage() {
             </div>
           </div>
 
-          {/* By Vendor */}
+          {/* By Builder */}
           <div>
-            <h2 className="label mb-6">By Vendor</h2>
+            <h2 className="label mb-6">By Builder</h2>
             <div className="space-y-4">
               {vendData.map((v) => (
                 <div key={v.name} className="card p-6 flex items-center justify-between">

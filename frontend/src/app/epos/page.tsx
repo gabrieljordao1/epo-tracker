@@ -213,7 +213,7 @@ export default function EPOsPage() {
       <div className="flex gap-4">
         <input
           type="text"
-          placeholder="Search vendors or description..."
+          placeholder="Search builders or description..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="flex-1 px-4 py-2 bg-surface border border-card-border rounded-lg text-text1 placeholder-text3 focus:outline-none focus:border-border-lt"
@@ -225,7 +225,7 @@ export default function EPOsPage() {
         <table className="w-full">
           <thead className="border-b border-card-border">
             <tr>
-              <th className="px-6 py-4 text-left label">Vendor</th>
+              <th className="px-6 py-4 text-left label">Builder</th>
               <th className="px-6 py-4 text-left label">Community</th>
               <th className="px-6 py-4 text-left label">Lot</th>
               <th className="px-4 py-4 text-left label">Description</th>
@@ -280,7 +280,7 @@ export default function EPOsPage() {
                           onClick={() => handleFollowup(epo.id)}
                           disabled={followingUp === epo.id}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-amber bg-amber-dim border border-amber-bdr rounded-lg hover:bg-amber/20 transition-colors disabled:opacity-50"
-                          title="Send follow-up email to vendor"
+                          title="Send follow-up email to builder"
                         >
                           {followingUp === epo.id ? (
                             <Loader2 size={12} className="animate-spin" />
@@ -306,7 +306,7 @@ export default function EPOsPage() {
                       </span>
                     )}
 
-                    {/* Vendor portal link for confirmed EPOs */}
+                    {/* Builder portal link for confirmed EPOs */}
                     {epo.status === "confirmed" &&
                       epo.confirmation_number && (
                         <span className="text-xs text-green font-mono">

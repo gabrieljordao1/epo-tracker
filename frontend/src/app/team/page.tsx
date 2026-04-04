@@ -166,7 +166,7 @@ export default function TeamPage() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border">
-                  {["Vendor", "Community", "Lot", "Description", "Amount", "Status", "Age"].map((h) => (
+                  {["Builder", "Community", "Lot", "Description", "Amount", "Status", "Age"].map((h) => (
                     <th key={h} className="text-left px-4 py-3 label">{h}</th>
                   ))}
                 </tr>
