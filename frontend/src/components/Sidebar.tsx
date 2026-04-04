@@ -23,7 +23,7 @@ export function Sidebar() {
 
   const displayUser = activeUser || currentUser;
   const displayName = displayUser?.full_name || "Gabriel Jordao";
-  const displayCompany = displayUser?.company_name || "Your Company";
+  const displayCompany = (displayUser as any)?.company_name || "Onyx";
   const initials = displayName.split(" ").map((n) => n[0]).join("");
 
   const navItems = [
