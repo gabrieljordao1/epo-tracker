@@ -122,12 +122,21 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(RateLimitMiddleware, calls_per_minute=settings.RATE_LIMIT_PER_MINUTE)
+    # CORS — allow all origins for now (small team pilot)
+    cors_origins = settings.CORS_ORIGINS
+    if not cors_origins or cors_origins == ["*"]:
+        cors_origins = ["*"]
+    # Always include the production frontend
+    production_frontend = "https://frontend-two-puce-27.vercel.app"
+    if production_frontend not in cors_origins and cors_origins != ["*"]:
+        cors_origins.append(production_frontend)
+    logger.info(f"CORS origins configured: {cors_origins}")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.CORS_ORIGINS,
+        allow_origins=cors_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        allow_methods=["*"],
+        allow_headers=["*"],
         expose_headers=["X-Request-ID"],
     )
 

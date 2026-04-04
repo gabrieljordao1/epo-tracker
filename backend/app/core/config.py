@@ -44,10 +44,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # CORS
-    CORS_ORIGINS: List[str] = [
-        "http://localhost:3000",
-        "http://localhost:5173",
-    ]
+    CORS_ORIGINS: List[str] = ["*"]
 
     # Rate Limiting
     RATE_LIMIT_PER_MINUTE: int = 60
@@ -55,6 +52,25 @@ class Settings(BaseSettings):
 
     # Security
     ALLOWED_HOSTS: List[str] = ["*"]
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, v):
+        if isinstance(v, str):
+            v = v.strip()
+            if v == "*":
+                return ["*"]
+            # Try JSON parse first
+            import json
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return parsed
+            except (json.JSONDecodeError, TypeError):
+                pass
+            # Comma-separated fallback
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
     @field_validator("SECRET_KEY", mode="before")
     @classmethod
