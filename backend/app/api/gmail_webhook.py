@@ -72,6 +72,13 @@ async def _process_gmail_notification(
         message_ids = history_result.get("messages", [])
         logger.info(f"Found {len(message_ids)} new messages")
 
+        # Get email connection for history_id update (needed even if 0 messages)
+        email_conn_query = select(EmailConnection).where(
+            EmailConnection.email_address == email_address
+        )
+        email_conn_result = await session.execute(email_conn_query)
+        email_conn = email_conn_result.scalars().first()
+
         # Process each message
         for message_id in message_ids:
             try:
@@ -100,12 +107,7 @@ async def _process_gmail_notification(
                 subject = msg_result.get("subject", "")
                 body = msg_result.get("body", "")
 
-                # Get email connection ID
-                email_conn_query = select(EmailConnection).where(
-                    EmailConnection.email_address == email_address
-                )
-                email_conn_result = await session.execute(email_conn_query)
-                email_conn = email_conn_result.scalars().first()
+                # Get email connection ID (email_conn already fetched above)
                 email_connection_id = email_conn.id if email_conn else None
 
                 pipeline_result = await agent.process_new_email(
