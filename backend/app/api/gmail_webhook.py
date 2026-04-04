@@ -12,7 +12,7 @@ from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status as http_status
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import get_settings
@@ -83,14 +83,16 @@ async def _build_internal_email_set(session: AsyncSession, company_id: int, trac
     # 1) The tracker email itself is always internal
     internal_addresses.add(tracker_email.lower())
 
-    # 2) All company users' emails are internal
-    user_query = select(User.email).where(User.company_id == company_id)
+    # 2) All company users' emails (login + work) are internal
+    user_query = select(User.email, User.work_email).where(User.company_id == company_id)
     result = await session.execute(user_query)
-    for (user_email,) in result:
-        email_lower = user_email.lower()
-        internal_addresses.add(email_lower)
-        domain = email_lower.split("@")[-1]
-        internal_domains.add(domain)
+    for user_email, work_email in result:
+        for em in [user_email, work_email]:
+            if em:
+                email_lower = em.lower()
+                internal_addresses.add(email_lower)
+                domain = email_lower.split("@")[-1]
+                internal_domains.add(domain)
 
     # 3) All company email connections are internal
     conn_query = select(EmailConnection.email_address).where(
@@ -219,9 +221,13 @@ async def _process_gmail_notification(
                     continue
 
                 # Match submitter to a User record to get created_by_id
+                # Check both login email and work_email for flexibility
                 submitted_by_id = None
                 user_query = select(User).where(
-                    User.email.ilike(submitter_email)
+                    or_(
+                        User.email.ilike(submitter_email),
+                        User.work_email.ilike(submitter_email),
+                    )
                 )
                 user_result = await session.execute(user_query)
                 submitter_user = user_result.scalars().first()

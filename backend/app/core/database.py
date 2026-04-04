@@ -53,7 +53,52 @@ async def init_db():
             await conn.run_sync(Base.metadata.create_all)
         logger.info("SQLite tables created via create_all()")
     else:
-        logger.info("PostgreSQL detected — use Alembic for migrations")
+        logger.info("PostgreSQL detected — running safe schema migrations")
+        await _run_safe_migrations()
+
+
+async def _run_safe_migrations():
+    """
+    Run idempotent ALTER TABLE statements to keep the DB schema in sync.
+    Each migration uses IF NOT EXISTS / checks to be safe to re-run.
+    """
+    from sqlalchemy import text
+
+    migrations = [
+        # Add work_email column to users table
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'users' AND column_name = 'work_email'
+            ) THEN
+                ALTER TABLE users ADD COLUMN work_email VARCHAR(255) UNIQUE;
+                CREATE INDEX IF NOT EXISTS ix_users_work_email ON users (work_email);
+            END IF;
+        END $$;
+        """,
+        # Set Gabriel's work email (Stancil services)
+        """
+        UPDATE users SET work_email = 'gabriel.jordao@stancilservices.com'
+        WHERE email = 'gabriel.jordao0217@gmail.com' AND work_email IS NULL;
+        """,
+        # Fix EPO #28 — set created_by_id to Gabriel's user ID
+        """
+        UPDATE epos SET created_by_id = (
+            SELECT id FROM users WHERE email = 'gabriel.jordao0217@gmail.com'
+        )
+        WHERE id = 28 AND created_by_id IS NULL;
+        """,
+    ]
+
+    async with engine.begin() as conn:
+        for sql in migrations:
+            try:
+                await conn.execute(text(sql))
+            except Exception as e:
+                logger.warning(f"Migration skipped or failed (safe): {e}")
+    logger.info(f"Ran {len(migrations)} safe migration(s)")
 
 
 async def close_db():

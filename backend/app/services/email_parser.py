@@ -313,27 +313,29 @@ class EmailParserService:
 
             prompt = f"""Parse this construction EPO (Extra Purchase Order) email and extract structured data.
 
-The subject line typically follows this format: "EPO - Community - Lot # - Builder"
+IMPORTANT: An email may contain MULTIPLE EPO requests (for different lots). If you find multiple lots or line items, return a JSON ARRAY with one object per EPO. If there is only one EPO, still return an array with one object.
+
+The subject line may follow this format: "EPO - Community - Lot # - Builder"
 Example: "EPO - Galloway - Lot 12 - Meritage Homes"
 
-The builder name may also be in the subject. The email body contains the work description, amount, and other details.
+The builder name may be in the subject or body. The email body contains the work description, dollar amounts, and other details.
 
 Email Subject: {email_subject}
 Email Body:
 {email_body}
 
-Extract these fields:
-- community: Subdivision/community name from subject or body (string)
-- lot_number: Lot number from subject or body (string)
-- builder_name: Builder/homebuilder company name from subject (string, e.g. "Meritage Homes", "Pulte", "DR Horton")
-- description: Work description (string)
-- amount: Dollar amount as number (float)
-- confirmation_number: PO or confirmation number if present (string)
+For EACH EPO found, extract these fields:
+- community: Subdivision/community name (string)
+- lot_number: Lot number (string)
+- builder_name: Builder/homebuilder company name (string, e.g. "Meritage Homes", "Pulte", "DR Horton")
+- description: Work description for this specific lot (string)
+- amount: Dollar amount as number (float) — look carefully in the body for dollar amounts like $350, $450, etc.
+- confirmation_number: PO or confirmation number if present (string or null)
 - confidence_score: Your confidence 0-1
 - needs_review: Boolean, true if uncertain about critical fields
 
-Return ONLY valid JSON:
-{{"community": "...", "lot_number": "...", "builder_name": "...", "description": "...", "amount": 0, "confirmation_number": "...", "confidence_score": 0.8, "needs_review": false}}"""
+Return ONLY a valid JSON array:
+[{{"community": "...", "lot_number": "...", "builder_name": "...", "description": "...", "amount": 350.0, "confirmation_number": null, "confidence_score": 0.9, "needs_review": false}}]"""
 
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
@@ -341,13 +343,31 @@ Return ONLY valid JSON:
             )
 
             response_text = response.text
-            result = json.loads(response_text)
 
-            result["parse_model"] = "gemini"
-            result.setdefault("confidence_score", 0.6)
-            result.setdefault("needs_review", result.get("confidence_score", 0.5) < 0.7)
-
-            return result
+            # Handle both array and single-object responses
+            parsed = json.loads(response_text)
+            if isinstance(parsed, list):
+                # Multi-EPO response — return first item, store the rest for the pipeline
+                results = []
+                for item in parsed:
+                    item["parse_model"] = "gemini"
+                    item.setdefault("confidence_score", 0.6)
+                    item.setdefault("needs_review", item.get("confidence_score", 0.5) < 0.7)
+                    results.append(item)
+                # Return first result with _additional_epos attached
+                if results:
+                    result = results[0]
+                    if len(results) > 1:
+                        result["_additional_epos"] = results[1:]
+                    return result
+                return None
+            else:
+                # Single object response (backwards compatible)
+                result = parsed
+                result["parse_model"] = "gemini"
+                result.setdefault("confidence_score", 0.6)
+                result.setdefault("needs_review", result.get("confidence_score", 0.5) < 0.7)
+                return result
 
         except Exception as e:
             print(f"Gemini parsing failed: {e}")

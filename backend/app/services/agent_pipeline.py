@@ -148,6 +148,51 @@ class AgentPipelineService:
             result["created"] = True
             result["needs_review"] = needs_review
 
+            # Step 3b: Create additional EPOs if multi-lot email
+            additional_epos = parsed.get("_additional_epos", [])
+            additional_ids = []
+            for extra in additional_epos:
+                try:
+                    extra_token = secrets.token_urlsafe(32)
+                    extra_epo = EPO(
+                        company_id=company_id,
+                        email_connection_id=email_connection_id,
+                        created_by_id=submitted_by_id,
+                        vendor_name=(
+                            builder_name
+                            or extra.get("builder_name")
+                            or extra.get("vendor_name")
+                            or vendor_name
+                        ),
+                        vendor_email=builder_email or vendor_email,
+                        community=extra.get("community") or community,
+                        lot_number=extra.get("lot_number"),
+                        description=extra.get("description"),
+                        amount=extra.get("amount"),
+                        confirmation_number=extra.get("confirmation_number"),
+                        status=EPOStatus.PENDING,
+                        confidence_score=extra.get("confidence_score", confidence_score),
+                        parse_model=parse_model,
+                        raw_email_subject=email_subject,
+                        raw_email_body=email_body,
+                        synced_from_email=True,
+                        vendor_token=extra_token,
+                        needs_review=extra.get("confidence_score", confidence_score) < 0.8,
+                    )
+                    session.add(extra_epo)
+                    await session.flush()
+                    additional_ids.append(extra_epo.id)
+                    logger.info(
+                        f"Created additional EPO #{extra_epo.id} "
+                        f"(lot={extra.get('lot_number')}, amount={extra.get('amount')})"
+                    )
+                except Exception as e:
+                    logger.error(f"Error creating additional EPO: {e}")
+
+            if additional_ids:
+                result["additional_epo_ids"] = additional_ids
+                logger.info(f"Multi-lot email: created {1 + len(additional_ids)} EPOs total")
+
             # Step 4: Send confirmation request email
             try:
                 company_result = await session.execute(

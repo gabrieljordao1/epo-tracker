@@ -182,7 +182,7 @@ export default function TeamPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-text3 max-w-[200px] truncate">{e.description}</td>
-                    <td className="px-4 py-3 font-mono text-text1">${e.amount}</td>
+                    <td className="px-4 py-3 font-mono text-text1">{e.amount != null ? `$${e.amount}` : "—"}</td>
                     <td className="px-4 py-3">
                       <span
                         className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-md border"

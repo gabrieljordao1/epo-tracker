@@ -80,6 +80,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
+    work_email = Column(String(255), unique=True, nullable=True, index=True)
     full_name = Column(String(255), nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(SQLEnum(UserRole), default=UserRole.FIELD, nullable=False)

@@ -102,8 +102,8 @@ export default function EPOsPage() {
     if (filter !== "all" && epo.status !== filter) return false;
     if (
       search &&
-      !epo.vendor_name.toLowerCase().includes(search.toLowerCase()) &&
-      !epo.description.toLowerCase().includes(search.toLowerCase())
+      !(epo.vendor_name || "").toLowerCase().includes(search.toLowerCase()) &&
+      !(epo.description || "").toLowerCase().includes(search.toLowerCase())
     )
       return false;
     return true;
@@ -252,7 +252,7 @@ export default function EPOsPage() {
                   {epo.description}
                 </td>
                 <td className="px-4 py-4 font-mono">
-                  ${epo.amount.toLocaleString()}
+                  {epo.amount != null ? `$${epo.amount.toLocaleString()}` : "—"}
                 </td>
                 <td className="px-4 py-4">
                   <span

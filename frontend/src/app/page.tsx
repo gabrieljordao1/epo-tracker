@@ -118,7 +118,7 @@ export default function Dashboard() {
     ? Object.entries(
         epos.reduce((acc: Record<string, number>, epo) => {
           const month = new Date(epo.created_at).toLocaleString("default", { month: "short" });
-          acc[month] = (acc[month] || 0) + epo.amount;
+          acc[month] = (acc[month] || 0) + (epo.amount || 0);
           return acc;
         }, {})
       ).map(([month, value]) => ({ month, value }))
