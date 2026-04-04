@@ -205,7 +205,7 @@ export default function EPOsPage() {
       <div className="card p-4 bg-green-dim border-green-bdr flex items-center gap-3">
         <div className="w-2 h-2 rounded-full bg-green"></div>
         <span className="text-sm text-text2">
-          Connected - synced <span className="font-mono">3m ago</span>
+          Email sync active
         </span>
       </div>
 
