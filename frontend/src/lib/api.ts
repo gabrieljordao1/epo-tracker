@@ -274,6 +274,15 @@ export async function connectEmail(emailAddress: string, provider: string): Prom
   return res.json();
 }
 
+export async function disconnectEmail(connectionId: number): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/email/disconnect/${connectionId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to disconnect email");
+  return res.json();
+}
+
 export async function triggerEmailSync(): Promise<any> {
   const res = await fetch(`${API_BASE}/api/email/sync`, {
     method: "POST",

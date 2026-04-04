@@ -1,28 +1,128 @@
 "use client";
 
-import { Mail, Sheet, Lock, Zap } from "lucide-react";
+import { useState, useEffect } from "react";
+import {
+  Mail,
+  Sheet,
+  Zap,
+  ExternalLink,
+  RefreshCw,
+  Loader2,
+  Unplug,
+  CheckCircle,
+  AlertTriangle,
+} from "lucide-react";
+import {
+  startGmailOAuth,
+  getEmailStatus,
+  triggerEmailSync,
+  disconnectEmail,
+} from "@/lib/api";
 
 export default function IntegrationsPage() {
+  const [emailStatus, setEmailStatus] = useState<any>(null);
+  const [connectingGmail, setConnectingGmail] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [disconnecting, setDisconnecting] = useState<number | null>(null);
+  const [banner, setBanner] = useState<{
+    type: "success" | "error";
+    msg: string;
+  } | null>(null);
+
+  useEffect(() => {
+    loadEmailStatus();
+
+    // Check URL params for OAuth result
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("success") === "gmail_connected") {
+      setBanner({ type: "success", msg: "Gmail connected successfully!" });
+      loadEmailStatus();
+    } else if (params.get("error")) {
+      setBanner({
+        type: "error",
+        msg: `Connection failed: ${params.get("error")?.replace(/_/g, " ")}`,
+      });
+    }
+  }, []);
+
+  const loadEmailStatus = async () => {
+    try {
+      const status = await getEmailStatus();
+      setEmailStatus(status);
+    } catch {
+      setEmailStatus(null);
+    }
+  };
+
+  const handleConnectGmail = async () => {
+    setConnectingGmail(true);
+    try {
+      const data = await startGmailOAuth();
+      if (data.auth_url) {
+        window.location.href = data.auth_url;
+      }
+    } catch (err: any) {
+      setBanner({
+        type: "error",
+        msg: err.message || "Failed to start Gmail connection",
+      });
+      setConnectingGmail(false);
+    }
+  };
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const result = await triggerEmailSync();
+      setBanner({ type: "success", msg: result.message || "Sync complete" });
+      loadEmailStatus();
+    } catch (err: any) {
+      setBanner({ type: "error", msg: err.message || "Sync failed" });
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const handleDisconnect = async (connectionId: number) => {
+    setDisconnecting(connectionId);
+    try {
+      await disconnectEmail(connectionId);
+      setBanner({ type: "success", msg: "Gmail disconnected" });
+      loadEmailStatus();
+    } catch (err: any) {
+      setBanner({ type: "error", msg: err.message || "Disconnect failed" });
+    } finally {
+      setDisconnecting(null);
+    }
+  };
+
+  const gmailConnection = emailStatus?.connections?.find(
+    (c: any) => c.provider === "gmail" && c.is_active
+  );
+  const hasGmail = !!gmailConnection;
+
   const integrations = [
     {
       name: "Gmail",
       description: "Sync EPOs directly from Gmail",
       icon: Mail,
-      active: true,
-      syncedAt: "3 minutes ago",
+      active: hasGmail,
+      connectionInfo: gmailConnection,
+      comingSoon: false,
     },
     {
       name: "Google Sheets",
       description: "Export data to Google Sheets",
       icon: Sheet,
-      active: true,
-      syncedAt: "15 minutes ago",
+      active: false,
+      comingSoon: true,
     },
     {
       name: "Outlook",
       description: "Sync EPOs from Outlook",
       icon: Mail,
       active: false,
+      comingSoon: true,
     },
     {
       name: "QuickBooks",
@@ -39,12 +139,36 @@ export default function IntegrationsPage() {
       <div>
         <h1 className="text-3xl font-semibold mb-2">Integrations</h1>
         <p className="text-text2">
-          Connect your favorite tools to streamline EPO management
+          Connect your tools to streamline EPO management
         </p>
       </div>
 
+      {/* Banner */}
+      {banner && (
+        <div
+          className={`card p-4 flex items-center gap-3 ${
+            banner.type === "success"
+              ? "bg-green-dim border-green-bdr"
+              : "bg-red-dim border-red-bdr"
+          }`}
+        >
+          {banner.type === "success" ? (
+            <CheckCircle className="text-green flex-shrink-0" size={18} />
+          ) : (
+            <AlertTriangle className="text-red flex-shrink-0" size={18} />
+          )}
+          <span className="text-sm">{banner.msg}</span>
+          <button
+            onClick={() => setBanner(null)}
+            className="ml-auto text-text3 hover:text-text1 text-sm"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Integration Grid */}
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {integrations.map((integration) => {
           const Icon = integration.icon;
           const borderClass = integration.active
@@ -71,30 +195,82 @@ export default function IntegrationsPage() {
                     <h3 className="font-semibold text-text1">
                       {integration.name}
                     </h3>
-                    <p className="text-sm text-text3">{integration.description}</p>
+                    <p className="text-sm text-text3">
+                      {integration.description}
+                    </p>
                   </div>
                 </div>
                 {integration.active && (
-                  <div className="w-2 h-2 rounded-full bg-green flex-shrink-0"></div>
+                  <div className="w-2 h-2 rounded-full bg-green flex-shrink-0 mt-2" />
                 )}
               </div>
 
-              {integration.active && !integration.comingSoon && (
-                <div className="mb-4 p-3 bg-surface rounded-lg">
-                  <p className="text-xs text-text3">
-                    <span className="font-mono">Last synced</span>: {integration.syncedAt}
+              {/* Connection details for Gmail */}
+              {integration.name === "Gmail" && integration.connectionInfo && (
+                <div className="mb-4 p-3 bg-surface rounded-lg space-y-1">
+                  <p className="text-sm text-text1">
+                    {integration.connectionInfo.email_address}
                   </p>
+                  {integration.connectionInfo.last_sync_at && (
+                    <p className="text-xs text-text3 font-mono">
+                      Last synced:{" "}
+                      {new Date(
+                        integration.connectionInfo.last_sync_at
+                      ).toLocaleString()}
+                    </p>
+                  )}
                 </div>
               )}
 
               <div className="mt-auto pt-4 border-t border-card-border">
                 {integration.comingSoon ? (
-                  <button disabled className="btn-secondary w-full text-center opacity-50">
+                  <button
+                    disabled
+                    className="btn-secondary w-full text-center opacity-50"
+                  >
                     Coming Soon
                   </button>
-                ) : integration.active ? (
-                  <button className="btn-secondary w-full text-center">
-                    Configure
+                ) : integration.name === "Gmail" && integration.active ? (
+                  <div className="flex gap-3">
+                    <button
+                      onClick={handleSync}
+                      disabled={syncing}
+                      className="btn-secondary flex-1 text-center flex items-center justify-center gap-2"
+                    >
+                      {syncing ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <RefreshCw size={14} />
+                      )}
+                      {syncing ? "Syncing..." : "Sync Now"}
+                    </button>
+                    <button
+                      onClick={() =>
+                        handleDisconnect(integration.connectionInfo.id)
+                      }
+                      disabled={disconnecting === integration.connectionInfo?.id}
+                      className="btn-secondary text-center flex items-center justify-center gap-2 text-red hover:bg-red-dim"
+                    >
+                      {disconnecting === integration.connectionInfo?.id ? (
+                        <Loader2 size={14} className="animate-spin" />
+                      ) : (
+                        <Unplug size={14} />
+                      )}
+                      Disconnect
+                    </button>
+                  </div>
+                ) : integration.name === "Gmail" ? (
+                  <button
+                    onClick={handleConnectGmail}
+                    disabled={connectingGmail}
+                    className="btn-primary w-full text-center flex items-center justify-center gap-2"
+                  >
+                    {connectingGmail ? (
+                      <Loader2 size={14} className="animate-spin" />
+                    ) : (
+                      <ExternalLink size={14} />
+                    )}
+                    {connectingGmail ? "Connecting..." : "Connect Gmail"}
                   </button>
                 ) : (
                   <button className="btn-primary w-full text-center">

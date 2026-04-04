@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 GMAIL_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.labels",
+    "https://www.googleapis.com/auth/userinfo.email",
 ]
 
 
@@ -27,63 +28,63 @@ class GmailSyncService:
         self.redirect_uri = redirect_uri
 
     def get_auth_url(self, state: str = "") -> str:
-        """Generate the OAuth consent URL for Gmail."""
+        """Generate the OAuth consent URL for Gmail.
+
+        Uses direct URL construction instead of google_auth_oauthlib.flow.Flow
+        to avoid PKCE (code_challenge) issues. Since this is a server-side app
+        with a client_secret, PKCE is not required.
+        """
         try:
-            from google_auth_oauthlib.flow import Flow
+            from urllib.parse import urlencode
 
-            flow = Flow.from_client_config(
-                {
-                    "web": {
-                        "client_id": self.client_id,
-                        "client_secret": self.client_secret,
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "redirect_uris": [self.redirect_uri],
-                    }
-                },
-                scopes=GMAIL_SCOPES,
-            )
-            flow.redirect_uri = self.redirect_uri
-
-            auth_url, _ = flow.authorization_url(
-                access_type="offline",
-                include_granted_scopes="true",
-                prompt="consent",
-                state=state,
-            )
+            params = {
+                "client_id": self.client_id,
+                "redirect_uri": self.redirect_uri,
+                "response_type": "code",
+                "scope": " ".join(GMAIL_SCOPES),
+                "access_type": "offline",
+                "include_granted_scopes": "true",
+                "prompt": "consent",
+                "state": state,
+            }
+            auth_url = f"https://accounts.google.com/o/oauth2/auth?{urlencode(params)}"
             return auth_url
-        except ImportError:
-            logger.error("google-auth-oauthlib not installed")
-            return ""
         except Exception as e:
             logger.error(f"Failed to generate auth URL: {e}")
             return ""
 
     async def exchange_code(self, code: str) -> Dict[str, Any]:
-        """Exchange authorization code for tokens."""
-        try:
-            from google_auth_oauthlib.flow import Flow
+        """Exchange authorization code for tokens.
 
-            flow = Flow.from_client_config(
-                {
-                    "web": {
+        Uses direct HTTP POST to Google's token endpoint instead of
+        google_auth_oauthlib.flow.Flow to avoid PKCE code_verifier mismatch
+        (the Flow object from get_auth_url is not available here).
+        """
+        try:
+            import httpx
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    "https://oauth2.googleapis.com/token",
+                    data={
+                        "code": code,
                         "client_id": self.client_id,
                         "client_secret": self.client_secret,
-                        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                        "token_uri": "https://oauth2.googleapis.com/token",
-                        "redirect_uris": [self.redirect_uri],
-                    }
-                },
-                scopes=GMAIL_SCOPES,
-            )
-            flow.redirect_uri = self.redirect_uri
-            flow.fetch_token(code=code)
+                        "redirect_uri": self.redirect_uri,
+                        "grant_type": "authorization_code",
+                    },
+                )
 
-            credentials = flow.credentials
+            if response.status_code != 200:
+                error_detail = response.text
+                logger.error(f"Token exchange HTTP {response.status_code}: {error_detail}")
+                return {"success": False, "error": error_detail}
+
+            tokens = response.json()
             return {
-                "access_token": credentials.token,
-                "refresh_token": credentials.refresh_token,
-                "token_expires_at": credentials.expiry.isoformat() if credentials.expiry else None,
+                "access_token": tokens.get("access_token"),
+                "refresh_token": tokens.get("refresh_token"),
+                "token_expires_at": tokens.get("expires_in"),
                 "success": True,
             }
         except Exception as e:

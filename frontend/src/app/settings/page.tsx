@@ -15,6 +15,7 @@ import {
   startGmailOAuth,
   getEmailStatus,
   triggerEmailSync,
+  disconnectEmail,
 } from "@/lib/api";
 
 export default function SettingsPage() {
@@ -41,6 +42,7 @@ function SettingsContent() {
   const [connectingGmail, setConnectingGmail] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<number | null>(null);
   const [oauthBanner, setOauthBanner] = useState<{
     type: "success" | "error";
     msg: string;
@@ -98,6 +100,22 @@ function SettingsContent() {
     } finally {
       setSyncing(false);
       setTimeout(() => setSyncResult(null), 5000);
+    }
+  };
+
+  const handleDisconnect = async (connectionId: number) => {
+    setDisconnecting(connectionId);
+    try {
+      await disconnectEmail(connectionId);
+      setOauthBanner({ type: "success", msg: "Gmail disconnected" });
+      loadEmailStatus();
+    } catch (err: any) {
+      setOauthBanner({
+        type: "error",
+        msg: err.message || "Failed to disconnect",
+      });
+    } finally {
+      setDisconnecting(null);
     }
   };
 
@@ -260,12 +278,24 @@ function SettingsContent() {
                         {conn.provider}
                       </span>
                     </div>
-                    {conn.last_sync_at && (
-                      <span className="text-xs text-text3 font-mono">
-                        Last sync:{" "}
-                        {new Date(conn.last_sync_at).toLocaleString()}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-3">
+                      {conn.last_sync_at && (
+                        <span className="text-xs text-text3 font-mono">
+                          Last sync:{" "}
+                          {new Date(conn.last_sync_at).toLocaleString()}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => handleDisconnect(conn.id)}
+                        disabled={disconnecting === conn.id}
+                        className="text-xs text-red hover:text-red/80 flex items-center gap-1"
+                      >
+                        {disconnecting === conn.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : null}
+                        Disconnect
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

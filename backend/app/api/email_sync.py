@@ -152,9 +152,21 @@ async def gmail_oauth_callback(
             status_code=302,
         )
 
-    # Get user's email from Google
-    # For now, store with a placeholder — in production, call Google userinfo API
-    email_address = f"user_{user_id}@gmail.com"
+    # Get user's actual email from Google userinfo API
+    email_address = f"user_{user_id}@gmail.com"  # fallback
+    try:
+        import httpx
+        async with httpx.AsyncClient() as http_client:
+            userinfo_resp = await http_client.get(
+                "https://www.googleapis.com/oauth2/v2/userinfo",
+                headers={"Authorization": f"Bearer {token_data['access_token']}"},
+            )
+            if userinfo_resp.status_code == 200:
+                userinfo = userinfo_resp.json()
+                email_address = userinfo.get("email", email_address)
+                logger.info(f"Got Gmail address from userinfo: {email_address}")
+    except Exception as e:
+        logger.warning(f"Could not fetch userinfo, using fallback email: {e}")
 
     # Store or update the connection
     query = select(EmailConnection).where(
@@ -187,6 +199,32 @@ async def gmail_oauth_callback(
 
 
 # ─── Email Sync ───────────────────────────────────
+
+@router.delete("/disconnect/{connection_id}")
+async def disconnect_email(
+    connection_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Disconnect an email connection."""
+    query = select(EmailConnection).where(
+        and_(
+            EmailConnection.id == connection_id,
+            EmailConnection.company_id == current_user.company_id,
+        )
+    )
+    result = await session.execute(query)
+    connection = result.scalars().first()
+
+    if not connection:
+        raise HTTPException(status_code=404, detail="Connection not found")
+
+    await session.delete(connection)
+    await session.commit()
+
+    logger.info(f"Disconnected email {connection.email_address} for company={current_user.company_id}")
+    return {"success": True, "message": f"Disconnected {connection.email_address}"}
+
 
 @router.post("/sync")
 async def trigger_email_sync(
