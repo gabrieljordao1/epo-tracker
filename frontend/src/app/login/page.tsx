@@ -18,11 +18,10 @@ export default function LoginPage() {
   // Register fields
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
-  const [industry, setIndustry] = useState("paint");
+  const [industry, setIndustry] = useState("paint_drywall");
 
   const industries = [
-    { value: "paint", label: "Paint" },
-    { value: "drywall", label: "Drywall" },
+    { value: "paint_drywall", label: "Paint & Drywall" },
     { value: "plumbing", label: "Plumbing" },
     { value: "electrical", label: "Electrical" },
     { value: "hvac", label: "HVAC" },
@@ -87,14 +86,14 @@ export default function LoginPage() {
             Stop losing money on unconfirmed EPOs
           </h2>
           <p className="text-white/40 leading-relaxed">
-            Track extra purchase orders across all your vendor trades.
-            Auto-sync emails, send follow-ups with one click, and let vendors
+            Track extra purchase orders across all your builders.
+            Auto-sync emails, send follow-ups with one click, and let builders
             confirm through a simple link — no portal login needed.
           </p>
           <div className="mt-10 space-y-4">
             {[
               "Email-first intake — EPOs sync automatically",
-              "Vendor self-service — no login required",
+              "Builder self-service — no login required",
               "One-click batch follow-ups",
               "Export to CSV anytime",
             ].map((feature, i) => (
