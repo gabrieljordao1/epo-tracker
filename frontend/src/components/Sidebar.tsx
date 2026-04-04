@@ -12,6 +12,7 @@ import {
   LogOut,
   LogIn,
 } from "lucide-react";
+import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
 import { logout, getAuthToken } from "@/lib/api";
 
@@ -22,7 +23,7 @@ export function Sidebar() {
 
   const displayUser = activeUser || currentUser;
   const displayName = displayUser?.full_name || "Gabriel Jordao";
-  const displayCompany = "Stancil Painting & Drywall";
+  const displayCompany = displayUser?.company_name || "Your Company";
   const initials = displayName.split(" ").map((n) => n[0]).join("");
 
   const navItems = [
@@ -43,8 +44,8 @@ export function Sidebar() {
     <div className="w-[220px] bg-bg border-r border-card-border flex flex-col">
       {/* Logo */}
       <div className="px-6 py-8 border-b border-card-border flex items-center gap-3">
-        <FileText size={24} className="text-green" />
-        <span className="font-semibold text-lg tracking-tight">EPO Tracker</span>
+        <OnyxLogo size={28} />
+        <span className="font-semibold text-lg tracking-tight">Onyx</span>
       </div>
 
       {/* Nav Items */}

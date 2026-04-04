@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
+import { OnyxLogo } from "@/components/OnyxLogo";
 import { login, register } from "@/lib/api";
 
 export default function LoginPage() {
@@ -77,9 +78,9 @@ export default function LoginPage() {
       <div className="hidden lg:flex flex-1 items-center justify-center bg-gradient-to-br from-[#0a0a0a] to-[#0f1a15] border-r border-white/5">
         <div className="max-w-md px-12">
           <div className="flex items-center gap-3 mb-8">
-            <FileText className="text-emerald-400" size={32} />
+            <OnyxLogo size={36} />
             <span className="text-2xl font-semibold text-white tracking-tight">
-              EPO Tracker
+              Onyx
             </span>
           </div>
           <h2 className="text-3xl font-semibold text-white mb-4 leading-tight">
@@ -111,8 +112,8 @@ export default function LoginPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="flex items-center gap-3 mb-8 lg:hidden">
-            <FileText className="text-emerald-400" size={28} />
-            <span className="text-xl font-semibold text-white">EPO Tracker</span>
+            <OnyxLogo size={32} />
+            <span className="text-xl font-semibold text-white">Onyx</span>
           </div>
 
           <h1 className="text-2xl font-semibold text-white mb-2">
@@ -120,7 +121,7 @@ export default function LoginPage() {
           </h1>
           <p className="text-white/40 mb-8">
             {mode === "login"
-              ? "Sign in to your EPO Tracker account"
+              ? "Sign in to your Onyx account"
               : "Start tracking EPOs for your team in minutes"}
           </p>
 
@@ -229,7 +230,7 @@ export default function LoginPage() {
           <div className="mt-8 text-center border-t border-white/5 pt-6">
             {mode === "login" ? (
               <p className="text-sm text-white/40">
-                New to EPO Tracker?{" "}
+                New to Onyx?{" "}
                 <button
                   onClick={() => { setMode("register"); setError(""); }}
                   className="text-emerald-400 hover:text-emerald-300 font-medium"

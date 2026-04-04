@@ -7,13 +7,13 @@ import {
   AlertTriangle,
   Clock,
   XCircle,
-  FileText,
   Building2,
   MapPin,
   DollarSign,
   Hash,
   Send,
 } from "lucide-react";
+import { OnyxLogo } from "@/components/OnyxLogo";
 import {
   getVendorEPO,
   vendorConfirmEPO,
@@ -170,10 +170,10 @@ function VendorContent() {
       {/* Header */}
       <div className="border-b border-white/8 bg-white/[0.03]">
         <div className="max-w-2xl mx-auto px-6 py-6 flex items-center gap-3">
-          <FileText className="text-emerald-400" size={24} />
+          <OnyxLogo size={28} />
           <div>
-            <h1 className="text-lg font-semibold text-white">EPO Tracker</h1>
-            <p className="text-xs text-white/40">Vendor Portal</p>
+            <h1 className="text-lg font-semibold text-white">Onyx</h1>
+            <p className="text-xs text-white/40">Builder Portal</p>
           </div>
         </div>
       </div>
@@ -375,7 +375,7 @@ function VendorContent() {
         {/* Footer */}
         <div className="text-center pt-4 pb-8">
           <p className="text-white/20 text-xs">
-            Powered by EPO Tracker &middot; Secure vendor portal
+            Powered by Onyx &middot; Secure builder portal
           </p>
         </div>
       </div>

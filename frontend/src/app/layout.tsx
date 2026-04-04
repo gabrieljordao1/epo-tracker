@@ -6,8 +6,8 @@ import { LayoutShell } from "@/components/LayoutShell";
 import "@/globals.css";
 
 export const metadata: Metadata = {
-  title: "EPO Tracker",
-  description: "EPO tracking for construction companies",
+  title: "Onyx",
+  description: "EPO tracking for construction trades",
 };
 
 export default function RootLayout({
