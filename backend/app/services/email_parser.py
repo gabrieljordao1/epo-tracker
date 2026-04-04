@@ -47,29 +47,29 @@ class EmailParserService:
         """
         Parse email through 3-tier pipeline.
         Returns standardized dict with parsed data.
+
+        Strategy: Always prefer AI parsing for best extraction.
+        Regex is only used as fallback when no AI key is available.
         """
 
         # Sanitize inputs first to prevent XSS/injection
         email_subject = sanitize_text_field(email_subject, max_length=500)
         email_body = sanitize_email_body(email_body)
 
-        # Tier 1: Try regex first (free)
-        regex_result = self._parse_regex(email_subject, email_body, vendor_email)
-        if regex_result.get("confidence_score", 0) >= 0.7:
-            return regex_result
-
-        # Tier 2: Try Gemini Flash if available
+        # Tier 1: Try Gemini Flash (preferred — handles informal emails well)
         if settings.GOOGLE_AI_API_KEY:
             gemini_result = await self._parse_gemini(email_subject, email_body, vendor_email)
-            if gemini_result and gemini_result.get("confidence_score", 0) >= 0.6:
+            if gemini_result and gemini_result.get("confidence_score", 0) >= 0.5:
                 return gemini_result
 
-        # Tier 3: Fall back to Claude Haiku
+        # Tier 2: Fall back to Claude Haiku
         if settings.ANTHROPIC_API_KEY:
             haiku_result = await self._parse_haiku(email_subject, email_body, vendor_email)
-            return haiku_result
+            if haiku_result and haiku_result.get("confidence_score", 0) >= 0.5:
+                return haiku_result
 
-        # If all fail, return low-confidence regex result
+        # Tier 3: Regex fallback (free, but limited with informal emails)
+        regex_result = self._parse_regex(email_subject, email_body, vendor_email)
         return regex_result
 
     # Standardized subject pattern: "EPO - Community - Lot # - Builder"
@@ -311,38 +311,52 @@ class EmailParserService:
 
             client = genai.Client(api_key=settings.GOOGLE_AI_API_KEY)
 
-            prompt = f"""Parse this construction EPO (Extra Purchase Order) email and extract structured data.
+            # Build vendor context for the prompt
+            vendor_hint = ""
+            if vendor_email:
+                vendor_hint = f"\nSender/recipient email: {vendor_email}"
 
-IMPORTANT: An email may contain MULTIPLE EPO requests (for different lots). If you find multiple lots or line items, return a JSON ARRAY with one object per EPO. If there is only one EPO, still return an array with one object.
+            prompt = f"""You are an expert at reading construction emails from field managers at paint & drywall companies. Extract EPO (Extra Purchase Order / Extra Paint Order) data from this email.
 
-The subject line may follow this format: "EPO - Community - Lot # - Builder"
-Example: "EPO - Galloway - Lot 12 - Meritage Homes"
-
-The builder name may be in the subject or body. The email body contains the work description, dollar amounts, and other details.
+CRITICAL RULES:
+1. Emails are often INFORMAL — short texts, missing punctuation, abbreviations, typos. This is normal. Extract what you can.
+2. An email may contain MULTIPLE lots. If you see "lot 2b and 2c" or "lots 5, 6, 7" — create a SEPARATE entry for each lot.
+3. Community/subdivision names may be misspelled (e.g. "plott" = "Plott", "gallway" = "Galloway", "mallrd park" = "Mallard Park"). Fix obvious typos.
+4. The builder name might be in the subject, body, email signature, OR derivable from the sender's email domain (e.g. "john@redcedarco.com" → "Red Cedar Co").
+5. For description: use the actual work being described. If no explicit "Description:" field, summarize what work the email is about. Include the full context — don't leave it blank.
+6. Dollar amounts may appear as "$350", "350.00", "350 each", or described in words.
+7. If the email just says "epo for lot X at Y" with no amount, still extract what you have — set amount to null and confidence lower.
 
 Email Subject: {email_subject}
 Email Body:
-{email_body}
+{email_body}{vendor_hint}
 
-For EACH EPO found, extract these fields:
-- community: Subdivision/community name (string)
-- lot_number: Lot number (string)
-- builder_name: Builder/homebuilder company name (string, e.g. "Meritage Homes", "Pulte", "DR Horton")
-- description: Work description for this specific lot (string)
-- amount: Dollar amount as number (float) — look carefully in the body for dollar amounts like $350, $450, etc.
-- confirmation_number: PO or confirmation number if present (string or null)
-- confidence_score: Your confidence 0-1
-- needs_review: Boolean, true if uncertain about critical fields
+For EACH EPO/lot found, extract:
+- community: Subdivision/community name, properly capitalized (string, fix typos)
+- lot_number: Lot identifier (string, e.g. "2B", "12", "A-5")
+- builder_name: Builder/homebuilder company (string). Check subject, body, signature, and email domain.
+- description: What work is being requested. Use the email content to describe it. NEVER leave blank — at minimum summarize the email. (string)
+- amount: Dollar amount as float, or null if not mentioned
+- confirmation_number: PO/confirmation number if present, or null
+- confidence_score: 0-1 (be honest — 0.7+ if you got community+lot+builder, 0.5+ if missing some fields)
+- needs_review: true if missing critical fields (community, lot, or amount)
 
-Return ONLY a valid JSON array:
-[{{"community": "...", "lot_number": "...", "builder_name": "...", "description": "...", "amount": 350.0, "confirmation_number": null, "confidence_score": 0.9, "needs_review": false}}]"""
+Return ONLY a valid JSON array (one object per lot):
+[{{"community": "Plott", "lot_number": "2B", "builder_name": "Red Cedar Co", "description": "Extra paint order for touch-ups", "amount": null, "confirmation_number": null, "confidence_score": 0.75, "needs_review": true}}]"""
 
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
                 contents=prompt,
             )
 
-            response_text = response.text
+            response_text = response.text.strip()
+
+            # Strip markdown code fences if present (```json ... ```)
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                # Remove first line (```json) and last line (```)
+                lines = [l for l in lines if not l.strip().startswith("```")]
+                response_text = "\n".join(lines).strip()
 
             # Handle both array and single-object responses
             parsed = json.loads(response_text)
