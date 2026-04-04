@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Loader2 } from "lucide-react";
+import { ArrowRight, Loader2, HardHat, BarChart3 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { login, register } from "@/lib/api";
 
@@ -20,6 +20,7 @@ export default function LoginPage() {
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [industry, setIndustry] = useState("paint_drywall");
+  const [role, setRole] = useState<"field" | "manager">("field");
 
   const industries = [
     { value: "paint_drywall", label: "Paint & Drywall" },
@@ -45,8 +46,13 @@ export default function LoginPage() {
     setError("");
     setLoading(true);
     try {
-      await login(email, password);
-      router.push("/");
+      const data = await login(email, password);
+      // Redirect based on role
+      if (data.user.role === "field") {
+        router.push("/epos");
+      } else {
+        router.push("/");
+      }
     } catch (err: any) {
       setError(err.message || "Login failed. Check your email and password.");
     } finally {
@@ -63,8 +69,13 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      await register(email, password, fullName, companyName, industry);
-      router.push("/");
+      await register(email, password, fullName, companyName, industry, role);
+      // Redirect based on role
+      if (role === "field") {
+        router.push("/epos");
+      } else {
+        router.push("/");
+      }
     } catch (err: any) {
       setError(err.message || "Registration failed. Try a different email.");
     } finally {
@@ -135,6 +146,45 @@ export default function LoginPage() {
             <div className="space-y-4">
               {mode === "register" && (
                 <>
+                  {/* Role Selector */}
+                  <div>
+                    <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-3">
+                      I am a...
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setRole("field")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
+                          role === "field"
+                            ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-400"
+                            : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
+                        }`}
+                      >
+                        <HardHat size={24} />
+                        <span className="text-sm font-medium">Field Manager</span>
+                        <span className="text-[11px] text-white/30 leading-tight text-center">
+                          Submit EPOs from the field
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRole("manager")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
+                          role === "manager"
+                            ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-400"
+                            : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
+                        }`}
+                      >
+                        <BarChart3 size={24} />
+                        <span className="text-sm font-medium">Operations Manager</span>
+                        <span className="text-[11px] text-white/30 leading-tight text-center">
+                          Oversee team &amp; analytics
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
                     <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-2">
                       Full Name

@@ -50,14 +50,17 @@ async def register(
     session.add(company)
     await session.flush()
 
-    # Create admin user
+    # Create user with selected role
     hashed_password = get_password_hash(request.password)
+    # Map role string to enum (default to FIELD if invalid)
+    role_map = {"field": UserRole.FIELD, "manager": UserRole.MANAGER, "admin": UserRole.ADMIN}
+    user_role = role_map.get(request.role, UserRole.FIELD)
     user = User(
         email=request.email,
         full_name=request.full_name,
         hashed_password=hashed_password,
         company_id=company.id,
-        role=UserRole.ADMIN,
+        role=user_role,
     )
     session.add(user)
     await session.commit()

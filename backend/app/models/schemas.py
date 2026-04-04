@@ -62,6 +62,7 @@ class RegisterRequest(BaseModel):
     password: str
     company_name: str
     industry: Industry
+    role: str = "field"  # "field" or "manager"
 
 
 class LoginRequest(BaseModel):

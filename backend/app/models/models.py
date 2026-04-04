@@ -16,6 +16,7 @@ class UserRole(str, Enum):
 
 class Industry(str, Enum):
     """Industry / trade enumeration"""
+    PAINT_DRYWALL = "paint_drywall"
     PAINT = "paint"
     DRYWALL = "drywall"
     FLOORING = "flooring"
@@ -33,6 +34,7 @@ class Industry(str, Enum):
     WINDOWS = "windows"
     GUTTERS = "gutters"
     GENERAL = "general"
+    OTHER = "other"
 
 
 class PlanTier(str, Enum):

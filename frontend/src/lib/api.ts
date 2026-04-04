@@ -105,6 +105,7 @@ export async function register(
   fullName: string,
   companyName: string,
   industry: string,
+  role: string = "field",
 ): Promise<AuthResponse> {
   const res = await fetch(`${API_BASE}/api/auth/register`, {
     method: "POST",
@@ -115,6 +116,7 @@ export async function register(
       full_name: fullName,
       company_name: companyName,
       industry,
+      role,
     }),
   });
   if (!res.ok) {
