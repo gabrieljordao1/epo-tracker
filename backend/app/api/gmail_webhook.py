@@ -31,14 +31,6 @@ router = APIRouter(prefix="/api/webhook", tags=["webhooks"])
 # In-memory deduplication cache for recent historyIds
 _recent_notifications = set()
 
-# Known internal email addresses to exclude when identifying the builder
-INTERNAL_EMAIL_PATTERNS = [
-    "stancil.field.tracker@gmail.com",
-    "paintingepo@stancilservices.com",
-    "@stancilservices.com",
-]
-
-
 def _extract_email_address(raw: str) -> str:
     """Extract email from 'Name <email@domain.com>' format."""
     match = re.search(r"<(.+?)>", raw)
@@ -62,19 +54,53 @@ def _extract_all_emails(header_value: str) -> list:
     return emails
 
 
-def _is_internal_email(email: str) -> bool:
-    """Check if an email matches any known internal address/pattern."""
+def _is_internal_email(email: str, internal_addresses: set, internal_domains: set) -> bool:
+    """
+    Check if an email is internal to the company.
+    Uses dynamic sets built from the company's email connections and user emails.
+    """
     email_lower = email.lower()
-    for pattern in INTERNAL_EMAIL_PATTERNS:
-        if pattern.startswith("@"):
-            # Domain pattern
-            if email_lower.endswith(pattern):
-                return True
-        else:
-            # Exact match
-            if email_lower == pattern:
-                return True
+    # Check exact match against known internal addresses
+    if email_lower in internal_addresses:
+        return True
+    # Check domain match against company domains
+    domain = email_lower.split("@")[-1] if "@" in email_lower else ""
+    if domain in internal_domains:
+        return True
     return False
+
+
+async def _build_internal_email_set(session: AsyncSession, company_id: int, tracker_email: str) -> tuple:
+    """
+    Dynamically build the set of internal email addresses and domains
+    for a given company. This makes the system multi-tenant — no hardcoded emails.
+
+    Returns: (internal_addresses: set, internal_domains: set)
+    """
+    internal_addresses = set()
+    internal_domains = set()
+
+    # 1) The tracker email itself is always internal
+    internal_addresses.add(tracker_email.lower())
+
+    # 2) All company users' emails are internal
+    user_query = select(User.email).where(User.company_id == company_id)
+    result = await session.execute(user_query)
+    for (user_email,) in result:
+        email_lower = user_email.lower()
+        internal_addresses.add(email_lower)
+        domain = email_lower.split("@")[-1]
+        internal_domains.add(domain)
+
+    # 3) All company email connections are internal
+    conn_query = select(EmailConnection.email_address).where(
+        EmailConnection.company_id == company_id
+    )
+    conn_result = await session.execute(conn_query)
+    for (conn_email,) in conn_result:
+        internal_addresses.add(conn_email.lower())
+
+    return internal_addresses, internal_domains
 
 
 def _builder_name_from_domain(email: str) -> str:
@@ -150,6 +176,16 @@ async def _process_gmail_notification(
         message_ids = history_result.get("messages", [])
         logger.info(f"Found {len(message_ids)} new messages")
 
+        # Build the dynamic internal email set for this company
+        # This makes multi-tenant filtering work — no hardcoded emails
+        internal_addresses, internal_domains = await _build_internal_email_set(
+            session, company_id, email_address
+        )
+        logger.info(
+            f"Internal email filter: {len(internal_addresses)} addresses, "
+            f"{len(internal_domains)} domains"
+        )
+
         # Process each message
         for message_id in message_ids:
             try:
@@ -203,7 +239,7 @@ async def _process_gmail_notification(
 
                 builder_email = ""
                 for recipient in all_recipients:
-                    if not _is_internal_email(recipient) and recipient != submitter_email:
+                    if not _is_internal_email(recipient, internal_addresses, internal_domains) and recipient != submitter_email:
                         builder_email = recipient
                         break
 

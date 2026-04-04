@@ -192,7 +192,7 @@ class EmailSyncService:
         epo = EPO(
             company_id=connection.company_id,
             email_connection_id=connection.id,
-            vendor_name=parsed_data.get("vendor_name") or "Unknown Vendor",
+            vendor_name=parsed_data.get("builder_name") or parsed_data.get("vendor_name") or "Unknown Builder",
             vendor_email=parsed_data.get("vendor_email"),
             lot_number=parsed_data.get("lot_number"),
             community=parsed_data.get("community"),
