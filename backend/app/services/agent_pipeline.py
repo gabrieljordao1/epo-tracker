@@ -77,7 +77,7 @@ class AgentPipelineService:
                 return result
 
             # Extract parsed data
-            vendor_name = parsed.get("vendor_name", "Unknown Vendor")
+            vendor_name = parsed.get("vendor_name") or "Unknown Vendor"
             community = parsed.get("community")
             lot_number = parsed.get("lot_number")
             description = parsed.get("description")
