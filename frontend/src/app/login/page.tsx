@@ -142,7 +142,7 @@ export default function LoginPage() {
                       type="text"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Gabriel Jordao"
+                      placeholder="Your full name"
                       required
                       className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 transition-colors"
                     />
@@ -155,7 +155,7 @@ export default function LoginPage() {
                       type="text"
                       value={companyName}
                       onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Stancil Painting & Drywall"
+                      placeholder="Your company name"
                       required
                       className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 transition-colors"
                     />
