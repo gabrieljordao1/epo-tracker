@@ -22,6 +22,8 @@ import {
   Send,
   Clock,
   AlertCircle,
+  DollarSign,
+  FileText,
 } from "lucide-react";
 import {
   getStats,
@@ -156,31 +158,47 @@ export default function Dashboard() {
     value,
     change,
     isPositive,
+    icon,
+    color,
+    subtitle,
   }: {
     label: string;
     value: string;
     change: number;
     isPositive: boolean;
+    icon: React.ReactNode;
+    color: string;
+    subtitle?: string;
   }) => (
-    <motion.div className="card p-4 md:p-6" variants={fadeUp}>
-      <p className="label mb-2 md:mb-4">{label}</p>
-      <div className="flex items-end justify-between">
-        <motion.div
-          className="font-mono text-xl md:text-2xl font-semibold"
-          key={value}
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-        >
-          {value}
-        </motion.div>
+    <motion.div className="bg-[#111] rounded-lg p-6 border border-[#222]" variants={fadeUp}>
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <p className="text-text3 text-sm mb-1">{label}</p>
+          <div className="flex items-baseline gap-2">
+            <motion.span
+              className={`text-3xl font-bold ${color}`}
+              key={value}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+            >
+              {value}
+            </motion.span>
+          </div>
+        </div>
+        <div className={`w-12 h-12 md:w-14 md:h-14 rounded-full bg-[#1a1a1a] flex items-center justify-center border-2 ${color.replace("text-", "border-").replace("-400", "-500/30")}`}>
+          {icon}
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <p className="text-text3 text-xs">{subtitle || ""}</p>
         <div
-          className={`flex items-center gap-1 text-sm ${
-            isPositive ? "text-green" : "text-red"
+          className={`flex items-center gap-1 text-xs ${
+            isPositive ? "text-emerald-400" : "text-red-400"
           }`}
         >
-          {isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-          <span className="font-mono">{Math.abs(change || 0)}%</span>
+          {isPositive ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+          <span>{Math.abs(change || 0)}%</span>
         </div>
       </div>
     </motion.div>
@@ -212,11 +230,11 @@ export default function Dashboard() {
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       >
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold mb-1">Dashboard</h1>
+          <h1 className="text-3xl font-semibold mb-2 text-text1">Dashboard</h1>
           <AnimatePresence mode="wait">
             <motion.p
               key={activeUser?.id || "all"}
-              className="text-text2 text-sm"
+              className="text-text2"
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: 10 }}
@@ -286,12 +304,18 @@ export default function Dashboard() {
           value={stats.total.toString()}
           change={stats.followUpChange}
           isPositive={(stats.followUpChange || 0) >= 0}
+          icon={<FileText className="w-6 h-6 md:w-7 md:h-7 text-blue-400" />}
+          color="text-blue-400"
+          subtitle={`${stats.confirmed || 0} confirmed`}
         />
         <MetricCard
           label="Capture Rate"
           value={`${stats.capture_rate}%`}
           change={stats.captureRateChange}
           isPositive={(stats.captureRateChange || 0) >= 0}
+          icon={<TrendingUp className="w-6 h-6 md:w-7 md:h-7 text-emerald-400" />}
+          color="text-emerald-400"
+          subtitle={`${stats.confirmed || 0} of ${stats.total || 0} confirmed`}
         />
         <MetricCard
           label="Total Value"
@@ -302,12 +326,18 @@ export default function Dashboard() {
           }`}
           change={stats.valueChange}
           isPositive={(stats.valueChange || 0) >= 0}
+          icon={<DollarSign className="w-6 h-6 md:w-7 md:h-7 text-amber-400" />}
+          color="text-amber-400"
+          subtitle={`${stats.total || 0} total EPOs`}
         />
         <MetricCard
           label="Needs Follow-Up"
           value={stats.needs_followup.toString()}
           change={0}
           isPositive={true}
+          icon={<AlertCircle className="w-6 h-6 md:w-7 md:h-7 text-red-400" />}
+          color="text-red-400"
+          subtitle="Pending review"
         />
       </motion.div>
 
@@ -323,8 +353,8 @@ export default function Dashboard() {
         }}
       >
         {/* Revenue Trend */}
-        <div className="md:col-span-2 card p-4 md:p-6">
-          <h3 className="label mb-4 md:mb-6">Revenue Trend</h3>
+        <div className="md:col-span-2 bg-[#111] rounded-lg p-6 border border-[#222]">
+          <h3 className="text-lg font-semibold text-text1 mb-6">Revenue Trend</h3>
           {chartData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-[rgba(255,255,255,0.4)] text-sm">
               No EPO data yet. Create your first EPO to see trends here.
@@ -381,8 +411,8 @@ export default function Dashboard() {
         </div>
 
         {/* Activity Feed */}
-        <div className="card p-6">
-          <h3 className="label mb-4">Recent Activity</h3>
+        <div className="bg-[#111] rounded-lg p-6 border border-[#222]">
+          <h3 className="text-lg font-semibold text-text1 mb-4">Recent Activity</h3>
           <div className="space-y-3">
             {activity.length > 0 ? (
               activity.slice(0, 8).map((item, i) => (
@@ -425,8 +455,8 @@ export default function Dashboard() {
         }}
       >
         {/* Status Breakdown */}
-        <div className="md:col-span-2 card p-4 md:p-6">
-          <h3 className="label mb-4 md:mb-6">Status Breakdown</h3>
+        <div className="md:col-span-2 bg-[#111] rounded-lg p-6 border border-[#222]">
+          <h3 className="text-lg font-semibold text-text1 mb-6">Status Breakdown</h3>
           <div className="grid grid-cols-2 gap-x-8 gap-y-5">
             {statusData.map((item, i) => (
               <motion.div
@@ -437,7 +467,7 @@ export default function Dashboard() {
               >
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-text2">{item.status}</span>
-                  <span className="font-mono text-sm font-medium">
+                  <span className="text-sm font-semibold text-text1">
                     {item.count}
                   </span>
                 </div>
@@ -467,11 +497,11 @@ export default function Dashboard() {
 
         {/* Today's Stats Card */}
         {todayStats && (
-          <div className="card p-6 space-y-5">
-            <h3 className="label">Today&apos;s Snapshot</h3>
+          <div className="bg-[#111] rounded-lg p-6 border border-[#222] space-y-5">
+            <h3 className="text-lg font-semibold text-text1">Today&apos;s Snapshot</h3>
             <div>
               <p className="text-text3 text-xs mb-1">New EPOs Today</p>
-              <p className="font-mono text-2xl font-semibold">
+              <p className="text-2xl font-bold text-text1">
                 {todayStats.today_new}
               </p>
               <p className="text-text3 text-xs mt-1">
@@ -480,7 +510,7 @@ export default function Dashboard() {
             </div>
             <div className="border-t border-card-border pt-4">
               <p className="text-text3 text-xs mb-1">Needs Attention</p>
-              <p className="font-mono text-2xl font-semibold text-amber">
+              <p className="text-2xl font-bold text-amber-400">
                 {todayStats.needs_attention}
               </p>
               <p className="text-text3 text-xs mt-1">
@@ -495,12 +525,12 @@ export default function Dashboard() {
 
       {/* Monthly Volume */}
       <motion.div
-        className="card p-6"
+        className="bg-[#111] rounded-lg p-6 border border-[#222]"
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, delay: 0.5, ease: [0.16, 1, 0.3, 1] }}
       >
-        <h3 className="label mb-6">Monthly Volume</h3>
+        <h3 className="text-lg font-semibold text-text1 mb-6">Monthly Volume</h3>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={monthlyData}>
             <CartesianGrid
