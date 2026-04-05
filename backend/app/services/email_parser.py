@@ -3,6 +3,7 @@ import re
 import base64
 import logging
 from typing import Dict, Any, Optional, Tuple, List
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ..core.config import get_settings
 from .sanitize import sanitize_email_body, sanitize_text_field
 
@@ -347,10 +348,20 @@ For EACH EPO/lot found, extract:
 Return ONLY a valid JSON array (one object per lot):
 [{{"community": "Plott", "lot_number": "2B", "builder_name": "Red Cedar Co", "description": "Extra paint order for touch-ups", "amount": null, "confirmation_number": null, "confidence_score": 0.75, "needs_review": true}}]"""
 
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
+            # Retry wrapper for Gemini API calls (handles transient 429/500 errors)
+            @retry(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+                retry=retry_if_exception_type(Exception),
+                reraise=True,
             )
+            def _call_gemini():
+                return client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                )
+
+            response = _call_gemini()
 
             response_text = response.text.strip()
 
@@ -532,10 +543,19 @@ Extract:
 Return ONLY valid JSON:
 {{"intent": "confirmation", "confirmation_number": "PO-12345", "discount_details": null, "summary": "Builder confirmed and provided PO number", "confidence": 0.95}}"""
 
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=prompt,
+            @retry(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+                retry=retry_if_exception_type(Exception),
+                reraise=True,
             )
+            def _call_gemini_classify():
+                return client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=prompt,
+                )
+
+            response = _call_gemini_classify()
 
             response_text = response.text.strip()
 
@@ -679,10 +699,19 @@ Return ONLY valid JSON:
             )
             text_part = types.Part.from_text(text=prompt)
 
-            response = client.models.generate_content(
-                model="gemini-2.0-flash",
-                contents=[text_part, image_part],
+            @retry(
+                stop=stop_after_attempt(3),
+                wait=wait_exponential(multiplier=1, min=2, max=10),
+                retry=retry_if_exception_type(Exception),
+                reraise=True,
             )
+            def _call_gemini_vision():
+                return client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=[text_part, image_part],
+                )
+
+            response = _call_gemini_vision()
 
             response_text = response.text.strip()
 

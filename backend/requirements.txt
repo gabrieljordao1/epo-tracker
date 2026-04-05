@@ -29,9 +29,13 @@ google-api-python-client>=2.114.0
 # Utilities
 python-dotenv>=1.0.0
 bleach>=6.1.0
+tenacity>=8.2.0
 
 # Monitoring
 sentry-sdk[fastapi]>=1.40.0
+
+# Notifications
+twilio>=8.0.0
 
 # Background Jobs
 apscheduler>=3.10.0

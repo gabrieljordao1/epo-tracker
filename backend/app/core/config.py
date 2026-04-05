@@ -57,6 +57,18 @@ class Settings(BaseSettings):
     GMAIL_PUBSUB_TOPIC: str = ""  # Google Cloud Pub/Sub topic name
     GMAIL_WEBHOOK_URL: str = ""  # The webhook URL for Gmail notifications
 
+    # Sentry
+    SENTRY_DSN: str = ""  # Set in production for error monitoring
+
+    # Twilio (SMS notifications)
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""
+
+    # Supabase Storage (photo attachments)
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+
     # Agent Pipeline
     AGENT_AUTO_CONFIRM_THRESHOLD: float = 0.9  # Confidence threshold for auto-confirm
     AGENT_FOLLOWUP_DAYS: List[int] = [3, 5, 7]  # Days to send follow-ups

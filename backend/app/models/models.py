@@ -52,6 +52,24 @@ class EPOStatus(str, Enum):
     DISCOUNT = "discount"
 
 
+class PortalStatus(str, Enum):
+    """BuildPro/SupplyPro portal approval status"""
+    UNKNOWN = "unknown"
+    REQUESTED = "requested"
+    PENDING_APPROVAL = "pending_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    PARTIALLY_APPROVED = "partially_approved"
+
+
+class ApprovalStatus(str, Enum):
+    """Internal EPO approval workflow status"""
+    DRAFT = "draft"
+    PENDING_SUPER = "pending_super"  # Waiting for superintendent sign-off
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class FollowupStatus(str, Enum):
     """Followup status enumeration"""
     PENDING = "pending"
@@ -155,6 +173,16 @@ class EPO(Base):
     gmail_thread_id = Column(String(255), nullable=True, index=True)
     gmail_message_id = Column(String(255), nullable=True)
 
+    # BuildPro / SupplyPro portal tracking
+    portal_status = Column(SQLEnum(PortalStatus), default=PortalStatus.UNKNOWN, nullable=False)
+    portal_confirmation_number = Column(String(255), nullable=True)
+    portal_source = Column(String(50), nullable=True)  # buildpro, supplypro, manual
+    portal_checked_at = Column(DateTime(timezone=True), nullable=True)
+    portal_notes = Column(Text, nullable=True)
+
+    # Internal approval workflow
+    approval_status = Column(SQLEnum(ApprovalStatus), default=ApprovalStatus.DRAFT, nullable=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -163,6 +191,8 @@ class EPO(Base):
     created_by = relationship("User", back_populates="epos")
     email_connection = relationship("EmailConnection", back_populates="epos")
     followups = relationship("EPOFollowup", back_populates="epo", cascade="all, delete-orphan")
+    attachments = relationship("EPOAttachment", back_populates="epo", cascade="all, delete-orphan")
+    approvals = relationship("EPOApproval", back_populates="epo", cascade="all, delete-orphan")
 
 
 class EPOFollowup(Base):
@@ -219,6 +249,77 @@ class CommunityAssignment(Base):
     # Relationships
     company = relationship("Company")
     supervisor = relationship("User", back_populates="community_assignments")
+
+
+class EPOAttachment(Base):
+    """Photo/file attachments on EPOs — stored in Supabase Storage"""
+    __tablename__ = "epo_attachments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    filename = Column(String(255), nullable=False)
+    file_url = Column(String(1024), nullable=False)  # Supabase public URL or signed URL
+    file_size = Column(Integer, nullable=True)  # bytes
+    mime_type = Column(String(100), nullable=True)
+    description = Column(String(500), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    epo = relationship("EPO", back_populates="attachments")
+    company = relationship("Company")
+
+
+class EPOApproval(Base):
+    """Internal approval workflow — superintendent sign-off before sending to builder"""
+    __tablename__ = "epo_approvals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    requested_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    status = Column(SQLEnum(ApprovalStatus), default=ApprovalStatus.PENDING_SUPER, nullable=False)
+    note = Column(Text, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    epo = relationship("EPO", back_populates="approvals")
+    company = relationship("Company")
+    requested_by = relationship("User", foreign_keys=[requested_by_id])
+    approved_by = relationship("User", foreign_keys=[approved_by_id])
+
+
+class NotificationPreference(Base):
+    """Per-user notification preferences"""
+    __tablename__ = "notification_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+
+    email_enabled = Column(Boolean, default=True, nullable=False)
+    sms_enabled = Column(Boolean, default=False, nullable=False)
+    push_enabled = Column(Boolean, default=False, nullable=False)
+    phone_number = Column(String(20), nullable=True)  # For SMS via Twilio
+
+    # What to notify on
+    notify_new_epo = Column(Boolean, default=True, nullable=False)
+    notify_status_change = Column(Boolean, default=True, nullable=False)
+    notify_approval_needed = Column(Boolean, default=True, nullable=False)
+    notify_overdue = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    user = relationship("User")
+    company = relationship("Company")
 
 
 class WebhookLog(Base):

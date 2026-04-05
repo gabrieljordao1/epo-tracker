@@ -12,9 +12,25 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from .core.config import get_settings
+
+# ─── Sentry Error Monitoring ──────────────
+_settings = get_settings()
+if _settings.SENTRY_DSN:
+    import sentry_sdk
+    from sentry_sdk.integrations.fastapi import FastApiIntegration
+    from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+    sentry_sdk.init(
+        dsn=_settings.SENTRY_DSN,
+        environment=_settings.ENVIRONMENT,
+        traces_sample_rate=0.2 if _settings.ENVIRONMENT == "production" else 1.0,
+        profiles_sample_rate=0.1,
+        integrations=[FastApiIntegration(), SqlalchemyIntegration()],
+        send_default_pii=False,
+    )
+
 from .core.database import init_db, close_db, get_db
 from .core.auth import get_current_user, decode_token, security
-from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook
+from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook, attachments, approvals, notifications, portal
 from .models.models import User
 
 settings = get_settings()
@@ -173,6 +189,10 @@ def create_app() -> FastAPI:
     app.include_router(exports.router)
     app.include_router(activity.router)
     app.include_router(gmail_webhook.router)
+    app.include_router(attachments.router)
+    app.include_router(approvals.router)
+    app.include_router(notifications.router)
+    app.include_router(portal.router)
 
     # ─── Health check ───
     @app.get("/api/health")
