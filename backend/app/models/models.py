@@ -101,6 +101,7 @@ class EmailConnection(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    connected_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     email_address = Column(String(255), nullable=False)
     provider = Column(String(50), nullable=False)  # gmail, outlook, imap
     is_active = Column(Boolean, default=True, nullable=False)

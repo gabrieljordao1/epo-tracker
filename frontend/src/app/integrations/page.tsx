@@ -96,10 +96,12 @@ export default function IntegrationsPage() {
     }
   };
 
-  const gmailConnection = emailStatus?.connections?.find(
+  // Show ALL active Gmail connections for this company
+  const gmailConnections = emailStatus?.connections?.filter(
     (c: any) => c.provider === "gmail" && c.is_active
-  );
-  const hasGmail = !!gmailConnection;
+  ) || [];
+  const gmailConnection = gmailConnections[0]; // primary for the card
+  const hasGmail = gmailConnections.length > 0;
 
   const integrations = [
     {
@@ -205,20 +207,32 @@ export default function IntegrationsPage() {
                 )}
               </div>
 
-              {/* Connection details for Gmail */}
-              {integration.name === "Gmail" && integration.connectionInfo && (
-                <div className="mb-4 p-3 bg-surface rounded-lg space-y-1">
-                  <p className="text-sm text-text1">
-                    {integration.connectionInfo.email_address}
-                  </p>
-                  {integration.connectionInfo.last_sync_at && (
-                    <p className="text-xs text-text3 font-mono">
-                      Last synced:{" "}
-                      {new Date(
-                        integration.connectionInfo.last_sync_at
-                      ).toLocaleString()}
-                    </p>
-                  )}
+              {/* Connection details for Gmail — show all team connections */}
+              {integration.name === "Gmail" && gmailConnections.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {gmailConnections.map((conn: any) => (
+                    <div key={conn.id} className="p-3 bg-surface rounded-lg flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-text1">{conn.email_address}</p>
+                        {conn.last_sync_at && (
+                          <p className="text-xs text-text3 font-mono">
+                            Last synced: {new Date(conn.last_sync_at).toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => handleDisconnect(conn.id)}
+                        disabled={disconnecting === conn.id}
+                        className="text-xs text-red hover:bg-red-dim px-2 py-1 rounded flex items-center gap-1"
+                      >
+                        {disconnecting === conn.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Unplug size={12} />
+                        )}
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -230,48 +244,35 @@ export default function IntegrationsPage() {
                   >
                     Coming Soon
                   </button>
-                ) : integration.name === "Gmail" && integration.active ? (
+                ) : integration.name === "Gmail" ? (
                   <div className="flex gap-3">
+                    {hasGmail && (
+                      <button
+                        onClick={handleSync}
+                        disabled={syncing}
+                        className="btn-secondary flex-1 text-center flex items-center justify-center gap-2"
+                      >
+                        {syncing ? (
+                          <Loader2 size={14} className="animate-spin" />
+                        ) : (
+                          <RefreshCw size={14} />
+                        )}
+                        {syncing ? "Syncing..." : "Sync Now"}
+                      </button>
+                    )}
                     <button
-                      onClick={handleSync}
-                      disabled={syncing}
-                      className="btn-secondary flex-1 text-center flex items-center justify-center gap-2"
+                      onClick={handleConnectGmail}
+                      disabled={connectingGmail}
+                      className={`${hasGmail ? 'btn-secondary' : 'btn-primary'} flex-1 text-center flex items-center justify-center gap-2`}
                     >
-                      {syncing ? (
+                      {connectingGmail ? (
                         <Loader2 size={14} className="animate-spin" />
                       ) : (
-                        <RefreshCw size={14} />
+                        <ExternalLink size={14} />
                       )}
-                      {syncing ? "Syncing..." : "Sync Now"}
-                    </button>
-                    <button
-                      onClick={() =>
-                        handleDisconnect(integration.connectionInfo.id)
-                      }
-                      disabled={disconnecting === integration.connectionInfo?.id}
-                      className="btn-secondary text-center flex items-center justify-center gap-2 text-red hover:bg-red-dim"
-                    >
-                      {disconnecting === integration.connectionInfo?.id ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Unplug size={14} />
-                      )}
-                      Disconnect
+                      {connectingGmail ? "Connecting..." : hasGmail ? "Add Another Gmail" : "Connect Gmail"}
                     </button>
                   </div>
-                ) : integration.name === "Gmail" ? (
-                  <button
-                    onClick={handleConnectGmail}
-                    disabled={connectingGmail}
-                    className="btn-primary w-full text-center flex items-center justify-center gap-2"
-                  >
-                    {connectingGmail ? (
-                      <Loader2 size={14} className="animate-spin" />
-                    ) : (
-                      <ExternalLink size={14} />
-                    )}
-                    {connectingGmail ? "Connecting..." : "Connect Gmail"}
-                  </button>
                 ) : (
                   <button className="btn-primary w-full text-center">
                     Connect

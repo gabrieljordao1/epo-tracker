@@ -137,7 +137,7 @@ async def gmail_oauth_callback(
     if not token_data.get("success"):
         logger.error(f"OAuth callback failed: {token_data.get('error')}")
         return RedirectResponse(
-            url=f"{settings.APP_URL}/settings?error=oauth_failed",
+            url=f"{settings.APP_URL}/integrations?error=oauth_failed",
             status_code=302,
         )
 
@@ -148,7 +148,7 @@ async def gmail_oauth_callback(
         user_id = int(user_id)
     except (ValueError, AttributeError):
         return RedirectResponse(
-            url=f"{settings.APP_URL}/settings?error=invalid_state",
+            url=f"{settings.APP_URL}/integrations?error=invalid_state",
             status_code=302,
         )
 
@@ -168,11 +168,13 @@ async def gmail_oauth_callback(
     except Exception as e:
         logger.warning(f"Could not fetch userinfo, using fallback email: {e}")
 
-    # Store or update the connection
+    # Store or update the connection — match by email address so each
+    # team member gets their own connection under the same company.
     query = select(EmailConnection).where(
         and_(
             EmailConnection.company_id == company_id,
             EmailConnection.provider == "gmail",
+            EmailConnection.email_address == email_address,
         )
     )
     result = await session.execute(query)
@@ -188,10 +190,11 @@ async def gmail_oauth_callback(
         connection.access_token = token_data.get("access_token")
         connection.refresh_token = token_data.get("refresh_token")
         connection.token_expires_at = token_expires_at
-        connection.email_address = email_address
+        connection.connected_by_id = user_id
     else:
         connection = EmailConnection(
             company_id=company_id,
+            connected_by_id=user_id,
             email_address=email_address,
             provider="gmail",
             is_active=True,
@@ -205,7 +208,7 @@ async def gmail_oauth_callback(
 
     logger.info(f"Gmail OAuth completed for company={company_id}, user={user_id}")
     return RedirectResponse(
-        url=f"{settings.APP_URL}/settings?success=gmail_connected",
+        url=f"{settings.APP_URL}/integrations?success=gmail_connected",
         status_code=302,
     )
 

@@ -11,11 +11,14 @@ import {
   CheckCircle,
   ExternalLink,
   Loader2,
+  Mail,
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { AddEPOModal } from "@/components/AddEPOModal";
+import { useRouter } from "next/navigation";
 
 export default function EPOsPage() {
+  const router = useRouter();
   const { supervisorId, activeUser, isBossView } = useUser();
   const [epos, setEpos] = useState<EPO[]>([]);
   const [filter, setFilter] = useState<
@@ -33,6 +36,8 @@ export default function EPOsPage() {
   const [batchSending, setBatchSending] = useState(false);
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [hasGmailConnected, setHasGmailConnected] = useState<boolean | null>(null);
+  const [gmailBannerDismissed, setGmailBannerDismissed] = useState(false);
 
   const loadData = async () => {
     const [eposData, statsData] = await Promise.all([
@@ -42,6 +47,24 @@ export default function EPOsPage() {
     setEpos(eposData);
     setStats(statsData);
   };
+
+  // Check if user has Gmail connected
+  useEffect(() => {
+    const checkGmail = async () => {
+      try {
+        const resp = await fetch("/api/email/status", {
+          headers: { Authorization: `Bearer ${localStorage.getItem("epo_token") || ""}` },
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          setHasGmailConnected(data.active_connections > 0);
+        }
+      } catch {
+        setHasGmailConnected(null);
+      }
+    };
+    checkGmail();
+  }, []);
 
   useEffect(() => {
     loadData();
@@ -200,13 +223,36 @@ export default function EPOsPage() {
         ))}
       </div>
 
-      {/* Sync Status Banner */}
-      <div className="card p-4 bg-green-dim border-green-bdr flex items-center gap-3">
-        <div className="w-2 h-2 rounded-full bg-green"></div>
-        <span className="text-sm text-text2">
-          Email sync active
-        </span>
-      </div>
+      {/* Sync Status / Gmail Connect Banner */}
+      {hasGmailConnected === false && !gmailBannerDismissed ? (
+        <div className="card p-4 bg-amber-dim border-amber-bdr flex items-center gap-3">
+          <Mail size={18} className="text-amber flex-shrink-0" />
+          <div className="flex-1">
+            <span className="text-sm text-text1 font-medium">Connect your Gmail to auto-sync EPOs</span>
+            <p className="text-xs text-text3 mt-0.5">
+              Link your @stancilservices.com email so Onyx captures EPOs you send automatically.
+            </p>
+          </div>
+          <button
+            onClick={() => router.push("/integrations")}
+            className="btn-primary text-sm px-4 py-2 flex items-center gap-2 flex-shrink-0"
+          >
+            <Mail size={14} />
+            Connect Gmail
+          </button>
+          <button
+            onClick={() => setGmailBannerDismissed(true)}
+            className="text-text3 hover:text-text1 text-xs ml-1 flex-shrink-0"
+          >
+            Later
+          </button>
+        </div>
+      ) : hasGmailConnected ? (
+        <div className="card p-4 bg-green-dim border-green-bdr flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-green"></div>
+          <span className="text-sm text-text2">Email sync active</span>
+        </div>
+      ) : null}
 
       {/* Search */}
       <div className="flex gap-4">
