@@ -345,6 +345,17 @@ export default function LoginPage() {
                 </>
               )}
             </button>
+
+            {mode === "login" && (
+              <div className="mt-3 text-center">
+                <a
+                  href="/reset-password"
+                  className="text-sm text-white/30 hover:text-emerald-400 transition-colors"
+                >
+                  Forgot your password?
+                </a>
+              </div>
+            )}
           </form>
 
           {/* Toggle login/register */}
