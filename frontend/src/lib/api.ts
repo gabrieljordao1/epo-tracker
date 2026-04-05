@@ -1,5 +1,8 @@
 // ─── API Configuration ───────────────────────────
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Use empty string for relative URLs — Next.js rewrites in next.config.js
+// proxy /api/* requests to the backend, avoiding CORS issues entirely.
+// Only use the full URL for server-side or local dev without rewrites.
+const API_BASE = typeof window !== "undefined" ? "" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 // ─── Token Management ────────────────────────────
 let authToken: string | null = null;
