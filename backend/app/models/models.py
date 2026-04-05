@@ -336,3 +336,18 @@ class WebhookLog(Base):
 
     # Relationships
     company = relationship("Company")
+
+
+class PasswordResetToken(Base):
+    """Password reset tokens for forgot password flow"""
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String(255), nullable=False, index=True)  # Hashed version of reset code
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    user = relationship("User")

@@ -1,5 +1,7 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
+import secrets
+import resend
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -11,14 +13,21 @@ from ..core.auth import (
     verify_password,
     get_password_hash,
     create_access_token,
+    create_refresh_token,
+    validate_password_strength,
+    decode_token,
     get_current_user,
 )
-from ..models.models import User, Company, UserRole, Industry
+from ..models.models import User, Company, UserRole, Industry, PasswordResetToken
 from ..models.schemas import (
     LoginRequest,
     TokenResponse,
     UserResponse,
     RegisterRequest,
+    ForgotPasswordRequest,
+    ResetPasswordRequest,
+    ChangePasswordRequest,
+    RefreshTokenRequest,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -32,7 +41,6 @@ async def register(
 ) -> TokenResponse:
     """Register a new user. If invite_code is provided, join existing company.
     Otherwise, create a new company."""
-    import secrets
 
     # Check if user already exists
     query = select(User).where(User.email == request.email)
@@ -86,14 +94,19 @@ async def register(
     await session.commit()
     await session.refresh(user)
 
-    # Create access token
+    # Create access and refresh tokens
     access_token = create_access_token(
         data={"sub": str(user.id)},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    refresh_token = create_refresh_token(
+        data={"sub": str(user.id)},
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    )
 
     return TokenResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         user=UserResponse.model_validate(user),
     )
@@ -122,14 +135,19 @@ async def login(
             detail="User account is inactive",
         )
 
-    # Create access token
+    # Create access and refresh tokens
     access_token = create_access_token(
         data={"sub": str(user.id)},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
     )
+    refresh_token = create_refresh_token(
+        data={"sub": str(user.id)},
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    )
 
     return TokenResponse(
         access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         user=UserResponse.model_validate(user),
     )
@@ -221,3 +239,269 @@ async def join_team(
         "company_name": target_company.name,
         "company_id": target_company.id,
     }
+
+
+# Rate limiting helper - tracks request count per key
+_rate_limit_store = {}
+
+
+def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
+    """Simple in-memory rate limiter. In production, use Redis."""
+    now = datetime.utcnow()
+    if key not in _rate_limit_store:
+        _rate_limit_store[key] = []
+
+    # Remove old requests outside the window
+    _rate_limit_store[key] = [
+        timestamp for timestamp in _rate_limit_store[key]
+        if (now - timestamp).total_seconds() < window_seconds
+    ]
+
+    # Check if we've exceeded the limit
+    if len(_rate_limit_store[key]) >= max_requests:
+        return False
+
+    _rate_limit_store[key].append(now)
+    return True
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+):
+    """Generate a password reset code and send via email.
+    Rate limited to 3 requests per hour per email."""
+
+    # Rate limiting: 3 requests per hour
+    rate_limit_key = f"forgot_password:{request.email}"
+    if not check_rate_limit(rate_limit_key, max_requests=3, window_seconds=3600):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many password reset requests. Please try again in 1 hour.",
+        )
+
+    # Find user by email
+    query = select(User).where(User.email == request.email)
+    result = await session.execute(query)
+    user = result.scalars().first()
+
+    # Always return success for security (don't leak if user exists)
+    if not user:
+        return {
+            "success": True,
+            "message": "If an account exists with this email, a reset code has been sent.",
+        }
+
+    try:
+        # Generate 6-digit code
+        reset_code = str(secrets.randbelow(1000000)).zfill(6)
+        token_hash = get_password_hash(reset_code)
+
+        # Create reset token with 1 hour expiry
+        reset_token = PasswordResetToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=datetime.utcnow() + timedelta(hours=1),
+        )
+        session.add(reset_token)
+        await session.commit()
+
+        # Send email via Resend
+        resend.api_key = settings.RESEND_API_KEY
+        email_html = f"""
+        <h2>Password Reset Request</h2>
+        <p>Hi {user.full_name},</p>
+        <p>You requested a password reset for your EPO Tracker account.</p>
+        <p>Your reset code is:</p>
+        <h3 style="font-family: monospace; letter-spacing: 0.2em; font-size: 24px;">{reset_code}</h3>
+        <p>This code will expire in 1 hour.</p>
+        <p>If you didn't request this, please ignore this email.</p>
+        """
+
+        resend.Emails.send({
+            "from": f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>",
+            "to": [user.email],
+            "subject": "Your EPO Tracker Password Reset Code",
+            "html": email_html,
+        })
+
+        return {
+            "success": True,
+            "message": "If an account exists with this email, a reset code has been sent.",
+        }
+    except Exception as e:
+        # Log the error but still return success for security
+        print(f"Error sending reset email: {e}")
+        return {
+            "success": True,
+            "message": "If an account exists with this email, a reset code has been sent.",
+        }
+
+
+@router.post("/reset-password")
+async def reset_password(
+    request: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_db),
+):
+    """Reset password using email and reset code."""
+
+    # Find user by email
+    query = select(User).where(User.email == request.email)
+    result = await session.execute(query)
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid email or reset code.",
+        )
+
+    # Find valid reset token
+    query = select(PasswordResetToken).where(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.used == False,
+        PasswordResetToken.expires_at > datetime.utcnow(),  # Not expired
+    )
+    result = await session.execute(query)
+    reset_token = result.scalars().first()
+
+    if not reset_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code.",
+        )
+
+    # Verify the code matches
+    if not verify_password(request.code, reset_token.token_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code.",
+        )
+
+    # Validate password strength
+    is_valid, error_msg = validate_password_strength(request.new_password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
+
+    # Update password
+    user.hashed_password = get_password_hash(request.new_password)
+    reset_token.used = True
+
+    # Invalidate all other reset tokens for this user
+    query = select(PasswordResetToken).where(
+        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.id != reset_token.id,
+    )
+    result = await session.execute(query)
+    other_tokens = result.scalars().all()
+    for token in other_tokens:
+        token.used = True
+
+    await session.commit()
+
+    return {
+        "success": True,
+        "message": "Password has been reset successfully. Please login with your new password.",
+    }
+
+
+@router.post("/change-password")
+async def change_password(
+    request: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Change password for authenticated user."""
+
+    # Verify current password
+    if not verify_password(request.current_password, current_user.hashed_password or ""):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Current password is incorrect.",
+        )
+
+    # Validate new password strength
+    is_valid, error_msg = validate_password_strength(request.new_password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
+
+    # Prevent using the same password
+    if verify_password(request.new_password, current_user.hashed_password or ""):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password.",
+        )
+
+    # Update password
+    current_user.hashed_password = get_password_hash(request.new_password)
+    await session.commit()
+
+    return {
+        "success": True,
+        "message": "Password has been changed successfully.",
+    }
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_tokens(
+    request: RefreshTokenRequest,
+    session: AsyncSession = Depends(get_db),
+):
+    """Refresh access token using refresh token."""
+
+    # Decode refresh token
+    payload = decode_token(request.refresh_token)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token.",
+        )
+
+    # Verify it's a refresh token
+    if payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token type.",
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token.",
+        )
+
+    # Get user
+    query = select(User).where(User.id == int(user_id))
+    result = await session.execute(query)
+    user = result.scalars().first()
+
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive.",
+        )
+
+    # Create new access and refresh tokens
+    access_token = create_access_token(
+        data={"sub": str(user.id)},
+        expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+    )
+    new_refresh_token = create_refresh_token(
+        data={"sub": str(user.id)},
+        expires_delta=timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        token_type="bearer",
+        user=UserResponse.model_validate(user),
+    )

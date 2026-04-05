@@ -52,6 +52,7 @@ class UserInDB(UserResponse):
 # ===== Auth Schemas =====
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
 
@@ -69,6 +70,25 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str  # 6-digit reset code
+    new_password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
 
 
 # ===== Email Connection Schemas =====

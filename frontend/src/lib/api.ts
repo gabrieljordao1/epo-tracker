@@ -2,10 +2,13 @@
 // Use empty string for relative URLs — Next.js rewrites in next.config.js
 // proxy /api/* requests to the backend, avoiding CORS issues entirely.
 // Only use the full URL for server-side or local dev without rewrites.
+import { apiClient } from "./apiClient";
+
 const API_BASE = typeof window !== "undefined" ? "" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
 // ─── Token Management ────────────────────────────
 let authToken: string | null = null;
+let storedRefreshToken: string | null = null;
 
 export function setAuthToken(token: string | null) {
   authToken = token;
@@ -24,6 +27,76 @@ export function getAuthToken(): string | null {
   return authToken;
 }
 
+export function setRefreshToken(token: string | null) {
+  storedRefreshToken = token;
+  if (token) {
+    if (typeof window !== "undefined") localStorage.setItem("epo_refresh_token", token);
+  } else {
+    if (typeof window !== "undefined") localStorage.removeItem("epo_refresh_token");
+  }
+}
+
+export function getRefreshToken(): string | null {
+  if (storedRefreshToken) return storedRefreshToken;
+  if (typeof window !== "undefined") {
+    storedRefreshToken = localStorage.getItem("epo_refresh_token");
+  }
+  return storedRefreshToken;
+}
+
+/** Decode JWT and check if expired */
+function isTokenExpired(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    const exp = payload.exp;
+    if (!exp) return false;
+    // Check if expired (with 30 second buffer)
+    return Date.now() >= (exp * 1000 - 30000);
+  } catch {
+    return false;
+  }
+}
+
+/** Refresh the access token using the refresh token */
+async function refreshAccessToken(): Promise<void> {
+  const refresh = getRefreshToken();
+  if (!refresh) {
+    // No refresh token, redirect to login
+    if (typeof window !== "undefined") {
+      setAuthToken(null);
+      setRefreshToken(null);
+      window.location.href = "/login";
+    }
+    throw new Error("No refresh token available");
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+
+    if (!response.ok) {
+      throw new Error("Token refresh failed");
+    }
+
+    const data: AuthResponse = await response.json();
+    setAuthToken(data.access_token);
+    if ("refresh_token" in data) {
+      setRefreshToken((data as any).refresh_token);
+    }
+  } catch (error) {
+    // Refresh failed, clear tokens and redirect to login
+    if (typeof window !== "undefined") {
+      setAuthToken(null);
+      setRefreshToken(null);
+      window.location.href = "/login";
+    }
+    throw error;
+  }
+}
+
 function authHeaders(): HeadersInit {
   const token = getAuthToken();
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -31,13 +104,12 @@ function authHeaders(): HeadersInit {
   return headers;
 }
 
-/** Handle 401 responses by clearing token and redirecting to login */
-function handleUnauthorized(res: Response): Response {
-  if (res.status === 401 && typeof window !== "undefined") {
-    setAuthToken(null);
-    window.location.href = "/login";
+/** Check and refresh token if needed before making requests */
+async function ensureTokenValid(): Promise<void> {
+  const token = getAuthToken();
+  if (token && isTokenExpired(token)) {
+    await refreshAccessToken();
   }
-  return res;
 }
 
 // ─── Types ───────────────────────────────────────
@@ -99,6 +171,9 @@ export async function login(email: string, password: string): Promise<AuthRespon
   }
   const data: AuthResponse = await res.json();
   setAuthToken(data.access_token);
+  if ("refresh_token" in data) {
+    setRefreshToken((data as any).refresh_token);
+  }
   return data;
 }
 
@@ -134,10 +209,14 @@ export async function register(
   }
   const data: AuthResponse = await res.json();
   setAuthToken(data.access_token);
+  if ("refresh_token" in data) {
+    setRefreshToken((data as any).refresh_token);
+  }
   return data;
 }
 
 export async function getMe(): Promise<User> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Not authenticated");
   return res.json();
@@ -145,9 +224,11 @@ export async function getMe(): Promise<User> {
 
 export function logout() {
   setAuthToken(null);
+  setRefreshToken(null);
 }
 
 export async function joinTeam(inviteCode: string): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/auth/join-team`, {
     method: "POST",
     headers: authHeaders(),
@@ -160,62 +241,113 @@ export async function joinTeam(inviteCode: string): Promise<any> {
   return res.json();
 }
 
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Request failed" }));
+    throw new Error(err.detail || "Failed to send password reset email");
+  }
+  return res.json();
+}
+
+export async function resetPassword(
+  email: string,
+  code: string,
+  newPassword: string,
+): Promise<{ message: string }> {
+  const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, code, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Reset failed" }));
+    throw new Error(err.detail || "Failed to reset password");
+  }
+  return res.json();
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ message: string }> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/auth/change-password`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Change failed" }));
+    throw new Error(err.detail || "Failed to change password");
+  }
+  return res.json();
+}
+
+export async function refreshToken(): Promise<AuthResponse> {
+  const refresh = getRefreshToken();
+  if (!refresh) {
+    throw new Error("No refresh token available");
+  }
+  const res = await fetch(`${API_BASE}/api/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refresh_token: refresh }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Refresh failed" }));
+    throw new Error(err.detail || "Failed to refresh token");
+  }
+  const data: AuthResponse = await res.json();
+  setAuthToken(data.access_token);
+  if ("refresh_token" in data) {
+    setRefreshToken((data as any).refresh_token);
+  }
+  return data;
+}
+
 // ─── EPO API ─────────────────────────────────────
 export async function getEPOs(status?: string, supervisorId?: number): Promise<EPO[]> {
-  const token = getAuthToken();
-
-  // If authenticated, use real API
-  if (token) {
-    try {
-      const params = new URLSearchParams();
-      if (status && status !== "all") params.set("status_filter", status);
-      if (supervisorId) params.set("supervisor_id", supervisorId.toString());
-      const qs = params.toString();
-      const res = await fetch(`${API_BASE}/api/epos${qs ? `?${qs}` : ""}`, {
-        headers: authHeaders(),
-      });
-      if (!res.ok) throw new Error("API error");
-      const data = await res.json();
-      return Array.isArray(data) ? data : data.epos || [];
-    } catch {
-      return [];
-    }
-  }
-
-  return [];
+  await ensureTokenValid();
+  const params = new URLSearchParams();
+  if (status && status !== "all") params.set("status_filter", status);
+  if (supervisorId) params.set("supervisor_id", supervisorId.toString());
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/api/epos${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch EPOs");
+  const data = await res.json();
+  return Array.isArray(data) ? data : data.epos || [];
 }
 
 export async function getStats(supervisorId?: number): Promise<Stats> {
-  const token = getAuthToken();
-
-  if (token) {
-    try {
-      const res = await fetch(`${API_BASE}/api/epos/stats/dashboard`, {
-        headers: authHeaders(),
-      });
-      if (!res.ok) throw new Error("API error");
-      const data = await res.json();
-      const s = data.stats || data;
-      return {
-        total: s.total_epos || s.total || 0,
-        confirmed: s.confirmed_count || s.confirmed || 0,
-        pending: s.pending_count || s.pending || 0,
-        denied: s.denied_count || s.denied || 0,
-        discount: s.discount_count || s.discount || 0,
-        total_value: s.total_amount || s.total_value || 0,
-        capture_rate: s.total_epos ? Math.round((s.confirmed_count / s.total_epos) * 100) : 0,
-        needs_followup: s.needs_review_count || s.needs_followup || 0,
-        avg_amount: s.average_amount || s.avg_amount || 0,
-      };
-    } catch {
-      return { total: 0, confirmed: 0, pending: 0, denied: 0, discount: 0, total_value: 0, capture_rate: 0, needs_followup: 0, avg_amount: 0 };
-    }
-  }
-
-  return { total: 0, confirmed: 0, pending: 0, denied: 0, discount: 0, total_value: 0, capture_rate: 0, needs_followup: 0, avg_amount: 0 };
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/stats/dashboard`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch stats");
+  const data = await res.json();
+  const s = data.stats || data;
+  return {
+    total: s.total_epos || s.total || 0,
+    confirmed: s.confirmed_count || s.confirmed || 0,
+    pending: s.pending_count || s.pending || 0,
+    denied: s.denied_count || s.denied || 0,
+    discount: s.discount_count || s.discount || 0,
+    total_value: s.total_amount || s.total_value || 0,
+    capture_rate: s.total_epos ? Math.round((s.confirmed_count / s.total_epos) * 100) : 0,
+    needs_followup: s.needs_review_count || s.needs_followup || 0,
+    avg_amount: s.average_amount || s.avg_amount || 0,
+  };
 }
 
 export async function updateEPO(id: number, updates: Partial<EPO>): Promise<EPO> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/epos/${id}`, {
     method: "PUT",
     headers: authHeaders(),
@@ -226,6 +358,7 @@ export async function updateEPO(id: number, updates: Partial<EPO>): Promise<EPO>
 }
 
 export async function createEPO(epo: Partial<EPO>): Promise<EPO> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/epos`, {
     method: "POST",
     headers: authHeaders(),
@@ -272,32 +405,22 @@ export async function resetData(): Promise<any> {
 
 // ─── Team API ────────────────────────────────────
 export async function getTeamMembers(): Promise<any> {
-  const token = getAuthToken();
-
-  if (token) {
-    try {
-      const res = await fetch(`${API_BASE}/api/team/members`, { headers: authHeaders() });
-      if (res.ok) return res.json();
-    } catch {}
-  }
-
-  // Demo fallback
-  try {
-    const res = await fetch(`${API_BASE}/api/team/members`);
-    if (res.ok) return res.json();
-  } catch {}
-
-  return { members: [], total: 0 };
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/team/members`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch team members");
+  return res.json();
 }
 
 // ─── Email API ───────────────────────────────────
 export async function getEmailStatus(): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/email/status`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to get email status");
   return res.json();
 }
 
 export async function connectEmail(emailAddress: string, provider: string): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/email/connect`, {
     method: "POST",
     headers: authHeaders(),
@@ -308,6 +431,7 @@ export async function connectEmail(emailAddress: string, provider: string): Prom
 }
 
 export async function disconnectEmail(connectionId: number): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/email/disconnect/${connectionId}`, {
     method: "DELETE",
     headers: authHeaders(),
@@ -317,6 +441,7 @@ export async function disconnectEmail(connectionId: number): Promise<any> {
 }
 
 export async function triggerEmailSync(): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/email/sync`, {
     method: "POST",
     headers: authHeaders(),
@@ -421,6 +546,7 @@ export async function downloadCSV(filters?: {
   community?: string;
   days?: number;
 }): Promise<void> {
+  await ensureTokenValid();
   const url = getExportCSVUrl(filters);
   const res = await fetch(url, { headers: authHeaders() });
   if (!res.ok) throw new Error("Export failed");
@@ -435,6 +561,7 @@ export async function downloadCSV(filters?: {
 }
 
 export async function getExportSummary(days: number = 30): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/exports/epos/summary?days=${days}`, {
     headers: authHeaders(),
   });
@@ -457,34 +584,25 @@ export async function getActivityFeed(limit: number = 20, days: number = 7): Pro
   feed: ActivityItem[];
   total: number;
 }> {
-  const token = getAuthToken();
-
-  if (token) {
-    try {
-      const res = await fetch(
-        `${API_BASE}/api/activity/feed?limit=${limit}&days=${days}`,
-        { headers: authHeaders() },
-      );
-      if (res.ok) return res.json();
-    } catch {}
-  }
-
-  return { feed: [], total: 0 };
+  await ensureTokenValid();
+  const res = await fetch(
+    `${API_BASE}/api/activity/feed?limit=${limit}&days=${days}`,
+    { headers: authHeaders() },
+  );
+  if (!res.ok) throw new Error("Failed to fetch activity feed");
+  return res.json();
 }
 
 export async function getTodayStats(): Promise<any> {
-  const token = getAuthToken();
-  if (token) {
-    try {
-      const res = await fetch(`${API_BASE}/api/activity/stats/today`, { headers: authHeaders() });
-      if (res.ok) return res.json();
-    } catch {}
-  }
-  return { today_new: 0, today_value: 0, needs_attention: 0, needs_attention_value: 0 };
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/activity/stats/today`, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to fetch today stats");
+  return res.json();
 }
 
 // ─── Follow-up API ──────────────────────────────
 export async function sendFollowup(epoId: number): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/email/${epoId}/send-followup`, {
     method: "POST",
     headers: authHeaders(),
@@ -497,6 +615,7 @@ export async function sendFollowup(epoId: number): Promise<any> {
 }
 
 export async function batchFollowup(): Promise<any> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/email/batch-followup`, {
     method: "POST",
     headers: authHeaders(),
@@ -510,10 +629,15 @@ export async function batchFollowup(): Promise<any> {
 
 // ─── Gmail OAuth ────────────────────────────────
 export async function startGmailOAuth(): Promise<{ auth_url: string }> {
+  await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/email/oauth/gmail/start`, {
     headers: authHeaders(),
   });
-  handleUnauthorized(res);
+  if (res.status === 401 && typeof window !== "undefined") {
+    setAuthToken(null);
+    setRefreshToken(null);
+    window.location.href = "/login";
+  }
   if (!res.ok) throw new Error("Failed to start Gmail OAuth");
   return res.json();
 }

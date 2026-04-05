@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     # App Settings
     APP_NAME: str = "EPO Tracker"
+    APP_VERSION: str = "1.0.0"  # Used for Sentry release tagging
     APP_URL: str = "http://localhost:3000"
     API_URL: str = "http://localhost:8000"
     DEBUG: bool = False

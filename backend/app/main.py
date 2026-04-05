@@ -1,12 +1,16 @@
 import logging
 import time
 import uuid
+import re
+import traceback
 from contextlib import asynccontextmanager
 from collections import defaultdict
+from typing import Optional
 
 from fastapi import FastAPI, Depends, Request, Response, HTTPException, status as http_status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -19,6 +23,43 @@ if _settings.SENTRY_DSN:
     import sentry_sdk
     from sentry_sdk.integrations.fastapi import FastApiIntegration
     from sentry_sdk.integrations.sqlalchemy import SqlalchemyIntegration
+
+    def sentry_before_send(event, hint):
+        """Strip sensitive data from error reports before sending to Sentry."""
+        if event.get("request"):
+            req = event["request"]
+            # Strip Authorization headers
+            if req.get("headers"):
+                req["headers"].pop("Authorization", None)
+                req["headers"].pop("authorization", None)
+            # Strip passwords and tokens from data
+            if req.get("data"):
+                req["data"] = _redact_sensitive_data(req.get("data", ""))
+
+        # Strip sensitive data from exception messages
+        if event.get("exception"):
+            for exc in event["exception"].get("values", []):
+                if exc.get("value"):
+                    exc["value"] = _redact_sensitive_data(exc["value"])
+
+        # Strip from breadcrumbs
+        if event.get("breadcrumbs"):
+            for breadcrumb in event["breadcrumbs"]:
+                if breadcrumb.get("data"):
+                    breadcrumb["data"] = _redact_sensitive_data(str(breadcrumb["data"]))
+
+        return event
+
+    def _redact_sensitive_data(text: str) -> str:
+        """Redact passwords, tokens, and API keys from text."""
+        text = str(text)
+        # Redact common patterns
+        text = re.sub(r'password["\']?\s*[:=]\s*["\']?[^"\'&\s]+["\']?', 'password=***REDACTED***', text, flags=re.IGNORECASE)
+        text = re.sub(r'token["\']?\s*[:=]\s*["\']?[^"\'&\s]+["\']?', 'token=***REDACTED***', text, flags=re.IGNORECASE)
+        text = re.sub(r'api[_-]?key["\']?\s*[:=]\s*["\']?[^"\'&\s]+["\']?', 'api_key=***REDACTED***', text, flags=re.IGNORECASE)
+        text = re.sub(r'authorization["\']?\s*[:=]\s*["\']?Bearer\s+[^"\'&\s]+["\']?', 'authorization=***REDACTED***', text, flags=re.IGNORECASE)
+        return text
+
     sentry_sdk.init(
         dsn=_settings.SENTRY_DSN,
         environment=_settings.ENVIRONMENT,
@@ -26,6 +67,8 @@ if _settings.SENTRY_DSN:
         profiles_sample_rate=0.1,
         integrations=[FastApiIntegration(), SqlalchemyIntegration()],
         send_default_pii=False,
+        before_send=sentry_before_send,
+        release=getattr(_settings, "APP_VERSION", "unknown"),
     )
 
 from .core.database import init_db, close_db, get_db
@@ -56,25 +99,44 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.url.path in ("/api/health", "/docs", "/openapi.json", "/"):
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        # Determine rate limit key: prefer authenticated user ID over IP
+        rate_limit_key = self._get_rate_limit_key(request)
         now = time.time()
         window = 60  # seconds
 
         # Clean old entries
-        self.requests[client_ip] = [
-            t for t in self.requests[client_ip] if now - t < window
+        self.requests[rate_limit_key] = [
+            t for t in self.requests[rate_limit_key] if now - t < window
         ]
 
-        if len(self.requests[client_ip]) >= self.calls_per_minute:
-            logger.warning(f"Rate limit exceeded for {client_ip} on {request.url.path}")
+        if len(self.requests[rate_limit_key]) >= self.calls_per_minute:
+            key_type = "user" if rate_limit_key.startswith("user_") else "ip"
+            logger.warning(f"Rate limit exceeded for {key_type}={rate_limit_key} on {request.url.path}")
             return Response(
                 content='{"detail":"Rate limit exceeded. Try again in a minute."}',
                 status_code=429,
                 media_type="application/json",
             )
 
-        self.requests[client_ip].append(now)
+        self.requests[rate_limit_key].append(now)
         return await call_next(request)
+
+    def _get_rate_limit_key(self, request: Request) -> str:
+        """Get the rate limit key: prefer user ID if authenticated, fall back to IP."""
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                from .core.auth import decode_token
+                token = auth_header.replace("Bearer ", "")
+                payload = decode_token(token)
+                if payload and payload.get("sub"):
+                    return f"user_{payload.get('sub')}"
+            except Exception:
+                pass
+
+        # Fall back to IP address
+        client_ip = request.client.host if request.client else "unknown"
+        return f"ip_{client_ip}"
 
 
 # ─── Request Logging Middleware ─────────────────
@@ -83,14 +145,60 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         request_id = str(uuid.uuid4())[:8]
         start = time.time()
 
+        # Extract request body size for POST/PUT requests
+        request_body_size = 0
+        if request.method in ["POST", "PUT", "PATCH"]:
+            # Try to get content-length header
+            content_length = request.headers.get("content-length")
+            if content_length:
+                request_body_size = int(content_length)
+
+        # Extract user ID from Authorization header if available
+        user_id = None
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            try:
+                from .core.auth import decode_token
+                token = auth_header.replace("Bearer ", "")
+                payload = decode_token(token)
+                if payload:
+                    user_id = payload.get("sub")
+            except Exception:
+                # Silent fail if token decode fails - request may not be authenticated
+                pass
+
         response = await call_next(request)
 
         duration = round((time.time() - start) * 1000)
-        logger.info(
-            f"[{request_id}] {request.method} {request.url.path} → {response.status_code} ({duration}ms)"
-        )
 
+        # Build log message
+        log_parts = [
+            f"[{request_id}]",
+            f"{request.method}",
+            f"{request.url.path}",
+            f"→ {response.status_code}",
+            f"({duration}ms)"
+        ]
+
+        if request.method in ["POST", "PUT", "PATCH"] and request_body_size > 0:
+            log_parts.append(f"req_size={request_body_size}B")
+
+        if user_id:
+            log_parts.append(f"user_id={user_id}")
+
+        log_message = " ".join(log_parts)
+
+        # Log at WARNING level if request took > 2 seconds
+        if duration > 2000:
+            logger.warning(log_message)
+        else:
+            logger.info(log_message)
+
+        # Add response headers
         response.headers["X-Request-ID"] = request_id
+        if "content-length" in response.headers:
+            response.headers["X-Response-Size"] = response.headers["content-length"]
+
         return response
 
 
@@ -138,23 +246,73 @@ def create_app() -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
     app.add_middleware(RateLimitMiddleware, calls_per_minute=settings.RATE_LIMIT_PER_MINUTE)
-    # CORS — allow all origins for now (small team pilot)
-    cors_origins = settings.CORS_ORIGINS
-    if not cors_origins or cors_origins == ["*"]:
-        cors_origins = ["*"]
-    # Always include the production frontend
-    production_frontend = "https://frontend-two-puce-27.vercel.app"
-    if production_frontend not in cors_origins and cors_origins != ["*"]:
-        cors_origins.append(production_frontend)
-    logger.info(f"CORS origins configured: {cors_origins}")
+
+    # CORS — use whitelist in production for security
+    cors_origins = []
+    if settings.ENVIRONMENT == "production":
+        # Production: use strict whitelist with frontend and API URLs
+        cors_origins = [
+            settings.APP_URL,  # Frontend
+            settings.API_URL,  # API
+        ]
+        # Remove duplicates and empty strings
+        cors_origins = list(set(origin.strip() for origin in cors_origins if origin.strip()))
+        logger.info(f"CORS (production mode): {cors_origins}")
+    else:
+        # Development/staging: use configured origins or allow all
+        cors_origins = settings.CORS_ORIGINS
+        if not cors_origins or cors_origins == ["*"]:
+            cors_origins = ["*"]
+            logger.info("CORS (development mode): allowing all origins")
+        else:
+            logger.info(f"CORS (staging mode): {cors_origins}")
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
-        expose_headers=["X-Request-ID"],
+        expose_headers=["X-Request-ID", "X-Response-Size"],
     )
+
+    # ─── Global Exception Handler ───
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request: Request, exc: Exception):
+        """Handle unhandled exceptions: log, report to Sentry, return clean 500."""
+        request_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+
+        # Log the full traceback
+        logger.error(
+            f"[{request_id}] Unhandled exception in {request.method} {request.url.path}",
+            exc_info=exc,
+        )
+
+        # Add user context to Sentry if available
+        if _settings.SENTRY_DSN:
+            try:
+                import sentry_sdk
+                auth_header = request.headers.get("authorization", "")
+                if auth_header.startswith("Bearer "):
+                    token = auth_header.replace("Bearer ", "")
+                    payload = decode_token(token)
+                    if payload and payload.get("sub"):
+                        user_id = payload.get("sub")
+                        sentry_sdk.set_user({"id": user_id})
+                        # Try to get email from payload
+                        if payload.get("email"):
+                            sentry_sdk.set_context("user", {"id": user_id, "email": payload.get("email")})
+            except Exception:
+                pass  # Silent fail if we can't extract user info
+
+        # Return clean 500 response to client
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error",
+                "request_id": request_id,
+            },
+        )
 
     # ─── Auth dependency override ───
     async def get_current_user_with_session(
