@@ -147,6 +147,19 @@ export function logout() {
   setAuthToken(null);
 }
 
+export async function joinTeam(inviteCode: string): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/auth/join-team`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ invite_code: inviteCode }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Failed to join team" }));
+    throw new Error(err.detail || "Failed to join team");
+  }
+  return res.json();
+}
+
 // ─── EPO API ─────────────────────────────────────
 export async function getEPOs(status?: string, supervisorId?: number): Promise<EPO[]> {
   const token = getAuthToken();

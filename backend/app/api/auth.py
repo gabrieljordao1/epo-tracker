@@ -167,3 +167,57 @@ async def get_invite_code(
         "invite_code": company.invite_code,
         "company_name": company.name,
     }
+
+
+@router.post("/join-team")
+async def join_team(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Allow an existing user to join a different company using an invite code.
+    This moves the user from their current (solo) company to the invited company."""
+    invite_code = request.get("invite_code", "").strip().upper()
+    if not invite_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invite code is required.",
+        )
+
+    # Find the target company
+    query = select(Company).where(Company.invite_code == invite_code)
+    result = await session.execute(query)
+    target_company = result.scalars().first()
+    if not target_company:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid invite code. Check with your manager and try again.",
+        )
+
+    # Don't allow joining the same company
+    if target_company.id == current_user.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You are already a member of this company.",
+        )
+
+    old_company_id = current_user.company_id
+
+    # Move user to the new company
+    current_user.company_id = target_company.id
+    # Downgrade to FIELD role when joining (manager can promote later)
+    if current_user.role == UserRole.ADMIN:
+        current_user.role = UserRole.FIELD
+
+    await session.commit()
+    await session.refresh(current_user)
+
+    # Clean up: if old company has no users left, we could delete it
+    # (optional — leaving it for now)
+
+    return {
+        "success": True,
+        "message": f"Successfully joined {target_company.name}!",
+        "company_name": target_company.name,
+        "company_id": target_company.id,
+    }
