@@ -60,9 +60,10 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     full_name: str
     password: str
-    company_name: str
-    industry: Industry
+    company_name: str = ""  # Not required when joining via invite code
+    industry: Industry = Industry.GENERAL  # Not required when joining
     role: str = "field"  # "field" or "manager"
+    invite_code: Optional[str] = None  # Join existing company
 
 
 class LoginRequest(BaseModel):

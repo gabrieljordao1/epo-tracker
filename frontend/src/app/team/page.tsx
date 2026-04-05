@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Users, ChevronRight, AlertTriangle, CheckCircle } from "lucide-react";
+import { Users, ChevronRight, AlertTriangle, CheckCircle, Copy, Check } from "lucide-react";
 
 const API_BASE = typeof window !== "undefined" ? "" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
@@ -34,13 +34,34 @@ export default function TeamPage() {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [memberEpos, setMemberEpos] = useState<any[]>([]);
+  const [inviteCode, setInviteCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     fetch(`${API_BASE}/api/team/members`)
       .then((r) => r.json())
       .then((d) => setMembers(d.members?.filter((m: TeamMember) => m.role !== "admin") || []))
       .catch(() => setMembers([]));
+
+    // Fetch invite code
+    const token = typeof window !== "undefined" ? localStorage.getItem("epo_token") : null;
+    if (token) {
+      fetch(`${API_BASE}/api/auth/invite-code`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((r) => r.json())
+        .then((d) => setInviteCode(d.invite_code))
+        .catch(() => {});
+    }
   }, []);
+
+  const handleCopyInvite = () => {
+    if (inviteCode) {
+      navigator.clipboard.writeText(inviteCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
 
   const handleSelectMember = async (member: TeamMember) => {
     setSelectedMember(member);
@@ -62,10 +83,32 @@ export default function TeamPage() {
 
   return (
     <div className="p-8 space-y-6">
-      <div>
-        <h1 className="text-3xl font-semibold mb-2">Team</h1>
-        <p className="text-text2">Monitor supervisor performance across communities</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold mb-2">Team</h1>
+          <p className="text-text2">Monitor supervisor performance across communities</p>
+        </div>
       </div>
+
+      {/* Invite Code Banner */}
+      {inviteCode && (
+        <div className="card p-4 bg-surface flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Users size={18} className="text-text3" />
+            <div>
+              <span className="text-sm text-text2">Invite code for your team: </span>
+              <span className="font-mono font-bold text-text1 tracking-widest text-lg ml-2">{inviteCode}</span>
+            </div>
+          </div>
+          <button
+            onClick={handleCopyInvite}
+            className="btn-secondary text-sm flex items-center gap-2 px-3 py-1.5"
+          >
+            {copied ? <Check size={14} className="text-green" /> : <Copy size={14} />}
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
+      )}
 
       {/* Supervisor Cards Grid */}
       <div className="grid grid-cols-3 gap-4">

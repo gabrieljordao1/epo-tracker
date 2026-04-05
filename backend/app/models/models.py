@@ -67,6 +67,7 @@ class Company(Base):
     name = Column(String(255), nullable=False)
     industry = Column(SQLEnum(Industry), nullable=False)
     plan_tier = Column(SQLEnum(PlanTier), default=PlanTier.STARTER, nullable=False)
+    invite_code = Column(String(20), unique=True, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships

@@ -30,7 +30,9 @@ async def register(
     request: RegisterRequest,
     session: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Register a new company and admin user"""
+    """Register a new user. If invite_code is provided, join existing company.
+    Otherwise, create a new company."""
+    import secrets
 
     # Check if user already exists
     query = select(User).where(User.email == request.email)
@@ -41,22 +43,40 @@ async def register(
             detail="Email already registered",
         )
 
-    # Create new company
-    company = Company(
-        name=request.company_name,
-        industry=request.industry,
-        plan_tier="starter",
-    )
-    session.add(company)
-    await session.flush()
+    if request.invite_code:
+        # ── Join existing company via invite code ──
+        query = select(Company).where(Company.invite_code == request.invite_code.strip().upper())
+        result = await session.execute(query)
+        company = result.scalars().first()
+        if not company:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid invite code. Check with your manager and try again.",
+            )
+    else:
+        # ── Create new company ──
+        if not request.company_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Company name is required when creating a new account.",
+            )
+        invite_code = secrets.token_hex(4).upper()  # 8-char hex code like "A3F2B1C9"
+        company = Company(
+            name=request.company_name,
+            industry=request.industry,
+            plan_tier="starter",
+            invite_code=invite_code,
+        )
+        session.add(company)
+        await session.flush()
 
-    # Create user with selected role
+    # Create user — also set work_email so the FROM-matching works
     hashed_password = get_password_hash(request.password)
-    # Map role string to enum (default to FIELD if invalid)
     role_map = {"field": UserRole.FIELD, "manager": UserRole.MANAGER, "admin": UserRole.ADMIN}
     user_role = role_map.get(request.role, UserRole.FIELD)
     user = User(
         email=request.email,
+        work_email=request.email,  # Set work_email for EPO FROM-matching
         full_name=request.full_name,
         hashed_password=hashed_password,
         company_id=company.id,
@@ -122,3 +142,28 @@ async def get_current_user_info(
 ) -> UserResponse:
     """Get current authenticated user"""
     return UserResponse.model_validate(current_user)
+
+
+@router.get("/invite-code")
+async def get_invite_code(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Get the company's invite code for sharing with team members."""
+    import secrets
+    query = select(Company).where(Company.id == current_user.company_id)
+    result = await session.execute(query)
+    company = result.scalars().first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    # Generate invite code if company doesn't have one yet (legacy companies)
+    if not company.invite_code:
+        company.invite_code = secrets.token_hex(4).upper()
+        await session.commit()
+        await session.refresh(company)
+
+    return {
+        "invite_code": company.invite_code,
+        "company_name": company.name,
+    }

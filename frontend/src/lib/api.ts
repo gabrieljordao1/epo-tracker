@@ -109,18 +109,24 @@ export async function register(
   companyName: string,
   industry: string,
   role: string = "field",
+  inviteCode?: string,
 ): Promise<AuthResponse> {
+  const body: Record<string, string> = {
+    email,
+    password,
+    full_name: fullName,
+    role,
+  };
+  if (inviteCode) {
+    body.invite_code = inviteCode;
+  } else {
+    body.company_name = companyName;
+    body.industry = industry;
+  }
   const res = await fetch(`${API_BASE}/api/auth/register`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      email,
-      password,
-      full_name: fullName,
-      company_name: companyName,
-      industry,
-      role,
-    }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: "Registration failed" }));

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Loader2, HardHat, BarChart3 } from "lucide-react";
+import { ArrowRight, Loader2, HardHat, BarChart3, Users } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { login, register } from "@/lib/api";
 
@@ -21,6 +21,8 @@ export default function LoginPage() {
   const [companyName, setCompanyName] = useState("");
   const [industry, setIndustry] = useState("paint_drywall");
   const [role, setRole] = useState<"field" | "manager">("field");
+  const [joinMode, setJoinMode] = useState<"new" | "join">("new");
+  const [inviteCode, setInviteCode] = useState("");
 
   const industries = [
     { value: "paint_drywall", label: "Paint & Drywall" },
@@ -69,7 +71,10 @@ export default function LoginPage() {
     }
     setLoading(true);
     try {
-      await register(email, password, fullName, companyName, industry, role);
+      await register(
+        email, password, fullName, companyName, industry, role,
+        joinMode === "join" ? inviteCode : undefined,
+      );
       // Redirect based on role
       if (role === "field") {
         router.push("/epos");
@@ -146,6 +151,66 @@ export default function LoginPage() {
             <div className="space-y-4">
               {mode === "register" && (
                 <>
+                  {/* New Company vs Join Team Toggle */}
+                  <div>
+                    <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-3">
+                      Getting started
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setJoinMode("join")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
+                          joinMode === "join"
+                            ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-400"
+                            : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
+                        }`}
+                      >
+                        <Users size={24} />
+                        <span className="text-sm font-medium">Join My Team</span>
+                        <span className="text-[11px] text-white/30 leading-tight text-center">
+                          I have an invite code
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setJoinMode("new")}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border transition-all ${
+                          joinMode === "new"
+                            ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-400"
+                            : "border-white/10 bg-white/5 text-white/40 hover:border-white/20"
+                        }`}
+                      >
+                        <HardHat size={24} />
+                        <span className="text-sm font-medium">New Company</span>
+                        <span className="text-[11px] text-white/30 leading-tight text-center">
+                          Set up from scratch
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Invite Code — shown when joining */}
+                  {joinMode === "join" && (
+                    <div>
+                      <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-2">
+                        Invite Code
+                      </label>
+                      <input
+                        type="text"
+                        value={inviteCode}
+                        onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                        placeholder="e.g. A3F2B1C9"
+                        required
+                        maxLength={8}
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 transition-colors font-mono text-center tracking-widest text-lg uppercase"
+                      />
+                      <p className="text-[11px] text-white/30 mt-1.5">
+                        Ask your manager for the team invite code
+                      </p>
+                    </div>
+                  )}
+
                   {/* Role Selector */}
                   <div>
                     <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-3">
@@ -198,35 +263,41 @@ export default function LoginPage() {
                       className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 transition-colors"
                     />
                   </div>
-                  <div>
-                    <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-2">
-                      Company Name
-                    </label>
-                    <input
-                      type="text"
-                      value={companyName}
-                      onChange={(e) => setCompanyName(e.target.value)}
-                      placeholder="Your company name"
-                      required
-                      className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 transition-colors"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-2">
-                      Primary Trade
-                    </label>
-                    <select
-                      value={industry}
-                      onChange={(e) => setIndustry(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500/40 transition-colors appearance-none"
-                    >
-                      {industries.map((ind) => (
-                        <option key={ind.value} value={ind.value} className="bg-[#141414]">
-                          {ind.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+
+                  {/* Company fields — only for new company */}
+                  {joinMode === "new" && (
+                    <>
+                      <div>
+                        <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-2">
+                          Company Name
+                        </label>
+                        <input
+                          type="text"
+                          value={companyName}
+                          onChange={(e) => setCompanyName(e.target.value)}
+                          placeholder="Your company name"
+                          required
+                          className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white placeholder-white/20 focus:outline-none focus:border-emerald-500/40 transition-colors"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-white/30 uppercase tracking-wider font-medium block mb-2">
+                          Primary Trade
+                        </label>
+                        <select
+                          value={industry}
+                          onChange={(e) => setIndustry(e.target.value)}
+                          className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white focus:outline-none focus:border-emerald-500/40 transition-colors appearance-none"
+                        >
+                          {industries.map((ind) => (
+                            <option key={ind.value} value={ind.value} className="bg-[#141414]">
+                              {ind.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </>
+                  )}
                 </>
               )}
 
