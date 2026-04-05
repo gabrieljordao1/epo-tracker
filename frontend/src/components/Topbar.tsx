@@ -21,9 +21,22 @@ export function Topbar() {
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  const [notifOpen, setNotifOpen] = useState(false);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleNotifClick = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleNotifClick);
+    return () => document.removeEventListener("mousedown", handleNotifClick);
+  }, []);
+
   const viewLabel = isBossView
     ? "All Communities"
-    : `${activeUser?.full_name} — ${activeUser?.communities.join(", ")}`;
+    : `${activeUser?.full_name ?? "User"} — ${(activeUser?.communities ?? []).join(", ") || "No communities"}`;
 
   return (
     <div className="h-16 bg-bg border-b border-card-border px-8 flex items-center justify-between">
@@ -83,7 +96,7 @@ export function Topbar() {
               {/* Individual supervisors */}
               {fieldMembers.map((member) => {
                 const isActive = activeUser?.id === member.id;
-                const initials = member.full_name.split(" ").map((n) => n[0]).join("");
+                const initials = (member.full_name || "?").split(" ").map((n) => n[0] || "").join("");
                 return (
                   <button
                     key={member.id}
@@ -97,7 +110,7 @@ export function Topbar() {
                     </div>
                     <div>
                       <div className="text-sm font-medium text-text1">{member.full_name}</div>
-                      <div className="text-xs text-text3">{member.communities.join(", ")}</div>
+                      <div className="text-xs text-text3">{(member.communities ?? []).join(", ") || "No communities"}</div>
                     </div>
                     {isActive && <div className="ml-auto w-2 h-2 rounded-full bg-[rgb(144,191,249)]" />}
                   </button>
@@ -114,10 +127,27 @@ export function Topbar() {
         </div>
 
         {/* Notifications */}
-        <button className="relative text-text2 hover:text-text1 transition-colors">
-          <Bell size={20} />
-          <div className="absolute -top-1 -right-1 w-3 h-3 bg-amber rounded-full"></div>
-        </button>
+        <div className="relative" ref={notifRef}>
+          <button
+            onClick={() => setNotifOpen(!notifOpen)}
+            className="relative text-text2 hover:text-text1 transition-colors"
+          >
+            <Bell size={20} />
+          </button>
+
+          {notifOpen && (
+            <div className="absolute right-0 top-full mt-2 w-72 bg-[#141414] border border-card-border rounded-xl shadow-2xl z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-card-border">
+                <p className="text-sm font-medium text-text1">Notifications</p>
+              </div>
+              <div className="px-4 py-8 text-center">
+                <Bell size={24} className="mx-auto mb-2 text-text3" />
+                <p className="text-sm text-text3">No new notifications</p>
+                <p className="text-xs text-text3 mt-1">You&apos;re all caught up!</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

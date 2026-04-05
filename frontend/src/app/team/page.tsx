@@ -137,10 +137,12 @@ export default function TeamPage() {
 
   // Leaderboard: rank by capture rate, then by total EPOs as tiebreaker
   const ranked = [...members]
-    .filter((m) => m.stats.total > 0)
+    .filter((m) => (m.stats?.total ?? 0) > 0)
     .sort((a, b) => {
-      if (b.stats.capture_rate !== a.stats.capture_rate) return b.stats.capture_rate - a.stats.capture_rate;
-      return b.stats.total - a.stats.total;
+      const bRate = b.stats?.capture_rate ?? 0;
+      const aRate = a.stats?.capture_rate ?? 0;
+      if (bRate !== aRate) return bRate - aRate;
+      return (b.stats?.total ?? 0) - (a.stats?.total ?? 0);
     });
 
   return (
@@ -277,7 +279,7 @@ export default function TeamPage() {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-text3 truncate">{m.communities.join(", ") || "No communities assigned"}</div>
+                    <div className="text-xs text-text3 truncate">{(m.communities ?? []).join(", ") || "No communities assigned"}</div>
                   </div>
 
                   {/* Capture Rate — the main metric */}
@@ -285,24 +287,24 @@ export default function TeamPage() {
                     <div
                       className="text-lg font-mono font-bold"
                       style={{
-                        color: m.stats.capture_rate >= 70 ? "rgb(52,211,153)" : m.stats.capture_rate >= 40 ? "rgb(251,191,36)" : "rgb(248,113,113)",
+                        color: (m.stats?.capture_rate ?? 0) >= 70 ? "rgb(52,211,153)" : (m.stats?.capture_rate ?? 0) >= 40 ? "rgb(251,191,36)" : "rgb(248,113,113)",
                       }}
                     >
-                      {m.stats.capture_rate}%
+                      {m.stats?.capture_rate ?? 0}%
                     </div>
                     <div className="text-[10px] text-text3 uppercase tracking-wide">capture</div>
                   </div>
 
                   {/* EPOs count */}
                   <div className="text-right shrink-0" style={{ minWidth: "50px" }}>
-                    <div className="text-sm font-mono text-text1">{m.stats.total}</div>
+                    <div className="text-sm font-mono text-text1">{m.stats?.total ?? 0}</div>
                     <div className="text-[10px] text-text3 uppercase tracking-wide">EPOs</div>
                   </div>
 
                   {/* Value */}
                   <div className="text-right shrink-0" style={{ minWidth: "70px" }}>
                     <div className="text-sm font-mono text-text1">
-                      ${m.stats.total_value >= 1000 ? (m.stats.total_value / 1000).toFixed(1) + "K" : m.stats.total_value}
+                      ${(m.stats?.total_value ?? 0) >= 1000 ? ((m.stats?.total_value ?? 0) / 1000).toFixed(1) + "K" : (m.stats?.total_value ?? 0)}
                     </div>
                     <div className="text-[10px] text-text3 uppercase tracking-wide">value</div>
                   </div>
@@ -325,12 +327,12 @@ export default function TeamPage() {
       )}
 
       {/* Members with 0 EPOs — not ranked */}
-      {members.filter((m) => m.stats.total === 0 && m.role !== "admin").length > 0 && (
+      {members.filter((m) => (m.stats?.total ?? 0) === 0 && m.role !== "admin").length > 0 && (
         <div className="card p-4">
           <div className="text-xs text-text3 uppercase tracking-wide mb-3">Not yet ranked (0 EPOs)</div>
           <div className="flex flex-wrap gap-2">
             {members
-              .filter((m) => m.stats.total === 0 && m.role !== "admin")
+              .filter((m) => (m.stats?.total ?? 0) === 0 && m.role !== "admin")
               .map((m) => (
                 <div
                   key={m.id}
@@ -341,7 +343,7 @@ export default function TeamPage() {
                     className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-semibold"
                     style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.4)" }}
                   >
-                    {m.full_name.split(" ").map((n) => n[0]).join("")}
+                    {(m.full_name || "?").split(" ").map((n) => n[0] || "").join("")}
                   </div>
                   <span className="text-text2">{m.full_name}</span>
                 </div>
@@ -357,7 +359,7 @@ export default function TeamPage() {
             <h2 className="text-lg font-medium text-text1">
               {selectedMember.full_name}&apos;s EPOs
               <span className="text-text3 text-sm ml-2">
-                {selectedMember.communities.join(", ")}
+                {(selectedMember.communities ?? []).join(", ")}
               </span>
             </h2>
             <button

@@ -72,7 +72,10 @@ export function Sidebar() {
 
       {/* User Profile */}
       <div className="px-4 py-6 border-t border-card-border">
-        <div className="flex items-center gap-3">
+        <Link
+          href="/settings"
+          className="flex items-center gap-3 rounded-lg px-1 py-1 -mx-1 hover:bg-surface transition-colors cursor-pointer"
+        >
           <div className="w-10 h-10 rounded-full bg-green flex items-center justify-center font-semibold text-black text-sm">
             {initials}
           </div>
@@ -80,7 +83,7 @@ export function Sidebar() {
             <p className="text-sm font-medium truncate">{displayName}</p>
             <p className="text-xs text-text3 truncate">{displayCompany}</p>
           </div>
-        </div>
+        </Link>
         {!isBossView && (
           <div className="mt-2 px-1">
             <span className="text-xs text-text3 bg-surface px-2 py-0.5 rounded">
