@@ -173,7 +173,7 @@ export default function EPOsPage() {
           <p className="text-text2 text-sm">
             {isBossView
               ? "All extra purchase orders"
-              : `${activeUser?.full_name} — ${activeUser?.communities.join(
+              : `${activeUser?.full_name} — ${(activeUser?.communities ?? []).join(
                   ", "
                 )}`}
           </p>

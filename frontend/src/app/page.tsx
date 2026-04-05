@@ -224,7 +224,7 @@ export default function Dashboard() {
             >
               {isBossView
                 ? "Viewing all communities"
-                : `${activeUser?.full_name} — ${activeUser?.communities.join(", ")}`}
+                : `${activeUser?.full_name} — ${(activeUser?.communities ?? []).join(", ")}`}
             </motion.p>
           </AnimatePresence>
         </div>

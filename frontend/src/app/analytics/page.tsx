@@ -303,7 +303,7 @@ export default function AnalyticsPage() {
         <p className="text-text2">
           {isBossView
             ? "Performance breakdown across all communities"
-            : `${activeUser?.full_name} — ${activeUser?.communities.join(", ")}`}
+            : `${activeUser?.full_name} — ${(activeUser?.communities ?? []).join(", ")}`}
         </p>
       </div>
 
