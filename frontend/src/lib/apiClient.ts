@@ -14,12 +14,71 @@ export interface ApiErrorResponse {
   error?: string;
 }
 
+const DEFAULT_TIMEOUT = 30000; // 30 seconds
+const MAX_RETRIES = 3;
+const RETRY_DELAY_BASE = 1000; // 1 second base delay
+
+let isOffline = false;
+let offlineToastShown = false;
+
+// --- Offline detection ---
+if (typeof window !== "undefined") {
+  window.addEventListener("online", () => {
+    isOffline = false;
+    offlineToastShown = false;
+    const toast = getToastInstance();
+    if (toast) {
+      toast.success("Connection restored.");
+    }
+  });
+
+  window.addEventListener("offline", () => {
+    isOffline = true;
+    const toast = getToastInstance();
+    if (toast && !offlineToastShown) {
+      toast.error("You are offline. Changes may not be saved.");
+      offlineToastShown = true;
+    }
+  });
+}
+
+// --- Helpers ---
+
+function shouldRetry(status: number, attempt: number): boolean {
+  if (attempt >= MAX_RETRIES) return false;
+  // Retry on server errors (5xx) and 408 (Request Timeout) and 429 (Rate Limited)
+  return status >= 500 || status === 408 || status === 429;
+}
+
+function getRetryDelay(attempt: number): number {
+  // Exponential backoff with jitter
+  const delay = RETRY_DELAY_BASE * Math.pow(2, attempt);
+  const jitter = delay * 0.2 * Math.random();
+  return delay + jitter;
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeout: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  return fetch(url, {
+    ...options,
+    signal: controller.signal,
+  }).finally(() => clearTimeout(timer));
+}
+
 const getApiBaseUrl = () => {
   if (typeof window !== "undefined") {
-    // Client-side
     return process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
   }
-  // Server-side
   return process.env.API_URL || "http://localhost:3001";
 };
 
@@ -30,7 +89,6 @@ async function handleApiError(
   const toast = getToastInstance();
 
   if (response.status === 401) {
-    // Unauthorized - redirect to login
     if (typeof window !== "undefined") {
       window.location.href = "/login";
     }
@@ -38,7 +96,6 @@ async function handleApiError(
   }
 
   if (response.status === 429) {
-    // Rate limited
     if (toast) {
       toast.warning("Rate limited. Please try again shortly.");
     }
@@ -46,14 +103,12 @@ async function handleApiError(
   }
 
   if (response.status >= 500) {
-    // Server error
     if (toast) {
       toast.error("Server error. Please try again later.");
     }
     throw new Error("Server error");
   }
 
-  // Generic error handling
   const errorMessage =
     typeof body === "object" && body !== null && "message" in body
       ? (body as ApiErrorResponse).message ||
@@ -71,9 +126,27 @@ async function apiRequest<T = unknown>(
     body?: unknown;
     headers?: Record<string, string>;
     token?: string;
+    timeout?: number;
+    retries?: number;
   } = {}
 ): Promise<T> {
-  const { body, headers: customHeaders = {}, token } = options;
+  const {
+    body,
+    headers: customHeaders = {},
+    token,
+    timeout = DEFAULT_TIMEOUT,
+    retries = MAX_RETRIES,
+  } = options;
+
+  // Check offline status
+  if (isOffline) {
+    const toast = getToastInstance();
+    if (toast && !offlineToastShown) {
+      toast.error("You are offline. Please check your connection.");
+      offlineToastShown = true;
+    }
+    throw new Error("No internet connection");
+  }
 
   const baseUrl = getApiBaseUrl();
   const url = `${baseUrl}${endpoint}`;
@@ -87,40 +160,96 @@ async function apiRequest<T = unknown>(
     headers.Authorization = `Bearer ${token}`;
   }
 
-  try {
-    const response = await fetch(url, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-      credentials: "include",
-    });
+  let lastError: Error | null = null;
 
-    let responseBody: unknown;
-    const contentType = response.headers.get("content-type");
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method,
+          headers,
+          body: body ? JSON.stringify(body) : undefined,
+          credentials: "include",
+        },
+        timeout
+      );
 
-    if (contentType?.includes("application/json")) {
-      responseBody = await response.json();
-    } else {
-      responseBody = await response.text();
-    }
+      let responseBody: unknown;
+      const contentType = response.headers.get("content-type");
 
-    if (!response.ok) {
-      await handleApiError(response, responseBody);
-    }
-
-    return responseBody as T;
-  } catch (error) {
-    // Network error or other fetch error
-    const toast = getToastInstance();
-
-    if (error instanceof TypeError && error.message.includes("fetch")) {
-      if (toast) {
-        toast.error("Connection lost. Please check your internet connection.");
+      if (contentType?.includes("application/json")) {
+        responseBody = await response.json();
+      } else {
+        responseBody = await response.text();
       }
-    }
 
-    throw error;
+      if (!response.ok) {
+        // Don't retry 401 or 4xx (except 408, 429)
+        if (!shouldRetry(response.status, attempt)) {
+          await handleApiError(response, responseBody);
+        }
+
+        // Retry eligible - wait and try again
+        if (attempt < retries && shouldRetry(response.status, attempt)) {
+          const delay = getRetryDelay(attempt);
+          console.warn(
+            `[API] Retrying ${method} ${endpoint} (attempt ${attempt + 1}/${retries}) after ${Math.round(delay)}ms`
+          );
+          await sleep(delay);
+          continue;
+        }
+
+        await handleApiError(response, responseBody);
+      }
+
+      return responseBody as T;
+    } catch (error) {
+      lastError = error as Error;
+
+      // Abort errors (timeout)
+      if (error instanceof DOMException && error.name === "AbortError") {
+        if (attempt < retries) {
+          const delay = getRetryDelay(attempt);
+          console.warn(
+            `[API] Request timeout, retrying ${method} ${endpoint} (attempt ${attempt + 1}/${retries})`
+          );
+          await sleep(delay);
+          continue;
+        }
+        const toast = getToastInstance();
+        if (toast) {
+          toast.error("Request timed out. Please try again.");
+        }
+        throw new Error("Request timed out");
+      }
+
+      // Network errors - retry
+      if (
+        error instanceof TypeError &&
+        (error.message.includes("fetch") || error.message.includes("network"))
+      ) {
+        if (attempt < retries) {
+          const delay = getRetryDelay(attempt);
+          console.warn(
+            `[API] Network error, retrying ${method} ${endpoint} (attempt ${attempt + 1}/${retries})`
+          );
+          await sleep(delay);
+          continue;
+        }
+        const toast = getToastInstance();
+        if (toast) {
+          toast.error("Connection lost. Please check your internet connection.");
+        }
+        throw error;
+      }
+
+      // Non-retryable error (like 401, 404, etc.)
+      throw error;
+    }
   }
+
+  throw lastError || new Error("Request failed after retries");
 }
 
 export const apiClient = {
