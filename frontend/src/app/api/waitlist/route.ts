@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       try {
         const resend = new Resend(resendApiKey);
         await resend.emails.send({
-          from: "Gabriel from Onyx <hello@onyxepos.com>",
+          from: "Gabriel from Onyx <onboarding@resend.dev>",
           to: email.toLowerCase().trim(),
           replyTo: "onyxepossupport@gmail.com",
           subject: "Welcome to Onyx — you're on the list",
