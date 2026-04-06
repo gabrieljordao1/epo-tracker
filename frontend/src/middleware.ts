@@ -16,6 +16,10 @@ export function middleware(request: NextRequest) {
       "/api/waitlist",
       "/_next/",
       "/favicon.ico",
+      "/favicon.svg",
+      "/favicon-32.png",
+      "/icon-192.png",
+      "/onyx-logo.svg",
     ];
 
     const isAllowed = allowedRoutes.some(route => {
@@ -40,6 +44,6 @@ export function middleware(request: NextRequest) {
 export const config = {
   matcher: [
     // Apply middleware to all routes except static files
-    "/((?!_next/static|_next/image|favicon.ico).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|favicon\\.svg|favicon-32\\.png|icon-192\\.png|onyx-logo\\.svg).*)",
   ],
 };
