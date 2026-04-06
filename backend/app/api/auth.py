@@ -83,8 +83,12 @@ async def register(
 
     # Create user — also set work_email so the FROM-matching works
     hashed_password = get_password_hash(request.password)
-    role_map = {"field": UserRole.FIELD, "manager": UserRole.MANAGER, "admin": UserRole.ADMIN}
-    user_role = role_map.get(request.role, UserRole.FIELD)
+    # First user creating a new company is always ADMIN
+    if not request.invite_code:
+        user_role = UserRole.ADMIN
+    else:
+        role_map = {"field": UserRole.FIELD, "manager": UserRole.MANAGER, "admin": UserRole.ADMIN}
+        user_role = role_map.get(request.role, UserRole.FIELD)
 
     # Generate email verification code
     verification_code = str(secrets.randbelow(1000000)).zfill(6)
