@@ -1,4 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { Resend } from "resend";
+import {
+  getWelcomeEmailHtml,
+  getWelcomeEmailText,
+} from "@/lib/emails/welcome";
 
 // Validate email format
 function isValidEmail(email: string): boolean {
@@ -55,27 +60,27 @@ export async function POST(request: NextRequest) {
     }
 
     // POST to Supabase REST API
-    const response = await fetch(
-      `${supabaseUrl}/rest/v1/waitlist`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: supabaseKey,
-          Authorization: `Bearer ${supabaseKey}`,
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.toLowerCase().trim(),
-          company: company.trim(),
-        }),
-      }
-    );
+    const response = await fetch(`${supabaseUrl}/rest/v1/waitlist`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: supabaseKey,
+        Authorization: `Bearer ${supabaseKey}`,
+      },
+      body: JSON.stringify({
+        name: name.trim(),
+        email: email.toLowerCase().trim(),
+        company: company.trim(),
+      }),
+    });
 
     // Check for duplicate email (Supabase returns 409 for constraint violations)
     if (response.status === 409) {
       return NextResponse.json(
-        { error: "This email is already on our waitlist. We'll be in touch soon!" },
+        {
+          error:
+            "This email is already on our waitlist. We'll be in touch soon!",
+        },
         { status: 409 }
       );
     }
@@ -84,7 +89,6 @@ export async function POST(request: NextRequest) {
       const errorData = await response.text();
       console.error("Supabase error:", response.status, errorData);
 
-      // Provide user-friendly error message
       if (response.status === 400) {
         return NextResponse.json(
           { error: "Invalid data provided. Please check your inputs." },
@@ -95,6 +99,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Failed to add you to the waitlist. Please try again." },
         { status: response.status }
+      );
+    }
+
+    // Send welcome email via Resend (non-blocking — don't fail the signup if email fails)
+    const resendApiKey = process.env.RESEND_API_KEY;
+    if (resendApiKey) {
+      try {
+        const resend = new Resend(resendApiKey);
+        await resend.emails.send({
+          from: "Gabriel from Onyx <hello@onyxepos.com>",
+          to: email.toLowerCase().trim(),
+          replyTo: "hello@onyxepos.com",
+          subject: "Welcome to Onyx — you're on the list",
+          html: getWelcomeEmailHtml(name.trim()),
+          text: getWelcomeEmailText(name.trim()),
+        });
+      } catch (emailError) {
+        // Log the error but don't fail the signup
+        console.error("Failed to send welcome email:", emailError);
+      }
+    } else {
+      console.warn(
+        "RESEND_API_KEY not configured — skipping welcome email"
       );
     }
 
