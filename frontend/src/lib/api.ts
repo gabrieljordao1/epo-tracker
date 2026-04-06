@@ -57,8 +57,22 @@ function isTokenExpired(token: string): boolean {
   }
 }
 
-/** Refresh the access token using the refresh token */
+// Mutex for token refresh — prevents multiple concurrent refresh calls
+let refreshPromise: Promise<void> | null = null;
+
+/** Refresh the access token using the refresh token.
+ *  Uses a shared promise so concurrent callers deduplicate into one request. */
 async function refreshAccessToken(): Promise<void> {
+  // If a refresh is already in-flight, piggyback on it
+  if (refreshPromise) return refreshPromise;
+
+  refreshPromise = _doRefresh().finally(() => {
+    refreshPromise = null;
+  });
+  return refreshPromise;
+}
+
+async function _doRefresh(): Promise<void> {
   const refresh = getRefreshToken();
   if (!refresh) {
     // No refresh token, redirect to login

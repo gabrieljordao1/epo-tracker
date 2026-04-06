@@ -137,6 +137,7 @@ class EPOUpdate(BaseModel):
     confirmation_number: Optional[str] = None
     status: Optional[EPOStatus] = None
     needs_review: Optional[bool] = None
+    version: Optional[int] = None  # For optimistic locking — send current version to prevent lost updates
 
 
 class EPOResponse(EPOBase):

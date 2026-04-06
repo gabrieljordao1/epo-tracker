@@ -5,6 +5,7 @@ import logging
 from typing import Dict, Any, Optional, Tuple, List
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ..core.config import get_settings
+from ..core.circuit_breaker import gemini_breaker, claude_breaker
 from .sanitize import sanitize_email_body, sanitize_text_field
 
 settings = get_settings()
@@ -61,16 +62,20 @@ class EmailParserService:
         email_body = sanitize_email_body(email_body)
 
         # Tier 1: Try Gemini Flash (preferred — handles informal emails well)
-        if settings.GOOGLE_AI_API_KEY:
+        if settings.GOOGLE_AI_API_KEY and gemini_breaker.can_execute():
             gemini_result = await self._parse_gemini(email_subject, email_body, vendor_email)
             if gemini_result and gemini_result.get("confidence_score", 0) >= 0.5:
                 return gemini_result
+        elif gemini_breaker.is_open:
+            logger.warning("Gemini circuit breaker OPEN — skipping to next tier")
 
         # Tier 2: Fall back to Claude Haiku
-        if settings.ANTHROPIC_API_KEY:
+        if settings.ANTHROPIC_API_KEY and claude_breaker.can_execute():
             haiku_result = await self._parse_haiku(email_subject, email_body, vendor_email)
             if haiku_result and haiku_result.get("confidence_score", 0) >= 0.5:
                 return haiku_result
+        elif claude_breaker.is_open:
+            logger.warning("Claude circuit breaker OPEN — falling back to regex")
 
         # Tier 3: Regex fallback (free, but limited with informal emails)
         regex_result = self._parse_regex(email_subject, email_body, vendor_email)
@@ -374,6 +379,8 @@ Return ONLY a valid JSON array (one object per lot):
 
             # Handle both array and single-object responses
             parsed = json.loads(response_text)
+            gemini_breaker.record_success()
+
             if isinstance(parsed, list):
                 # Multi-EPO response — return first item, store the rest for the pipeline
                 results = []
@@ -398,7 +405,8 @@ Return ONLY a valid JSON array (one object per lot):
                 return result
 
         except Exception as e:
-            print(f"Gemini parsing failed: {e}")
+            gemini_breaker.record_failure()
+            logger.error(f"Gemini parsing failed: {e}")
             return None
 
     async def _parse_haiku(
@@ -457,10 +465,12 @@ Return ONLY this JSON format:
             result.setdefault("confidence_score", 0.6)
             result.setdefault("needs_review", result.get("confidence_score", 0.5) < 0.7)
 
+            claude_breaker.record_success()
             return result
 
         except Exception as e:
-            print(f"Haiku parsing failed: {e}")
+            claude_breaker.record_failure()
+            logger.error(f"Haiku parsing failed: {e}")
             return {
                 "vendor_name": None,
                 "vendor_email": vendor_email,
@@ -495,7 +505,7 @@ Return ONLY this JSON format:
             }
         """
         # Try Gemini first, fall back to keyword matching
-        if settings.GOOGLE_AI_API_KEY:
+        if settings.GOOGLE_AI_API_KEY and gemini_breaker.can_execute():
             result = await self._classify_reply_gemini(email_subject, email_body, original_epo_context)
             if result and result.get("confidence", 0) >= 0.5:
                 return result
@@ -567,10 +577,12 @@ Return ONLY valid JSON:
 
             result = json.loads(response_text)
             result["parse_model"] = "gemini"
+            gemini_breaker.record_success()
             logger.info(f"Reply classified by Gemini: intent={result.get('intent')}, conf={result.get('confidence')}")
             return result
 
         except Exception as e:
+            gemini_breaker.record_failure()
             logger.error(f"Gemini reply classification failed: {e}")
             return None
 

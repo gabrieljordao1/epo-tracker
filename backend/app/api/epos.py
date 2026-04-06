@@ -3,7 +3,7 @@ from datetime import datetime
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, case, literal_column
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -196,12 +196,24 @@ async def update_epo(
                 detail="EPO not found",
             )
 
-        # Update only provided fields with sanitization
+        # Optimistic locking: if client sent a version, verify it matches
         update_data = epo_update.model_dump(exclude_unset=True)
+        client_version = update_data.pop("version", None)
+        if client_version is not None and hasattr(epo, "version") and epo.version != client_version:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This EPO was modified by someone else. Please refresh and try again.",
+            )
+
+        # Update only provided fields with sanitization
         for field, value in update_data.items():
             if field in ['vendor_name', 'description', 'community'] and value:
                 value = sanitize_html(str(value), allowed_tags=[])
             setattr(epo, field, value)
+
+        # Increment version for optimistic locking
+        if hasattr(epo, "version"):
+            epo.version = (epo.version or 1) + 1
 
         await session.commit()
         await session.refresh(epo)
@@ -231,50 +243,39 @@ async def get_dashboard_stats(
 ) -> DashboardStats:
     """Get dashboard statistics and analytics for EPOs.
     Field role users see stats for their own EPOs only.
+    Optimized: single aggregate query instead of 8 separate queries.
     """
     try:
         company_id = current_user.company_id
 
         # Base filter: company scope + optional user scope for field users
-        def _scope(q):
-            q = q.where(EPO.company_id == company_id)
-            if current_user.role == UserRole.FIELD:
-                q = q.where(EPO.created_by_id == current_user.id)
-            return q
+        scope_filters = [EPO.company_id == company_id]
+        if current_user.role == UserRole.FIELD:
+            scope_filters.append(EPO.created_by_id == current_user.id)
 
-        # Count EPOs by status
-        total_query = _scope(select(func.count(EPO.id)))
-        total_result = await session.execute(total_query)
-        total_epos = total_result.scalar() or 0
+        # Single query for all counts + aggregates (replaces 8 queries)
+        stats_query = select(
+            func.count(EPO.id).label("total_epos"),
+            func.count(case((EPO.status == EPOStatus.PENDING, 1))).label("pending_count"),
+            func.count(case((EPO.status == EPOStatus.CONFIRMED, 1))).label("confirmed_count"),
+            func.count(case((EPO.status == EPOStatus.DENIED, 1))).label("denied_count"),
+            func.count(case((EPO.status == EPOStatus.DISCOUNT, 1))).label("discount_count"),
+            func.count(case((EPO.needs_review == True, 1))).label("needs_review_count"),
+            func.avg(EPO.amount).label("average_amount"),
+            func.sum(EPO.amount).label("total_amount"),
+        ).where(and_(*scope_filters))
 
-        pending_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.PENDING)
-        pending_result = await session.execute(pending_query)
-        pending_count = pending_result.scalar() or 0
+        stats_result = await session.execute(stats_query)
+        row = stats_result.one()
 
-        confirmed_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.CONFIRMED)
-        confirmed_result = await session.execute(confirmed_query)
-        confirmed_count = confirmed_result.scalar() or 0
-
-        denied_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.DENIED)
-        denied_result = await session.execute(denied_query)
-        denied_count = denied_result.scalar() or 0
-
-        discount_query = _scope(select(func.count(EPO.id))).where(EPO.status == EPOStatus.DISCOUNT)
-        discount_result = await session.execute(discount_query)
-        discount_count = discount_result.scalar() or 0
-
-        needs_review_query = _scope(select(func.count(EPO.id))).where(EPO.needs_review == True)
-        needs_review_result = await session.execute(needs_review_query)
-        needs_review_count = needs_review_result.scalar() or 0
-
-        # Calculate amounts
-        avg_amount_query = _scope(select(func.avg(EPO.amount)))
-        avg_amount_result = await session.execute(avg_amount_query)
-        average_amount = avg_amount_result.scalar()
-
-        total_amount_query = _scope(select(func.sum(EPO.amount)))
-        total_amount_result = await session.execute(total_amount_query)
-        total_amount = total_amount_result.scalar()
+        total_epos = row.total_epos or 0
+        pending_count = row.pending_count or 0
+        confirmed_count = row.confirmed_count or 0
+        denied_count = row.denied_count or 0
+        discount_count = row.discount_count or 0
+        needs_review_count = row.needs_review_count or 0
+        average_amount = row.average_amount
+        total_amount = row.total_amount
 
         stats = EPOStats(
             total_epos=total_epos,
@@ -288,7 +289,7 @@ async def get_dashboard_stats(
         )
 
         # Get recent EPOs
-        recent_epos_query = _scope(select(EPO)).order_by(EPO.created_at.desc()).limit(10)
+        recent_epos_query = select(EPO).where(and_(*scope_filters)).order_by(EPO.created_at.desc()).limit(10)
         recent_epos_result = await session.execute(recent_epos_query)
         recent_epos = [
             EPOResponse.model_validate(epo) for epo in recent_epos_result.scalars().all()

@@ -3,7 +3,7 @@ from typing import Optional
 import secrets
 import resend
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,7 @@ from ..core.auth import (
     get_current_user,
 )
 from ..models.models import User, Company, UserRole, Industry, PasswordResetToken
+from ..core.circuit_breaker import resend_breaker
 from ..models.schemas import (
     LoginRequest,
     TokenResponse,
@@ -82,6 +83,10 @@ async def register(
     hashed_password = get_password_hash(request.password)
     role_map = {"field": UserRole.FIELD, "manager": UserRole.MANAGER, "admin": UserRole.ADMIN}
     user_role = role_map.get(request.role, UserRole.FIELD)
+
+    # Generate email verification code
+    verification_code = str(secrets.randbelow(1000000)).zfill(6)
+
     user = User(
         email=request.email,
         work_email=request.email,  # Set work_email for EPO FROM-matching
@@ -89,10 +94,34 @@ async def register(
         hashed_password=hashed_password,
         company_id=company.id,
         role=user_role,
+        email_verified=False,
+        email_verification_code=verification_code,
+        email_verification_expires=datetime.utcnow() + timedelta(hours=24),
     )
     session.add(user)
     await session.commit()
     await session.refresh(user)
+
+    # Send verification email (best effort — don't block registration)
+    try:
+        if resend_breaker.can_execute():
+            resend.api_key = settings.RESEND_API_KEY
+            resend.Emails.send({
+                "from": f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>",
+                "to": [user.email],
+                "subject": "Verify your EPO Tracker email",
+                "html": f"""
+                <h2>Welcome to Onyx EPO Tracker!</h2>
+                <p>Hi {user.full_name},</p>
+                <p>Please verify your email address with this code:</p>
+                <h3 style="font-family: monospace; letter-spacing: 0.2em; font-size: 24px;">{verification_code}</h3>
+                <p>This code expires in 24 hours.</p>
+                """,
+            })
+            resend_breaker.record_success()
+    except Exception as e:
+        resend_breaker.record_failure()
+        print(f"Failed to send verification email: {e}")
 
     # Create access and refresh tokens
     access_token = create_access_token(
@@ -110,6 +139,53 @@ async def register(
         token_type="bearer",
         user=UserResponse.model_validate(user),
     )
+
+
+@router.post("/verify-email")
+async def verify_email(
+    request: dict,
+    session: AsyncSession = Depends(get_db),
+):
+    """Verify email address using the 6-digit code sent during registration."""
+    email = request.get("email", "").strip().lower()
+    code = request.get("code", "").strip()
+
+    if not email or not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and verification code are required.",
+        )
+
+    query = select(User).where(User.email == email)
+    result = await session.execute(query)
+    user = result.scalars().first()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid email or verification code.",
+        )
+
+    if user.email_verified:
+        return {"success": True, "message": "Email already verified."}
+
+    # Check code and expiration
+    if (
+        user.email_verification_code != code
+        or not user.email_verification_expires
+        or user.email_verification_expires < datetime.utcnow()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired verification code.",
+        )
+
+    user.email_verified = True
+    user.email_verification_code = None
+    user.email_verification_expires = None
+    await session.commit()
+
+    return {"success": True, "message": "Email verified successfully!"}
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -197,11 +273,21 @@ async def get_invite_code(
 @router.post("/join-team")
 async def join_team(
     request: dict,
+    http_request: Request = None,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Allow an existing user to join a different company using an invite code.
-    This moves the user from their current (solo) company to the invited company."""
+    This moves the user from their current (solo) company to the invited company.
+    Rate limited to 5 attempts per 15 minutes per user to prevent brute-force."""
+    # Rate limit by user ID to prevent invite code brute-forcing
+    rate_key = f"join_team:{current_user.id}"
+    if not check_rate_limit(rate_key, max_requests=5, window_seconds=900):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many join attempts. Please try again in 15 minutes.",
+        )
+
     invite_code = request.get("invite_code", "").strip().upper()
     if not invite_code:
         raise HTTPException(
@@ -362,18 +448,23 @@ async def forgot_password(
         <p>If you didn't request this, please ignore this email.</p>
         """
 
-        resend.Emails.send({
-            "from": f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>",
-            "to": [user.email],
-            "subject": "Your EPO Tracker Password Reset Code",
-            "html": email_html,
-        })
+        if resend_breaker.can_execute():
+            resend.Emails.send({
+                "from": f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>",
+                "to": [user.email],
+                "subject": "Your EPO Tracker Password Reset Code",
+                "html": email_html,
+            })
+            resend_breaker.record_success()
+        else:
+            print("Resend circuit breaker OPEN — skipping email send")
 
         return {
             "success": True,
             "message": "If an account exists with this email, a reset code has been sent.",
         }
     except Exception as e:
+        resend_breaker.record_failure()
         # Log the error but still return success for security
         print(f"Error sending reset email: {e}")
         return {

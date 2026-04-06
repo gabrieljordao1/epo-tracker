@@ -106,6 +106,9 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(SQLEnum(UserRole), default=UserRole.FIELD, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    email_verified = Column(Boolean, default=False, nullable=False, server_default="false")
+    email_verification_code = Column(String(6), nullable=True)  # 6-digit code
+    email_verification_expires = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
@@ -182,6 +185,9 @@ class EPO(Base):
 
     # Internal approval workflow
     approval_status = Column(SQLEnum(ApprovalStatus), default=ApprovalStatus.DRAFT, nullable=False)
+
+    # Optimistic locking: version increments on each update to prevent lost writes
+    version = Column(Integer, default=1, nullable=False, server_default="1")
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

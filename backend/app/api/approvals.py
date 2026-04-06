@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload, joinedload
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
@@ -231,26 +232,28 @@ async def get_pending_approvals(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    """Get all pending approval requests for the company."""
+    """Get all pending approval requests for the company.
+    Uses joinedload to fetch EPO and requestor in a single query (avoids N+1).
+    """
     try:
         result = await session.execute(
             select(EPOApproval)
+            .options(
+                joinedload(EPOApproval.epo),
+                joinedload(EPOApproval.requested_by),
+            )
             .where(
                 EPOApproval.company_id == current_user.company_id,
                 EPOApproval.status == ApprovalStatus.PENDING_SUPER,
             )
             .order_by(EPOApproval.created_at.desc())
         )
-        approvals = result.scalars().all()
+        approvals = result.unique().scalars().all()
 
         items = []
         for a in approvals:
-            # Get the EPO details
-            epo_result = await session.execute(select(EPO).where(EPO.id == a.epo_id))
-            epo = epo_result.scalars().first()
-            # Get requestor name
-            req_result = await session.execute(select(User).where(User.id == a.requested_by_id))
-            requestor = req_result.scalars().first()
+            epo = a.epo
+            requestor = a.requested_by
 
             items.append({
                 "id": a.id,
