@@ -8,6 +8,13 @@ import "@/globals.css";
 export const metadata: Metadata = {
   title: "Onyx",
   description: "EPO tracking for construction trades",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "32x32" },
+      { url: "/favicon.svg", type: "image/svg+xml" },
+    ],
+    apple: "/icon-192.png",
+  },
 };
 
 export default function RootLayout({

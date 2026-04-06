@@ -63,22 +63,22 @@ export default function EarlyAccessPage() {
     {
       icon: Mail,
       title: "Email Capture Automation",
-      description: "EPOs automatically sync from email. No manual entry, no data loss.",
+      description: "EPOs you send automatically sync from email. No manual entry, no chasing builders for details.",
     },
     {
       icon: Zap,
       title: "Real-time EPO Dashboard",
-      description: "Track every EPO across your projects in one unified view.",
+      description: "See every EPO you've sent across all your builders and communities in one place.",
     },
     {
       icon: Users,
-      title: "Multi-Community Management",
-      description: "Manage EPOs for multiple communities and builders from one dashboard.",
+      title: "Builder Self-Service Confirmation",
+      description: "Builders confirm EPOs with one click. No more back-and-forth emails or phone calls.",
     },
     {
       icon: BarChart3,
       title: "Analytics & Reporting",
-      description: "Gain insights into spending patterns and vendor performance.",
+      description: "Track spending, confirmation rates, and turnaround times across all your projects.",
     },
   ];
 
@@ -138,9 +138,9 @@ export default function EarlyAccessPage() {
               variants={itemVariants}
               className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-tight"
             >
-              <span className="text-text1">Track EPOs with </span>
+              <span className="text-text1">EPO tracking </span>
               <span className="bg-gradient-to-r from-green to-emerald-300 bg-clip-text text-transparent">
-                precision
+                built for vendors
               </span>
             </motion.h1>
 
@@ -149,8 +149,8 @@ export default function EarlyAccessPage() {
               variants={itemVariants}
               className="text-lg sm:text-xl text-text2 mb-8 leading-relaxed max-w-2xl mx-auto"
             >
-              Onyx brings order to construction EPO chaos. Email-first intake, real-time dashboards,
-              and builder self-service confirmation — all in one platform.
+              Stop chasing EPO confirmations. Onyx automatically captures requests from email,
+              tracks every EPO you send to builders, and lets them confirm in one click.
             </motion.p>
 
             {/* CTA Button */}
@@ -176,10 +176,10 @@ export default function EarlyAccessPage() {
             className="text-center mb-16"
           >
             <h2 className="text-4xl sm:text-5xl font-bold mb-4 text-text1">
-              Built for Construction Field Managers
+              Built for Trade Contractors
             </h2>
             <p className="text-text2 text-lg max-w-2xl mx-auto">
-              Everything you need to track, manage, and confirm EPOs across all your vendors and communities.
+              Everything your team needs to track, manage, and get confirmations on EPOs sent to builders across all your communities.
             </p>
           </motion.div>
 
@@ -338,7 +338,7 @@ export default function EarlyAccessPage() {
             <div className="flex flex-col sm:flex-row items-center justify-between gap-4 text-text3 text-sm">
               <div className="flex items-center gap-2">
                 <OnyxLogo size={20} />
-                <span>Onyx — EPO Tracking for Construction</span>
+                <span>Onyx — EPO Tracking for Trade Contractors</span>
               </div>
               <div className="flex items-center gap-6">
                 <a href="/login" className="hover:text-text2 transition-colors">
