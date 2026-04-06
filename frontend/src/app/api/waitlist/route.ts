@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
         await resend.emails.send({
           from: "Gabriel from Onyx <hello@onyxepos.com>",
           to: email.toLowerCase().trim(),
-          replyTo: "hello@onyxepos.com",
+          replyTo: "onyxepossupport@gmail.com",
           subject: "Welcome to Onyx — you're on the list",
           html: getWelcomeEmailHtml(name.trim()),
           text: getWelcomeEmailText(name.trim()),
