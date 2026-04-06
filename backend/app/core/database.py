@@ -90,6 +90,15 @@ async def _run_safe_migrations():
         )
         WHERE id = 28 AND created_by_id IS NULL;
         """,
+        # Deactivate demo-seeded Gabriel user to avoid duplicate on team page
+        # The real account is gabriel.jordao0217@gmail.com
+        """
+        UPDATE users SET is_active = false
+        WHERE email = 'gabriel@stancilservices.com'
+          AND EXISTS (
+              SELECT 1 FROM users WHERE email = 'gabriel.jordao0217@gmail.com'
+          );
+        """,
     ]
 
     async with engine.begin() as conn:

@@ -53,8 +53,8 @@ DESCRIPTIONS = [
 # Supervisor assignments for demo
 SUPERVISORS = [
     {
-        "full_name": "Gabriel Jordao",
-        "email": "gabriel@stancilservices.com",
+        "full_name": "Gabriel Jordao (Demo)",
+        "email": "gabriel-demo@stancilservices.com",
         "role": UserRole.ADMIN,
         "communities": COMMUNITIES,  # Boss sees all
     },
