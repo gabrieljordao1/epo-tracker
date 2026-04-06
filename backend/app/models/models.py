@@ -40,6 +40,7 @@ class PlanTier(str, Enum):
     """Plan tier enumeration"""
     STARTER = "starter"
     PRO = "pro"
+    BUSINESS = "business"
     ENTERPRISE = "enterprise"
 
 
@@ -86,6 +87,12 @@ class Company(Base):
     plan_tier = Column(SQLEnum(PlanTier), default=PlanTier.STARTER, nullable=False)
     invite_code = Column(String(32), unique=True, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Stripe billing
+    stripe_customer_id = Column(String(255), unique=True, nullable=True, index=True)
+    stripe_subscription_id = Column(String(255), unique=True, nullable=True, index=True)
+    stripe_subscription_status = Column(String(50), nullable=True)  # active, past_due, canceled, etc.
+    billing_email = Column(String(255), nullable=True)
 
     # Relationships
     users = relationship("User", back_populates="company", cascade="all, delete-orphan")

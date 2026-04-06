@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     SUPABASE_URL: str = ""
     SUPABASE_SERVICE_KEY: str = ""
 
+    # Stripe Billing
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
     # Agent Pipeline
     AGENT_AUTO_CONFIRM_THRESHOLD: float = 0.9  # Confidence threshold for auto-confirm
     AGENT_FOLLOWUP_DAYS: List[int] = [3, 5, 7]  # Days to send follow-ups

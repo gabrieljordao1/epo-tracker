@@ -656,6 +656,82 @@ export async function startGmailOAuth(): Promise<{ auth_url: string }> {
   return res.json();
 }
 
+// ─── Billing / Stripe ──────────────────────────────
+export async function getBillingStatus(): Promise<any> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/billing/status`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to get billing status");
+  return res.json();
+}
+
+export async function getBillingPlans(): Promise<any> {
+  const res = await fetch(`${API_BASE}/api/billing/plans`);
+  if (!res.ok) throw new Error("Failed to get plans");
+  return res.json();
+}
+
+export async function getBillingConfig(): Promise<{ publishable_key: string }> {
+  const res = await fetch(`${API_BASE}/api/billing/config`);
+  if (!res.ok) throw new Error("Failed to get billing config");
+  return res.json();
+}
+
+export async function createCheckoutSession(plan: string): Promise<{ checkout_url: string; session_id: string }> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/billing/checkout`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ plan }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Checkout failed" }));
+    throw new Error(err.detail || "Checkout failed");
+  }
+  return res.json();
+}
+
+export async function createOneTimePayment(amount_cents: number, description: string): Promise<{ checkout_url: string }> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/billing/one-time`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({ amount_cents, description }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Payment failed" }));
+    throw new Error(err.detail || "Payment failed");
+  }
+  return res.json();
+}
+
+export async function createPortalSession(): Promise<{ portal_url: string }> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/billing/portal`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Portal access failed" }));
+    throw new Error(err.detail || "Portal access failed");
+  }
+  return res.json();
+}
+
+export async function setupStripeProducts(): Promise<any> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/billing/setup-products`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Setup failed" }));
+    throw new Error(err.detail || "Setup failed");
+  }
+  return res.json();
+}
+
 // ─── Health Check ────────────────────────────────
 export async function healthCheck(): Promise<boolean> {
   try {
