@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 import {
   getWelcomeEmailHtml,
   getWelcomeEmailText,
@@ -102,15 +102,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Send welcome email via Resend (non-blocking — don't fail the signup if email fails)
-    const resendApiKey = process.env.RESEND_API_KEY;
-    if (resendApiKey) {
+    // Send welcome email via Gmail SMTP (non-blocking — don't fail the signup if email fails)
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailAppPassword = process.env.GMAIL_APP_PASSWORD;
+    if (gmailUser && gmailAppPassword) {
       try {
-        const resend = new Resend(resendApiKey);
-        await resend.emails.send({
-          from: "Gabriel from Onyx <onboarding@resend.dev>",
+        const transporter = nodemailer.createTransport({
+          service: "gmail",
+          auth: {
+            user: gmailUser,
+            pass: gmailAppPassword,
+          },
+        });
+
+        await transporter.sendMail({
+          from: `"Gabriel from Onyx" <${gmailUser}>`,
           to: email.toLowerCase().trim(),
-          replyTo: "onyxepossupport@gmail.com",
+          replyTo: gmailUser,
           subject: "Welcome to Onyx — you're on the list",
           html: getWelcomeEmailHtml(name.trim()),
           text: getWelcomeEmailText(name.trim()),
@@ -121,7 +129,7 @@ export async function POST(request: NextRequest) {
       }
     } else {
       console.warn(
-        "RESEND_API_KEY not configured — skipping welcome email"
+        "GMAIL_USER or GMAIL_APP_PASSWORD not configured — skipping welcome email"
       );
     }
 
