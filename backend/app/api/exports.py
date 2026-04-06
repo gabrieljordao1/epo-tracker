@@ -26,6 +26,7 @@ async def export_epos_csv(
     vendor: Optional[str] = Query(None),
     community: Optional[str] = Query(None),
     days: Optional[int] = Query(None, description="Filter EPOs from last N days"),
+    limit: int = Query(5000, ge=1, le=10000, description="Max rows to export"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
@@ -42,7 +43,7 @@ async def export_epos_csv(
         since = datetime.utcnow() - timedelta(days=days)
         query = query.where(EPO.created_at >= since)
 
-    query = query.order_by(EPO.created_at.desc())
+    query = query.order_by(EPO.created_at.desc()).limit(limit)
     result = await session.execute(query)
     epos = result.scalars().all()
 

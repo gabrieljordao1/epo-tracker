@@ -85,7 +85,7 @@ class Company(Base):
     name = Column(String(255), nullable=False)
     industry = Column(SQLEnum(Industry), nullable=False)
     plan_tier = Column(SQLEnum(PlanTier), default=PlanTier.STARTER, nullable=False)
-    invite_code = Column(String(20), unique=True, nullable=True, index=True)
+    invite_code = Column(String(32), unique=True, nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
@@ -99,7 +99,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     work_email = Column(String(255), unique=True, nullable=True, index=True)
     full_name = Column(String(255), nullable=False)
@@ -119,7 +119,7 @@ class EmailConnection(Base):
     __tablename__ = "email_connections"
 
     id = Column(Integer, primary_key=True, index=True)
-    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
     connected_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     email_address = Column(String(255), nullable=False)
     provider = Column(String(50), nullable=False)  # gmail, outlook, imap
@@ -148,7 +148,7 @@ class EPO(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
-    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     email_connection_id = Column(Integer, ForeignKey("email_connections.id"), nullable=True)
 
     vendor_name = Column(String(255), nullable=False)
@@ -157,7 +157,7 @@ class EPO(Base):
     lot_number = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)
     amount = Column(Float, nullable=True)
-    status = Column(SQLEnum(EPOStatus), default=EPOStatus.PENDING, nullable=False)
+    status = Column(SQLEnum(EPOStatus), default=EPOStatus.PENDING, nullable=False, index=True)
     confirmation_number = Column(String(255), nullable=True)
     days_open = Column(Integer, nullable=True)
     needs_review = Column(Boolean, default=False, nullable=False)
@@ -200,7 +200,7 @@ class EPOFollowup(Base):
     __tablename__ = "epo_followups"
 
     id = Column(Integer, primary_key=True, index=True)
-    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False)
+    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
 
     sent_to_email = Column(String(255), nullable=False)
@@ -221,7 +221,7 @@ class VendorAction(Base):
     __tablename__ = "vendor_actions"
 
     id = Column(Integer, primary_key=True, index=True)
-    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False)
+    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False, index=True)
     company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
 
     action_type = Column(String(50), nullable=False)  # viewed, confirmed, disputed, document_uploaded

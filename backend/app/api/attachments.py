@@ -27,6 +27,28 @@ ALLOWED_MIME_TYPES = {
     "application/pdf",
 }
 
+# Magic byte signatures for file type validation
+MAGIC_BYTES = {
+    "image/jpeg": [b"\xff\xd8\xff"],
+    "image/png": [b"\x89PNG\r\n\x1a\n"],
+    "image/gif": [b"GIF87a", b"GIF89a"],
+    "image/webp": [b"RIFF"],  # RIFF....WEBP
+    "application/pdf": [b"%PDF"],
+}
+
+
+def _validate_magic_bytes(content: bytes, mime_type: str) -> bool:
+    """Validate that file content matches the claimed MIME type via magic bytes."""
+    if mime_type not in MAGIC_BYTES:
+        # For types without known signatures (e.g., HEIC), allow if in ALLOWED_MIME_TYPES
+        return mime_type in ALLOWED_MIME_TYPES
+
+    signatures = MAGIC_BYTES[mime_type]
+    for sig in signatures:
+        if content[:len(sig)] == sig:
+            return True
+    return False
+
 
 @router.post("/epo/{epo_id}/upload")
 async def upload_attachment(
@@ -79,6 +101,20 @@ async def upload_attachment(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="File too large. Max 10 MB."
+            )
+
+        # Validate file content matches claimed MIME type (magic bytes)
+        if not _validate_magic_bytes(contents, file.content_type):
+            audit_log(
+                event_type="file_upload_rejected",
+                user_id=str(current_user.id),
+                email=current_user.email,
+                status="failure",
+                error_message=f"File content doesn't match claimed type: {file.content_type}"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="File content doesn't match the declared file type.",
             )
 
         # Sanitize filename

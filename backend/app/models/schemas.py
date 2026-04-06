@@ -119,7 +119,7 @@ class EPOBase(BaseModel):
     community: Optional[str] = None
     lot_number: Optional[str] = None
     description: Optional[str] = None
-    amount: Optional[float] = None
+    amount: Optional[float] = Field(None, ge=0, le=10_000_000)
     confirmation_number: Optional[str] = None
 
 
@@ -133,7 +133,7 @@ class EPOUpdate(BaseModel):
     community: Optional[str] = None
     lot_number: Optional[str] = None
     description: Optional[str] = None
-    amount: Optional[float] = None
+    amount: Optional[float] = Field(None, ge=0, le=10_000_000)
     confirmation_number: Optional[str] = None
     status: Optional[EPOStatus] = None
     needs_review: Optional[bool] = None

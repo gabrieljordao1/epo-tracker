@@ -68,7 +68,7 @@ async def register(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Company name is required when creating a new account.",
             )
-        invite_code = secrets.token_hex(4).upper()  # 8-char hex code like "A3F2B1C9"
+        invite_code = secrets.token_hex(8).upper()  # 16-char hex code
         company = Company(
             name=request.company_name,
             industry=request.industry,
@@ -119,11 +119,15 @@ async def login(
 ) -> TokenResponse:
     """Login with email and password"""
 
+    # Check for account lockout due to too many failed attempts
+    _check_login_lockout(login_request.email)
+
     query = select(User).where(User.email == login_request.email)
     result = await session.execute(query)
     user = result.scalars().first()
 
     if not user or not verify_password(login_request.password, user.hashed_password or ""):
+        _track_failed_login(login_request.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -134,6 +138,9 @@ async def login(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
         )
+
+    # Clear failed login tracking on successful login
+    _clear_failed_logins(login_request.email)
 
     # Create access and refresh tokens
     access_token = create_access_token(
@@ -177,7 +184,7 @@ async def get_invite_code(
 
     # Generate invite code if company doesn't have one yet (legacy companies)
     if not company.invite_code:
-        company.invite_code = secrets.token_hex(4).upper()
+        company.invite_code = secrets.token_hex(8).upper()
         await session.commit()
         await session.refresh(company)
 
@@ -244,6 +251,9 @@ async def join_team(
 # Rate limiting helper - tracks request count per key
 _rate_limit_store = {}
 
+# Failed login tracker
+_failed_login_store = {}
+
 
 def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
     """Simple in-memory rate limiter. In production, use Redis."""
@@ -263,6 +273,39 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
 
     _rate_limit_store[key].append(now)
     return True
+
+
+def _track_failed_login(email: str):
+    """Track a failed login attempt."""
+    now = datetime.utcnow()
+    key = email.lower()
+    if key not in _failed_login_store:
+        _failed_login_store[key] = []
+    _failed_login_store[key].append(now)
+
+
+def _check_login_lockout(email: str):
+    """Check if account is locked due to too many failed attempts."""
+    now = datetime.utcnow()
+    key = email.lower()
+    if key not in _failed_login_store:
+        return
+    # Clean old entries (15 min window)
+    _failed_login_store[key] = [
+        ts for ts in _failed_login_store[key]
+        if (now - ts).total_seconds() < 900
+    ]
+    if len(_failed_login_store[key]) >= 5:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many failed login attempts. Please try again in 15 minutes.",
+        )
+
+
+def _clear_failed_logins(email: str):
+    """Clear failed login tracking on successful login."""
+    key = email.lower()
+    _failed_login_store.pop(key, None)
 
 
 @router.post("/forgot-password")

@@ -37,6 +37,10 @@ async def get_epo_by_token(
     This is what vendors see when they click the link in their email.
     """
     try:
+        # Rate limit vendor portal views (50 per minute per IP)
+        client_ip = request.client.host if request.client else "unknown"
+        _check_rate_limit(f"view:{client_ip}", max_attempts=50, window_seconds=60)
+
         query = select(EPO).where(EPO.vendor_token == token)
         result = await session.execute(query)
         epo = result.scalars().first()
@@ -49,7 +53,6 @@ async def get_epo_by_token(
         company = comp_result.scalars().first()
 
         # Log the view
-        client_ip = request.client.host if request.client else None
         view_action = VendorAction(
             epo_id=epo.id,
             company_id=epo.company_id,
