@@ -7,15 +7,13 @@ Background job scheduler for automated tasks:
 
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
 
 from sqlalchemy import select, and_
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import async_session_maker
 from ..core.config import get_settings
 from ..models.models import (
-    EPO, EPOFollowup, EmailConnection, Company, User,
+    EPO, EPOFollowup, EmailConnection, Company,
     EPOStatus, FollowupStatus,
 )
 from .email_sender import EmailSenderService
@@ -163,15 +161,13 @@ async def renew_gmail_watches():
 
     async with async_session_maker() as session:
         # Find all active Gmail connections with expiring watches
-        from datetime import timedelta
-
         expiring_threshold = datetime.utcnow() + timedelta(days=1)
 
         query = select(EmailConnection).where(
             (EmailConnection.provider == "gmail")
-            & (EmailConnection.is_active == True)
+            & (EmailConnection.is_active.is_(True))
             & (
-                (EmailConnection.watch_expiration == None)
+                (EmailConnection.watch_expiration.is_(None))
                 | (EmailConnection.watch_expiration < expiring_threshold)
             )
         )

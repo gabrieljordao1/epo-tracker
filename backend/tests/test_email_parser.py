@@ -77,4 +77,4 @@ async def test_parse_empty_email():
 
     assert result is not None
     # Should flag for review
-    assert result.get("needs_review", True) == True
+    assert result.get("needs_review", True) is True

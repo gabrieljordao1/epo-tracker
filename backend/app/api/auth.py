@@ -1,11 +1,8 @@
 import logging
-from datetime import datetime, timedelta
-from typing import Optional
 import secrets
+from datetime import datetime, timedelta
+
 import resend
-
-logger = logging.getLogger(__name__)
-
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,7 +18,7 @@ from ..core.auth import (
     decode_token,
     get_current_user,
 )
-from ..models.models import User, Company, UserRole, Industry, PasswordResetToken
+from ..models.models import User, Company, UserRole, PasswordResetToken
 from ..core.circuit_breaker import resend_breaker
 from ..models.schemas import (
     LoginRequest,
@@ -33,6 +30,8 @@ from ..models.schemas import (
     ChangePasswordRequest,
     RefreshTokenRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 settings = get_settings()
@@ -314,8 +313,6 @@ async def join_team(
             detail="You are already a member of this company.",
         )
 
-    old_company_id = current_user.company_id
-
     # Move user to the new company
     current_user.company_id = target_company.id
     # Downgrade to FIELD role when joining (manager can promote later)
@@ -503,7 +500,7 @@ async def reset_password(
     # Find valid reset token
     query = select(PasswordResetToken).where(
         PasswordResetToken.user_id == user.id,
-        PasswordResetToken.used == False,
+        PasswordResetToken.used.is_(False),
         PasswordResetToken.expires_at > datetime.utcnow(),  # Not expired
     )
     result = await session.execute(query)

@@ -9,7 +9,6 @@ import json
 import pytest
 import logging
 from io import StringIO
-from unittest.mock import patch, MagicMock
 
 from app.core.security import (
     encrypt_token,

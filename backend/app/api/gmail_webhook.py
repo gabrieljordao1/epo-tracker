@@ -15,11 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, status a
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from collections import OrderedDict
+
 from ..core.config import get_settings
 from ..core.database import get_db
 from ..core.auth import get_current_user
 from ..models.models import EmailConnection, User, WebhookLog, EPO, EPOStatus
-from ..models.schemas import GmailWebhookPayload, WebhookSetupResponse, AgentProcessingResult
+from ..models.schemas import GmailWebhookPayload, WebhookSetupResponse
 from ..services.gmail_api import GmailAPIService
 from ..services.agent_pipeline import AgentPipelineService
 
@@ -29,9 +31,9 @@ settings = get_settings()
 router = APIRouter(prefix="/api/webhook", tags=["webhooks"])
 
 # In-memory deduplication cache for recent historyIds (bounded with LRU eviction)
-from collections import OrderedDict
 _recent_notifications_dict = OrderedDict()
 _DEDUP_MAX_SIZE = 5000
+
 
 def _extract_email_address(raw: str) -> str:
     """Extract email from 'Name <email@domain.com>' format."""
@@ -489,7 +491,7 @@ async def setup_gmail_webhook(
         email_conns_query = select(EmailConnection).where(
             (EmailConnection.company_id == current_user.company_id)
             & (EmailConnection.provider == "gmail")
-            & (EmailConnection.is_active == True)
+            & (EmailConnection.is_active.is_(True))
         )
         email_conns_result = await session.execute(email_conns_query)
         email_conns = email_conns_result.scalars().all()

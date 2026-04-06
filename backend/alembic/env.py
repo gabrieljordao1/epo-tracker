@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.core.config import get_settings
-from app.core.database import Base
-from app.models import models  # noqa: F401 — import to register all models
+from app.core.config import get_settings  # noqa: E402
+from app.core.database import Base  # noqa: E402
+from app.models import models  # noqa: F401,E402 — import to register all models
 
 config = context.config
 settings = get_settings()

@@ -10,11 +10,11 @@ from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy import select, and_
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
-from ..core.security import rate_limit, audit_log
+from ..core.security import audit_log
 from ..models.models import EPO, VendorAction, Company, EPOStatus
 
 logger = logging.getLogger(__name__)

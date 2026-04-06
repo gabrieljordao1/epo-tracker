@@ -1,8 +1,7 @@
 import json
 import re
-import base64
 import logging
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 from ..core.config import get_settings
 from ..core.circuit_breaker import gemini_breaker, claude_breaker
@@ -374,7 +373,7 @@ Return ONLY a valid JSON array (one object per lot):
             if response_text.startswith("```"):
                 lines = response_text.split("\n")
                 # Remove first line (```json) and last line (```)
-                lines = [l for l in lines if not l.strip().startswith("```")]
+                lines = [line for line in lines if not line.strip().startswith("```")]
                 response_text = "\n".join(lines).strip()
 
             # Handle both array and single-object responses
@@ -572,7 +571,7 @@ Return ONLY valid JSON:
             # Strip markdown code fences
             if response_text.startswith("```"):
                 lines = response_text.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
+                lines = [line for line in lines if not line.strip().startswith("```")]
                 response_text = "\n".join(lines).strip()
 
             result = json.loads(response_text)
@@ -730,7 +729,7 @@ Return ONLY valid JSON:
             # Strip markdown code fences
             if response_text.startswith("```"):
                 lines = response_text.split("\n")
-                lines = [l for l in lines if not l.strip().startswith("```")]
+                lines = [line for line in lines if not line.strip().startswith("```")]
                 response_text = "\n".join(lines).strip()
 
             result = json.loads(response_text)

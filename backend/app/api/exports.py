@@ -82,9 +82,12 @@ async def export_epos_csv(
     # Generate filename
     date_str = datetime.utcnow().strftime("%Y-%m-%d")
     filters = []
-    if status_filter: filters.append(status_filter)
-    if vendor: filters.append(vendor.replace(" ", "_"))
-    if community: filters.append(community.replace(" ", "_"))
+    if status_filter:
+        filters.append(status_filter)
+    if vendor:
+        filters.append(vendor.replace(" ", "_"))
+    if community:
+        filters.append(community.replace(" ", "_"))
     filter_suffix = f"_{'_'.join(filters)}" if filters else ""
     filename = f"epo_export_{date_str}{filter_suffix}.csv"
 

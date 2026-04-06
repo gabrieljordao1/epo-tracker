@@ -4,7 +4,6 @@ Handles Gmail OAuth flow, email connections, and sync triggers.
 """
 
 import logging
-from typing import Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -15,11 +14,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.database import get_db
 from ..core.config import get_settings
 from ..core.auth import get_current_user
-from ..core.security import encrypt_token, decrypt_token, audit_log
+from ..core.security import encrypt_token, audit_log
 from ..models.models import User, EmailConnection, EPO, EPOStatus
 from ..models.schemas import EmailConnectionCreate, EmailConnectionResponse
 from ..services.gmail_sync import GmailSyncService
-from ..services.email_parser import EmailParserService
 from ..services.email_sender import EmailSenderService
 
 logger = logging.getLogger(__name__)
@@ -347,7 +345,7 @@ async def trigger_email_sync(
         query = select(EmailConnection).where(
             and_(
                 EmailConnection.company_id == current_user.company_id,
-                EmailConnection.is_active == True,
+                EmailConnection.is_active.is_(True),
             )
         )
         result = await session.execute(query)

@@ -1,8 +1,7 @@
 import base64
 import re
 from datetime import datetime
-from typing import List, Optional
-from email.mime.text import MIMEText
+from typing import List
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession

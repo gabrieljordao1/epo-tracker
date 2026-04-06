@@ -7,9 +7,8 @@ token refresh, and security aspects like preventing user enumeration.
 
 import pytest
 from datetime import datetime, timedelta
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock
 from httpx import AsyncClient
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.models import User, PasswordResetToken

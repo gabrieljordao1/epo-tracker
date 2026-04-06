@@ -144,10 +144,10 @@ async def seed_database(session: AsyncSession = Depends(get_db)) -> dict:
                 community_to_supervisor[comm] = user.id
 
     statuses = (
-        [EPOStatus.CONFIRMED] * 10 +
-        [EPOStatus.PENDING] * 9 +
-        [EPOStatus.DENIED] * 4 +
-        [EPOStatus.DISCOUNT] * 2
+        [EPOStatus.CONFIRMED] * 10
+        + [EPOStatus.PENDING] * 9
+        + [EPOStatus.DENIED] * 4
+        + [EPOStatus.DISCOUNT] * 2
     )
 
     epos_created = 0

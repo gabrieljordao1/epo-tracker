@@ -5,15 +5,14 @@ Orchestrates parsing, EPO creation, vendor confirmation, and follow-up logic.
 
 import logging
 import secrets
-import re
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import get_settings
-from ..models.models import EPO, EmailConnection, Company, EPOStatus
+from ..models.models import EPO, Company, EPOStatus
 from .email_parser import EmailParserService
 from .email_sender import EmailSenderService
 
@@ -438,8 +437,6 @@ class AgentPipelineService:
                     followup_days = settings.AGENT_FOLLOWUP_DAYS  # [3, 5, 7]
 
                     # Count existing follow-ups
-                    from .email_sender import EmailSenderService  # Already imported above
-
                     # This would require additional DB access
                     # For now, simple heuristic: send if days_open matches followup_days
                     if days_open in followup_days:

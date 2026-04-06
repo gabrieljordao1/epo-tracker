@@ -5,7 +5,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import get_password_hash, create_access_token
-from app.models.models import Company, User, UserRole, Industry, PlanTier, EPO, EPOStatus, CommunityAssignment
+from app.models.models import Company, User, UserRole, Industry, PlanTier
 
 
 @pytest.mark.asyncio

@@ -5,8 +5,8 @@ Requires authentication — scoped to company.
 
 from typing import Optional
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
@@ -36,7 +36,7 @@ async def get_team_members(
             # FIELD users can only see names, not email or stats
             company_id = current_user.company_id
             result = await session.execute(
-                select(User).where(User.is_active == True, User.company_id == company_id)
+                select(User).where(User.is_active.is_(True), User.company_id == company_id)
             )
             users = result.scalars().all()
 
@@ -61,7 +61,7 @@ async def get_team_members(
         # ADMIN/MANAGER: See full details
         company_id = current_user.company_id
         result = await session.execute(
-            select(User).where(User.is_active == True, User.company_id == company_id)
+            select(User).where(User.is_active.is_(True), User.company_id == company_id)
         )
         users = result.scalars().all()
 

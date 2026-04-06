@@ -3,8 +3,7 @@ EPO Attachments API — upload photos/files to EPOs via Supabase Storage.
 """
 import logging
 import uuid
-from datetime import datetime
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession

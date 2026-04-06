@@ -4,7 +4,7 @@ Handles followup emails, notifications, and system emails.
 """
 
 import logging
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

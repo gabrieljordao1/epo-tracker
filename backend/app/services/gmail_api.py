@@ -4,7 +4,6 @@ Handles Gmail push notifications, message fetching, and watch management.
 """
 
 import logging
-import json
 import base64
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta

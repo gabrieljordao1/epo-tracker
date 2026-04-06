@@ -2,15 +2,13 @@ import logging
 import time
 import uuid
 import re
-import traceback
 from contextlib import asynccontextmanager
 from collections import defaultdict
-from typing import Optional
 
 from fastapi import FastAPI, Depends, Request, Response, HTTPException, status as http_status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -71,10 +69,10 @@ if _settings.SENTRY_DSN:
         release=getattr(_settings, "APP_VERSION", "unknown"),
     )
 
-from .core.database import init_db, close_db, get_db
-from .core.auth import get_current_user, decode_token, security
-from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook, attachments, approvals, notifications, portal
-from .models.models import User
+from .core.database import init_db, close_db, get_db  # noqa: E402
+from .core.auth import get_current_user, decode_token, security  # noqa: E402
+from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook, attachments, approvals, notifications, portal  # noqa: E402
+from .models.models import User  # noqa: E402
 
 settings = get_settings()
 

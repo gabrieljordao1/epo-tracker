@@ -68,7 +68,7 @@ class GoogleSheetsService:
             worksheet.clear()
 
             # Write headers
-            worksheet.append_row(headers, table_range=f"A1:N1")
+            worksheet.append_row(headers, table_range="A1:N1")
 
             # Prepare rows
             rows = []
@@ -112,9 +112,8 @@ class GoogleSheetsService:
             worksheet.format(
                 "A1:N1",
                 {
-                    "textFormat": {"bold": True},
+                    "textFormat": {"bold": True, "foregroundColor": {"red": 1, "green": 1, "blue": 1}},
                     "backgroundColor": {"red": 0.2, "green": 0.2, "blue": 0.2},
-                    "textFormat": {"foregroundColor": {"red": 1, "green": 1, "blue": 1}},
                 },
             )
         except Exception:

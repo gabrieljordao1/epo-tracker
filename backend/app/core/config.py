@@ -1,6 +1,6 @@
 import os
 import secrets
-from typing import List, Optional
+from typing import List
 from pydantic_settings import BaseSettings
 from pydantic import field_validator
 from functools import lru_cache

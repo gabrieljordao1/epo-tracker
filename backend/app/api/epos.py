@@ -1,16 +1,15 @@
 from typing import List, Optional
-from datetime import datetime
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func, and_, case, literal_column
+from sqlalchemy import select, func, and_, case
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
 from ..core.security import sanitize_html, validate_email, audit_log
-from ..models.models import EPO, EPOFollowup, User, EPOStatus, FollowupStatus, UserRole
+from ..models.models import EPO, EPOFollowup, User, EPOStatus, UserRole
 from ..models.schemas import (
     EPOCreate,
     EPOUpdate,
@@ -260,7 +259,7 @@ async def get_dashboard_stats(
             func.count(case((EPO.status == EPOStatus.CONFIRMED, 1))).label("confirmed_count"),
             func.count(case((EPO.status == EPOStatus.DENIED, 1))).label("denied_count"),
             func.count(case((EPO.status == EPOStatus.DISCOUNT, 1))).label("discount_count"),
-            func.count(case((EPO.needs_review == True, 1))).label("needs_review_count"),
+            func.count(case((EPO.needs_review.is_(True), 1))).label("needs_review_count"),
             func.avg(EPO.amount).label("average_amount"),
             func.sum(EPO.amount).label("total_amount"),
         ).where(and_(*scope_filters))
