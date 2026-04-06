@@ -55,10 +55,10 @@ export default function TeamPage() {
 
     const headers = { Authorization: `Bearer ${token}` };
 
-    // Fetch team members
+    // Fetch team members (include all roles — admins are company owners and should appear)
     fetch(`${API_BASE}/api/team/members`, { headers })
       .then((r) => r.json())
-      .then((d) => setMembers(d.members?.filter((m: TeamMember) => m.role !== "admin") || []))
+      .then((d) => setMembers(d.members || []))
       .catch(() => setMembers([]));
 
     // Fetch invite code + company name
@@ -154,8 +154,8 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {/* ═══ Conditional: Invite Code (only if Gmail connected) OR Join Team ═══ */}
-      {hasGmail === true && inviteCode && (
+      {/* ═══ Invite Code — always show for admins/managers ═══ */}
+      {inviteCode && (
         <div className="card p-4 bg-surface flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Users size={18} className="text-text3" />
@@ -174,7 +174,8 @@ export default function TeamPage() {
         </div>
       )}
 
-      {hasGmail === false && (
+      {/* ═══ Join Team — always available (collapsible) ═══ */}
+      {members.length <= 1 && (
         <div className="card p-5 bg-surface space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "rgba(144,191,249,0.12)", border: "1px solid rgba(144,191,249,0.25)" }}>
@@ -183,7 +184,10 @@ export default function TeamPage() {
             <div>
               <div className="text-sm font-medium text-text1">Join a Team</div>
               <div className="text-xs text-text3">
-                No email connected yet. Enter your team&apos;s invite code to join their company, or go to <a href="/integrations" className="underline" style={{ color: "rgb(144,191,249)" }}>Integrations</a> to set up Gmail.
+                Have an invite code? Enter it below to join your manager&apos;s company.
+                {hasGmail === false && (
+                  <span> Or go to <a href="/integrations" className="underline" style={{ color: "rgb(144,191,249)" }}>Integrations</a> to set up Gmail.</span>
+                )}
               </div>
             </div>
           </div>
@@ -327,12 +331,12 @@ export default function TeamPage() {
       )}
 
       {/* Members with 0 EPOs — not ranked */}
-      {members.filter((m) => (m.stats?.total ?? 0) === 0 && m.role !== "admin").length > 0 && (
+      {members.filter((m) => (m.stats?.total ?? 0) === 0).length > 0 && (
         <div className="card p-4">
           <div className="text-xs text-text3 uppercase tracking-wide mb-3">Not yet ranked (0 EPOs)</div>
           <div className="flex flex-wrap gap-2">
             {members
-              .filter((m) => (m.stats?.total ?? 0) === 0 && m.role !== "admin")
+              .filter((m) => (m.stats?.total ?? 0) === 0)
               .map((m) => (
                 <div
                   key={m.id}
