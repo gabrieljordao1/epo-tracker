@@ -9,7 +9,7 @@ export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
 
   // Standalone pages — no sidebar or topbar
-  if (pathname.startsWith("/vendor") || pathname.startsWith("/login")) {
+  if (pathname.startsWith("/vendor") || pathname.startsWith("/login") || pathname.startsWith("/early-access")) {
     return <>{children}</>;
   }
 
