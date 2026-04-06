@@ -28,8 +28,10 @@ settings = get_settings()
 
 router = APIRouter(prefix="/api/webhook", tags=["webhooks"])
 
-# In-memory deduplication cache for recent historyIds
-_recent_notifications = set()
+# In-memory deduplication cache for recent historyIds (bounded with LRU eviction)
+from collections import OrderedDict
+_recent_notifications_dict = OrderedDict()
+_DEDUP_MAX_SIZE = 5000
 
 def _extract_email_address(raw: str) -> str:
     """Extract email from 'Name <email@domain.com>' format."""
@@ -418,17 +420,16 @@ async def gmail_webhook(
             logger.warning(f"Missing required fields: {history_data}")
             return {"status": "ok"}
 
-        # Deduplicate notifications
+        # Deduplicate notifications (bounded OrderedDict with LRU eviction)
         notification_key = f"{email_address}:{history_id}"
-        if notification_key in _recent_notifications:
+        if notification_key in _recent_notifications_dict:
             logger.info(f"Duplicate notification, ignoring: {notification_key}")
             return {"status": "ok"}
 
-        _recent_notifications.add(notification_key)
-
-        # Limit cache size to avoid unbounded growth
-        if len(_recent_notifications) > 10000:
-            _recent_notifications.clear()
+        _recent_notifications_dict[notification_key] = True
+        # Evict oldest entries when cache is full (keeps most recent 5000)
+        while len(_recent_notifications_dict) > _DEDUP_MAX_SIZE:
+            _recent_notifications_dict.popitem(last=False)
 
         # Find the email connection first (need company_id for webhook log)
         email_conn_query = select(EmailConnection).where(

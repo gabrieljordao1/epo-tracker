@@ -340,7 +340,12 @@ def create_app() -> FastAPI:
     # ─── Routers ───
     app.include_router(auth.router)
     app.include_router(epos.router)
-    app.include_router(demo.router)
+    # Demo endpoints only available in development/staging — NEVER in production
+    if settings.ENVIRONMENT != "production":
+        app.include_router(demo.router)
+        logger.info("Demo endpoints ENABLED (non-production environment)")
+    else:
+        logger.info("Demo endpoints DISABLED (production environment)")
     app.include_router(team.router)
     app.include_router(email_sync.router)
     app.include_router(vendor_portal.router)

@@ -277,6 +277,7 @@ async def get_epo_vendor_history(
 # ─── Rate Limiting Helper ────────────────────────────────
 
 _rate_limit_store = {}
+_RATE_LIMIT_MAX_KEYS = 10000  # Prevent unbounded memory growth
 
 
 def _check_rate_limit(key: str, max_attempts: int = 5, window_seconds: int = 300):
@@ -292,7 +293,7 @@ def _check_rate_limit(key: str, max_attempts: int = 5, window_seconds: int = 300
     """
     now = datetime.utcnow()
 
-    # Clean old entries
+    # Clean old entries for this key
     if key in _rate_limit_store:
         _rate_limit_store[key] = [
             ts for ts in _rate_limit_store[key]
@@ -300,6 +301,15 @@ def _check_rate_limit(key: str, max_attempts: int = 5, window_seconds: int = 300
         ]
     else:
         _rate_limit_store[key] = []
+
+    # Periodic cleanup: evict stale keys when store gets large
+    if len(_rate_limit_store) > _RATE_LIMIT_MAX_KEYS:
+        stale_keys = [
+            k for k, timestamps in _rate_limit_store.items()
+            if not timestamps or all((now - ts).total_seconds() >= window_seconds for ts in timestamps)
+        ]
+        for k in stale_keys:
+            del _rate_limit_store[k]
 
     # Check if limit exceeded
     if len(_rate_limit_store[key]) >= max_attempts:

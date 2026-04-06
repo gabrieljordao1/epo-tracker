@@ -262,6 +262,16 @@ async def get_supervisor_stats(
 
         company_id = current_user.company_id
 
+        # Verify the target user belongs to the same company
+        target_user_result = await session.execute(
+            select(User).where(User.id == user_id, User.company_id == company_id)
+        )
+        if not target_user_result.scalars().first():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Team member not found"
+            )
+
         assign_result = await session.execute(
             select(CommunityAssignment.community_name)
             .where(

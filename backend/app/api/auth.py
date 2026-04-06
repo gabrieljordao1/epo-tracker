@@ -1,7 +1,10 @@
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 import secrets
 import resend
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy import select
@@ -121,7 +124,7 @@ async def register(
             resend_breaker.record_success()
     except Exception as e:
         resend_breaker.record_failure()
-        print(f"Failed to send verification email: {e}")
+        logger.error(f"Failed to send verification email: {e}")
 
     # Create access and refresh tokens
     access_token = create_access_token(
@@ -251,7 +254,6 @@ async def get_invite_code(
     session: AsyncSession = Depends(get_db),
 ):
     """Get the company's invite code for sharing with team members."""
-    import secrets
     query = select(Company).where(Company.id == current_user.company_id)
     result = await session.execute(query)
     company = result.scalars().first()
@@ -336,6 +338,7 @@ async def join_team(
 
 # Rate limiting helper - tracks request count per key
 _rate_limit_store = {}
+_RATE_LIMIT_MAX_KEYS = 10000  # Prevent unbounded memory growth
 
 # Failed login tracker
 _failed_login_store = {}
@@ -352,6 +355,12 @@ def check_rate_limit(key: str, max_requests: int, window_seconds: int) -> bool:
         timestamp for timestamp in _rate_limit_store[key]
         if (now - timestamp).total_seconds() < window_seconds
     ]
+
+    # Periodic cleanup: evict stale keys when store gets large
+    if len(_rate_limit_store) > _RATE_LIMIT_MAX_KEYS:
+        stale = [k for k, v in _rate_limit_store.items() if not v]
+        for k in stale:
+            del _rate_limit_store[k]
 
     # Check if we've exceeded the limit
     if len(_rate_limit_store[key]) >= max_requests:
@@ -457,7 +466,7 @@ async def forgot_password(
             })
             resend_breaker.record_success()
         else:
-            print("Resend circuit breaker OPEN — skipping email send")
+            logger.warning("Resend circuit breaker OPEN — skipping email send")
 
         return {
             "success": True,
@@ -466,7 +475,7 @@ async def forgot_password(
     except Exception as e:
         resend_breaker.record_failure()
         # Log the error but still return success for security
-        print(f"Error sending reset email: {e}")
+        logger.error(f"Error sending reset email: {e}")
         return {
             "success": True,
             "message": "If an account exists with this email, a reset code has been sent.",
