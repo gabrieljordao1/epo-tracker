@@ -101,8 +101,12 @@ export default function ResetPasswordPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to send reset code");
+        let msg = "Failed to send reset code";
+        try {
+          const data = await response.json();
+          msg = data.detail || data.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
 
       setEmailSubmitted(true);
@@ -135,8 +139,12 @@ export default function ResetPasswordPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Invalid code");
+        let msg = "Invalid code";
+        try {
+          const data = await response.json();
+          msg = data.detail || data.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
 
       setCodeVerified(true);
@@ -161,8 +169,12 @@ export default function ResetPasswordPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to resend code");
+        let msg = "Failed to resend code";
+        try {
+          const data = await response.json();
+          msg = data.detail || data.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
 
       setCode("");
@@ -199,8 +211,12 @@ export default function ResetPasswordPage() {
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || "Failed to reset password");
+        let msg = "Failed to reset password";
+        try {
+          const data = await response.json();
+          msg = data.detail || data.error || msg;
+        } catch {}
+        throw new Error(msg);
       }
 
       setStep("success");
