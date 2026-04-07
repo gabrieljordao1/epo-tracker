@@ -43,7 +43,9 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Apply middleware to all routes except static files
-    "/((?!_next/static|_next/image|favicon\\.ico|favicon\\.svg|favicon-32\\.png|icon-192\\.png|onyx-logo\\.svg).*)",
+    // Apply middleware to all routes except static files and API routes
+    // API routes must be excluded so Vercel rewrites can proxy them
+    // with full headers (including Authorization) intact
+    "/((?!_next/static|_next/image|api/|favicon\\.ico|favicon\\.svg|favicon-32\\.png|icon-192\\.png|onyx-logo\\.svg).*)",
   ],
 };
