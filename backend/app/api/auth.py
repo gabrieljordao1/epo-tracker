@@ -443,14 +443,13 @@ async def forgot_password(
         for old_token in old_tokens:
             old_token.used = True
 
-        # Generate 6-digit code
+        # Generate 6-digit code (stored as plain text — short-lived, no need for bcrypt)
         reset_code = str(secrets.randbelow(1000000)).zfill(6)
-        token_hash = get_password_hash(reset_code)
 
         # Create reset token with 1 hour expiry
         reset_token = PasswordResetToken(
             user_id=user.id,
-            token_hash=token_hash,
+            token_hash=reset_code,  # Store plain code (expires in 1hr)
             expires_at=datetime.utcnow() + timedelta(hours=1),
         )
         session.add(reset_token)
@@ -533,7 +532,7 @@ async def reset_password(
     # Try to verify against each token (newest first)
     matched_token = None
     for token in reset_tokens:
-        if verify_password(request.code, token.token_hash):
+        if request.code.strip() == token.token_hash.strip():
             matched_token = token
             break
 
