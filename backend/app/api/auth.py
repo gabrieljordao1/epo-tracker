@@ -420,8 +420,8 @@ async def forgot_password(
             detail="Too many password reset requests. Please try again in 1 hour.",
         )
 
-    # Find user by email
-    query = select(User).where(User.email == request.email)
+    # Find user by email (order by id to be deterministic if duplicates exist)
+    query = select(User).where(User.email == request.email).order_by(User.id)
     result = await session.execute(query)
     user = result.scalars().first()
 
@@ -500,38 +500,52 @@ async def reset_password(
 ):
     """Reset password using email and reset code."""
 
-    # Find user by email
-    query = select(User).where(User.email == request.email)
+    # Find ALL users with this email (handles duplicate accounts)
+    query = select(User).where(User.email == request.email).order_by(User.id)
     result = await session.execute(query)
-    user = result.scalars().first()
+    users = result.scalars().all()
 
-    if not user:
+    if not users:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid email or reset code.",
         )
 
-    # Find valid reset token (order by newest first)
+    # Collect all user IDs for this email
+    user_ids = [u.id for u in users]
+
+    # Find valid reset tokens across ALL user accounts with this email
+    # Order by newest first so we check the most recent code first
     query = select(PasswordResetToken).where(
-        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.user_id.in_(user_ids),
         PasswordResetToken.used.is_(False),
-        PasswordResetToken.expires_at > datetime.utcnow(),  # Not expired
+        PasswordResetToken.expires_at > datetime.utcnow(),
     ).order_by(PasswordResetToken.created_at.desc())
     result = await session.execute(query)
-    reset_token = result.scalars().first()
+    reset_tokens = result.scalars().all()
 
-    if not reset_token:
+    if not reset_tokens:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired reset code.",
         )
 
-    # Verify the code matches
-    if not verify_password(request.code, reset_token.token_hash):
+    # Try to verify against each token (newest first)
+    matched_token = None
+    for token in reset_tokens:
+        if verify_password(request.code, token.token_hash):
+            matched_token = token
+            break
+
+    if not matched_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired reset code.",
         )
+
+    reset_token = matched_token
+    # Find the user that owns this token
+    user = next(u for u in users if u.id == reset_token.user_id)
 
     # Validate password strength
     is_valid, error_msg = validate_password_strength(request.new_password)
@@ -541,13 +555,15 @@ async def reset_password(
             detail=error_msg,
         )
 
-    # Update password
-    user.hashed_password = get_password_hash(request.new_password)
+    # Update password on ALL accounts with this email (handles duplicates)
+    new_hash = get_password_hash(request.new_password)
+    for u in users:
+        u.hashed_password = new_hash
     reset_token.used = True
 
-    # Invalidate all other reset tokens for this user
+    # Invalidate all other reset tokens for ALL user accounts with this email
     query = select(PasswordResetToken).where(
-        PasswordResetToken.user_id == user.id,
+        PasswordResetToken.user_id.in_(user_ids),
         PasswordResetToken.id != reset_token.id,
     )
     result = await session.execute(query)
