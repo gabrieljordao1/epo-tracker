@@ -492,6 +492,60 @@ async def forgot_password(
         }
 
 
+@router.post("/verify-reset-code")
+async def verify_reset_code(
+    request: dict,
+    session: AsyncSession = Depends(get_db),
+):
+    """Verify a password reset code is valid (without resetting the password)."""
+    email = (request.get("email") or "").strip().lower()
+    code = (request.get("code") or "").strip()
+
+    if not email or not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email and code are required.",
+        )
+
+    # Find all users with this email
+    query = select(User).where(User.email == email).order_by(User.id)
+    result = await session.execute(query)
+    users = result.scalars().all()
+
+    if not users:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code.",
+        )
+
+    user_ids = [u.id for u in users]
+
+    # Find valid reset tokens
+    query = select(PasswordResetToken).where(
+        PasswordResetToken.user_id.in_(user_ids),
+        PasswordResetToken.used.is_(False),
+        PasswordResetToken.expires_at > datetime.utcnow(),
+    ).order_by(PasswordResetToken.created_at.desc())
+    result = await session.execute(query)
+    reset_tokens = result.scalars().all()
+
+    if not reset_tokens:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset code.",
+        )
+
+    # Check if code matches any token
+    for token in reset_tokens:
+        if code == token.token_hash.strip():
+            return {"success": True, "message": "Code verified."}
+
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Invalid or expired reset code.",
+    )
+
+
 @router.post("/reset-password")
 async def reset_password(
     request: ResetPasswordRequest,
