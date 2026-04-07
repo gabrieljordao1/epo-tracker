@@ -55,7 +55,7 @@ async def register(
         )
 
     if request.invite_code:
-        # ── Join existing company via invite code ──
+        # ââ Join existing company via invite code ââ
         query = select(Company).where(Company.invite_code == request.invite_code.strip().upper())
         result = await session.execute(query)
         company = result.scalars().first()
@@ -65,7 +65,7 @@ async def register(
                 detail="Invalid invite code. Check with your manager and try again.",
             )
     else:
-        # ── Create new company ──
+        # ââ Create new company ââ
         if not request.company_name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -81,7 +81,7 @@ async def register(
         session.add(company)
         await session.flush()
 
-    # Create user — also set work_email so the FROM-matching works
+    # Create user â also set work_email so the FROM-matching works
     hashed_password = get_password_hash(request.password)
     # First user creating a new company is always ADMIN
     if not request.invite_code:
@@ -108,7 +108,7 @@ async def register(
     await session.commit()
     await session.refresh(user)
 
-    # Send verification email (best effort — don't block registration)
+    # Send verification email (best effort â don't block registration)
     try:
         if resend_breaker.can_execute():
             resend.api_key = settings.RESEND_API_KEY
@@ -327,7 +327,7 @@ async def join_team(
     await session.refresh(current_user)
 
     # Clean up: if old company has no users left, we could delete it
-    # (optional — leaving it for now)
+    # (optional â leaving it for now)
 
     return {
         "success": True,
@@ -433,6 +433,16 @@ async def forgot_password(
         }
 
     try:
+        # Invalidate any existing unused reset tokens for this user
+        invalidate_query = select(PasswordResetToken).where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.used.is_(False),
+        )
+        invalidate_result = await session.execute(invalidate_query)
+        old_tokens = invalidate_result.scalars().all()
+        for old_token in old_tokens:
+            old_token.used = True
+
         # Generate 6-digit code
         reset_code = str(secrets.randbelow(1000000)).zfill(6)
         token_hash = get_password_hash(reset_code)
@@ -467,7 +477,7 @@ async def forgot_password(
             })
             resend_breaker.record_success()
         else:
-            logger.warning("Resend circuit breaker OPEN — skipping email send")
+            logger.warning("Resend circuit breaker OPEN â skipping email send")
 
         return {
             "success": True,
@@ -501,12 +511,12 @@ async def reset_password(
             detail="Invalid email or reset code.",
         )
 
-    # Find valid reset token
+    # Find valid reset token (order by newest first)
     query = select(PasswordResetToken).where(
         PasswordResetToken.user_id == user.id,
         PasswordResetToken.used.is_(False),
         PasswordResetToken.expires_at > datetime.utcnow(),  # Not expired
-    )
+    ).order_by(PasswordResetToken.created_at.desc())
     result = await session.execute(query)
     reset_token = result.scalars().first()
 
