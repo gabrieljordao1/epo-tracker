@@ -544,8 +544,6 @@ async def reset_password(
         )
 
     reset_token = matched_token
-    # Find the user that owns this token
-    user = next(u for u in users if u.id == reset_token.user_id)
 
     # Validate password strength
     is_valid, error_msg = validate_password_strength(request.new_password)
