@@ -86,6 +86,13 @@ class EmailParserService:
         re.IGNORECASE,
     )
 
+    # Informal subject pattern: "Epo for lot 6 byrnes madison simmons"
+    # After "lot <number(s)>", remaining words split into community + builder
+    INFORMAL_SUBJECT_PATTERN = re.compile(
+        r"epo\s+(?:for\s+)?lot\s*#?\s*([\w]+(?:\s+and\s+[\w]+)?)\s+(.+)",
+        re.IGNORECASE,
+    )
+
     def _parse_subject_format(self, subject: str) -> Dict[str, Optional[str]]:
         """Try to parse the standardized subject: EPO - Community - Lot # - Builder"""
         match = self.SUBJECT_PATTERN.match(subject.strip())
@@ -95,6 +102,38 @@ class EmailParserService:
                 "lot_number": match.group(2).strip(),
                 "builder_name": match.group(3).strip(),
             }
+
+        # Try informal format: "Epo for lot 2b plott red cedar"
+        match = self.INFORMAL_SUBJECT_PATTERN.match(subject.strip())
+        if match:
+            lot_number = match.group(1).strip()
+            remainder = match.group(2).strip()
+            # Try to split remainder into community + builder using known communities
+            remainder_lower = remainder.lower()
+            for comm in self.KNOWN_COMMUNITIES:
+                if remainder_lower.startswith(comm.lower()):
+                    community = comm
+                    builder = remainder[len(comm):].strip()
+                    return {
+                        "community": community,
+                        "lot_number": lot_number,
+                        "builder_name": builder if builder else None,
+                    }
+            # If no known community matched, first word is community, rest is builder
+            parts = remainder.split(None, 1)
+            if len(parts) >= 2:
+                return {
+                    "community": parts[0].title(),
+                    "lot_number": lot_number,
+                    "builder_name": parts[1].strip().title(),
+                }
+            elif len(parts) == 1:
+                return {
+                    "community": parts[0].title(),
+                    "lot_number": lot_number,
+                    "builder_name": None,
+                }
+
         return {}
 
     def _parse_regex(
@@ -169,7 +208,7 @@ class EmailParserService:
             "vendor_email": vendor_email,
             "community": community,
             "lot_number": lot_number,
-            "description": self._extract_description(email_body),
+            "description": self._extract_description(email_body) or email_subject,
             "amount": amount,
             "confirmation_number": confirmation,
             "confidence_score": confidence_score,
@@ -190,6 +229,9 @@ class EmailParserService:
     KNOWN_COMMUNITIES = [
         "Mallard Park", "Odell Park", "Galloway", "Cedar Hills", "Olmsted",
         "Ridgeview", "Briar Chapel", "Meadow Creek", "Stonegate", "Riverwalk",
+        "Plott", "Byrnes", "Hasentree", "Wendell Falls", "5401 North",
+        "Holding Village", "Chatham Park", "Traditions", "Magnolia Green",
+        "12 Oaks", "Regency at White Oak Creek", "Jordan Pointe",
     ]
 
     def _extract_vendor_name(self, subject: str, body: str) -> Optional[str]:
