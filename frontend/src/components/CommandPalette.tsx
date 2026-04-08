@@ -21,6 +21,7 @@ import {
   ClipboardList,
   Hammer,
   Target,
+  Wrench,
 } from "lucide-react";
 
 interface CommandItem {
@@ -129,6 +130,16 @@ export function CommandPalette() {
         action: () => router.push("/budgets"),
         keywords: ["budget", "budgets", "financials", "spend", "tracking"],
         shortcut: "G U",
+        category: "navigation",
+      },
+      {
+        id: "nav-work-orders",
+        label: "Go to Work Orders",
+        description: "Manage and track construction tasks",
+        icon: <Wrench size={18} />,
+        action: () => router.push("/work-orders"),
+        keywords: ["work", "orders", "tasks", "construction", "crew"],
+        shortcut: "G W",
         category: "navigation",
       },
       {

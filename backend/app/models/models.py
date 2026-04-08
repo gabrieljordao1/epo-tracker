@@ -548,3 +548,89 @@ class CommunityBudget(Base):
     # Relationships
     company = relationship("Company")
     created_by = relationship("User")
+
+
+class WorkOrderPriority(str, Enum):
+    """Work order priority"""
+    LOW = "low"
+    NORMAL = "normal"
+    HIGH = "high"
+    URGENT = "urgent"
+
+
+class WorkOrderStatus(str, Enum):
+    """Work order status"""
+    OPEN = "open"
+    ASSIGNED = "assigned"
+    IN_PROGRESS = "in_progress"
+    ON_HOLD = "on_hold"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class WorkOrderType(str, Enum):
+    """Work order type for paint/drywall"""
+    DRYWALL_HANG = "drywall_hang"
+    DRYWALL_FINISH = "drywall_finish"
+    TEXTURE = "texture"
+    PRIME = "prime"
+    PAINT = "paint"
+    TOUCH_UP = "touch_up"
+    PUNCH_WORK = "punch_work"
+    WARRANTY = "warranty"
+    REPAIR = "repair"
+    INSPECTION = "inspection"
+    OTHER = "other"
+
+
+class WorkOrder(Base):
+    """Work order — task assigned to field crew"""
+    __tablename__ = "work_orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    community = Column(String(255), nullable=False, index=True)
+    lot_number = Column(String(255), nullable=True)
+
+    work_type = Column(SQLEnum(WorkOrderType), default=WorkOrderType.OTHER, nullable=False)
+    priority = Column(SQLEnum(WorkOrderPriority), default=WorkOrderPriority.NORMAL, nullable=False)
+    status = Column(SQLEnum(WorkOrderStatus), default=WorkOrderStatus.OPEN, nullable=False, index=True)
+
+    # Scheduling
+    scheduled_date = Column(DateTime(timezone=True), nullable=True)
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Crew/effort
+    estimated_hours = Column(Float, nullable=True)
+    actual_hours = Column(Float, nullable=True)
+    crew_size_needed = Column(Integer, nullable=True)
+
+    # Cost
+    estimated_cost = Column(Float, nullable=True)
+    actual_cost = Column(Float, nullable=True)
+
+    # Builder info
+    builder_name = Column(String(255), nullable=True)
+    builder_contact = Column(String(255), nullable=True)
+
+    # Linked EPO (if work order comes from an EPO)
+    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=True, index=True)
+
+    # Completion
+    completion_notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    company = relationship("Company")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    epo = relationship("EPO")

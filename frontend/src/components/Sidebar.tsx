@@ -17,6 +17,7 @@ import {
   ClipboardList,
   Hammer,
   Target,
+  Wrench,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -52,6 +53,7 @@ export function Sidebar() {
     { href: "/daily-reports", label: "Daily Reports", icon: ClipboardList },
     { href: "/punch-list", label: "Punch List", icon: Hammer },
     { href: "/budgets", label: "Budgets", icon: Target },
+    { href: "/work-orders", label: "Work Orders", icon: Wrench },
     { href: "/team", label: "Team", icon: Users },
   ];
 

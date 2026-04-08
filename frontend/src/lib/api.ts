@@ -1228,3 +1228,194 @@ export async function getBudgetTrends(community: string): Promise<BudgetTrendMon
   return res.json();
 }
 
+// ─── Work Orders ─────────────────────────────────────────────
+export interface WorkOrder {
+  id: number;
+  company_id: number;
+  created_by_id: number;
+  assigned_to_id: number | null;
+  title: string;
+  description: string | null;
+  community: string;
+  lot_number: string | null;
+  work_type: string;
+  priority: "low" | "normal" | "high" | "urgent";
+  status: "open" | "assigned" | "in_progress" | "on_hold" | "completed" | "cancelled";
+  scheduled_date: string | null;
+  due_date: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  estimated_hours: number | null;
+  actual_hours: number | null;
+  crew_size_needed: number | null;
+  estimated_cost: number | null;
+  actual_cost: number | null;
+  builder_name: string | null;
+  builder_contact: string | null;
+  epo_id: number | null;
+  completion_notes: string | null;
+  created_at: string;
+  updated_at: string;
+  assigned_to_name?: string;
+  created_by_name?: string;
+}
+
+export interface WorkOrderSummary {
+  total: number;
+  open: number;
+  assigned: number;
+  in_progress: number;
+  on_hold: number;
+  completed: number;
+  cancelled: number;
+  overdue: number;
+  this_week: number;
+  by_community: { community: string; count: number }[];
+  by_type: { work_type: string; count: number }[];
+  estimated_hours_total: number;
+  actual_hours_total: number;
+}
+
+export interface WeekSchedule {
+  [day: string]: WorkOrder[];
+}
+
+export async function getWorkOrders(params?: {
+  community?: string;
+  status?: string;
+  priority?: string;
+  work_type?: string;
+  assigned_to_id?: number;
+  page?: number;
+  per_page?: number;
+}): Promise<{ orders: WorkOrder[]; total: number; page: number; per_page: number }> {
+  await ensureTokenValid();
+  const searchParams = new URLSearchParams();
+  if (params?.community) searchParams.set("community", params.community);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.priority) searchParams.set("priority", params.priority);
+  if (params?.work_type) searchParams.set("work_type", params.work_type);
+  if (params?.assigned_to_id) searchParams.set("assigned_to_id", String(params.assigned_to_id));
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.per_page) searchParams.set("per_page", String(params.per_page));
+  const qs = searchParams.toString();
+  const res = await fetch(`${API_BASE}/api/work-orders${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch work orders");
+  return res.json();
+}
+
+export async function getWorkOrder(id: number): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch work order");
+  return res.json();
+}
+
+export async function createWorkOrder(data: Partial<WorkOrder>): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create work order");
+  return res.json();
+}
+
+export async function updateWorkOrder(id: number, data: Partial<WorkOrder>): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update work order");
+  return res.json();
+}
+
+export async function assignWorkOrder(id: number, assigned_to_id: number): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}/assign`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ assigned_to_id }),
+  });
+  if (!res.ok) throw new Error("Failed to assign work order");
+  return res.json();
+}
+
+export async function startWorkOrder(id: number): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}/start`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to start work order");
+  return res.json();
+}
+
+export async function completeWorkOrder(id: number, data?: { actual_hours?: number; completion_notes?: string }): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}/complete`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data || {}),
+  });
+  if (!res.ok) throw new Error("Failed to complete work order");
+  return res.json();
+}
+
+export async function holdWorkOrder(id: number, reason?: string): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}/hold`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error("Failed to hold work order");
+  return res.json();
+}
+
+export async function cancelWorkOrder(id: number, reason?: string): Promise<WorkOrder> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}/cancel`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) throw new Error("Failed to cancel work order");
+  return res.json();
+}
+
+export async function deleteWorkOrder(id: number): Promise<void> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete work order");
+}
+
+export async function getWorkOrderSummary(): Promise<WorkOrderSummary> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/work-orders/summary/stats`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch work order summary");
+  return res.json();
+}
+
+export async function getWeekSchedule(weekStart?: string): Promise<WeekSchedule> {
+  await ensureTokenValid();
+  const qs = weekStart ? `?week_start=${weekStart}` : "";
+  const res = await fetch(`${API_BASE}/api/work-orders/schedule/week${qs}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch week schedule");
+  return res.json();
+}
+
