@@ -38,19 +38,19 @@ const WORK_TYPES = {
 };
 
 const PRIORITIES = {
-  low: { label: "Low", color: "bg-blue-500/20 text-blue-300 border-blue-500/30" },
-  normal: { label: "Normal", color: "bg-gray-500/20 text-gray-300 border-gray-500/30" },
-  high: { label: "High", color: "bg-amber-500/20 text-amber-300 border-amber-500/30" },
-  urgent: { label: "Urgent", color: "bg-red-500/20 text-red-300 border-red-500/30" },
+  low: { label: "Low", color: "bg-[rgba(144,191,249,0.12)] text-blue border-[rgba(144,191,249,0.3)]" },
+  normal: { label: "Normal", color: "bg-[#1a1a1a] text-text2 border-[#222]" },
+  high: { label: "High", color: "bg-amber-dim text-amber border-amber-bdr" },
+  urgent: { label: "Urgent", color: "bg-red-dim text-red border-red-bdr" },
 };
 
 const STATUSES = {
-  open: { label: "Open", color: "bg-blue-500/20 text-blue-300" },
-  assigned: { label: "Assigned", color: "bg-purple-500/20 text-purple-300" },
-  in_progress: { label: "In Progress", color: "bg-cyan-500/20 text-cyan-300" },
-  on_hold: { label: "On Hold", color: "bg-amber-500/20 text-amber-300" },
-  completed: { label: "Completed", color: "bg-emerald-500/20 text-emerald-300" },
-  cancelled: { label: "Cancelled", color: "bg-gray-500/20 text-gray-300" },
+  open: { label: "Open", color: "bg-[rgba(144,191,249,0.12)] text-blue" },
+  assigned: { label: "Assigned", color: "bg-[rgba(192,160,255,0.12)] text-purple" },
+  in_progress: { label: "In Progress", color: "bg-[rgba(144,191,249,0.12)] text-blue" },
+  on_hold: { label: "On Hold", color: "bg-amber-dim text-amber" },
+  completed: { label: "Completed", color: "bg-green-dim text-green" },
+  cancelled: { label: "Cancelled", color: "bg-[#1a1a1a] text-text2" },
 };
 
 export default function WorkOrdersPage() {
@@ -126,21 +126,21 @@ export default function WorkOrdersPage() {
   }
 
   return (
-    <div className="flex-1 overflow-auto bg-[#0C1B2A]">
+    <div className="flex-1 overflow-auto">
       {/* Header */}
-      <div className="sticky top-0 z-30 bg-[#0C1B2A] border-b border-white/10 backdrop-blur-md">
+      <div className="sticky top-0 z-30 border-b border-[#222] backdrop-blur-md">
         <div className="px-6 py-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <Wrench size={28} className="text-emerald-400" />
+              <Wrench size={28} className="text-green" />
               <div>
-                <h1 className="text-3xl font-bold text-white">Work Orders</h1>
-                <p className="text-sm text-gray-400 mt-1">Manage and track construction tasks</p>
+                <h1 className="text-3xl font-bold text-text1">Work Orders</h1>
+                <p className="text-sm text-text2 mt-1">Manage and track construction tasks</p>
               </div>
             </div>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-black font-medium rounded-lg transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-green hover:bg-green text-black font-medium rounded-lg transition-colors"
             >
               <Plus size={18} />
               New Work Order
@@ -153,45 +153,45 @@ export default function WorkOrdersPage() {
               <SummaryCard
                 label="Open"
                 value={summary.open}
-                color="bg-blue-500/20 text-blue-300"
+                color="bg-[rgba(144,191,249,0.12)] text-blue"
               />
               <SummaryCard
                 label="Assigned"
                 value={summary.assigned}
-                color="bg-purple-500/20 text-purple-300"
+                color="bg-[rgba(192,160,255,0.12)] text-purple"
               />
               <SummaryCard
                 label="In Progress"
                 value={summary.in_progress}
-                color="bg-cyan-500/20 text-cyan-300"
+                color="bg-[rgba(144,191,249,0.12)] text-blue"
               />
               <SummaryCard
                 label="On Hold"
                 value={summary.on_hold}
-                color="bg-amber-500/20 text-amber-300"
+                color="bg-amber-dim text-amber"
               />
               <SummaryCard
                 label="Completed"
                 value={summary.completed}
-                color="bg-emerald-500/20 text-emerald-300"
+                color="bg-green-dim text-green"
               />
               <SummaryCard
                 label="Overdue"
                 value={summary.overdue}
-                color="bg-red-500/20 text-red-300"
+                color="bg-red-dim text-red"
               />
             </div>
           )}
 
           {/* View Toggle & Filters */}
           <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2 bg-white/5 rounded-lg p-1">
+            <div className="flex items-center gap-2 bg-[#111] rounded-lg p-1">
               <button
                 onClick={() => setView("list")}
                 className={`px-3 py-1.5 rounded transition-colors text-sm font-medium ${
                   view === "list"
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : "text-gray-400 hover:text-white"
+                    ? "bg-green-dim text-green"
+                    : "text-text2 hover:text-text1"
                 }`}
               >
                 <List size={16} className="inline mr-1.5" />
@@ -201,8 +201,8 @@ export default function WorkOrdersPage() {
                 onClick={() => setView("schedule")}
                 className={`px-3 py-1.5 rounded transition-colors text-sm font-medium ${
                   view === "schedule"
-                    ? "bg-emerald-500/20 text-emerald-300"
-                    : "text-gray-400 hover:text-white"
+                    ? "bg-green-dim text-green"
+                    : "text-text2 hover:text-text1"
                 }`}
               >
                 <CalendarDays size={16} className="inline mr-1.5" />
@@ -273,7 +273,7 @@ function SummaryCard({
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className={`p-3 rounded-lg border border-white/10 ${color}`}
+      className={`p-3 rounded-lg border border-[#222] ${color}`}
     >
       <div className="text-xs font-medium opacity-80">{label}</div>
       <div className="text-2xl font-bold mt-1">{value}</div>
@@ -296,7 +296,7 @@ function FilterSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm text-gray-300 hover:border-white/20 transition-colors focus:outline-none focus:border-emerald-500/50"
+      className="px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-sm text-text2 hover:border-white/20 transition-colors focus:outline-none focus:border-green/50"
     >
       <option value="">{label}</option>
       {options
@@ -324,7 +324,7 @@ function ListView({
   return (
     <div className="space-y-3">
       {orders.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
+        <div className="text-center py-12 text-text2">
           <Wrench size={48} className="mx-auto mb-4 opacity-50" />
           <p>No work orders found</p>
         </div>
@@ -334,23 +334,23 @@ function ListView({
             key={order.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-white/5 border border-white/10 rounded-lg overflow-hidden hover:border-white/20 transition-colors"
+            className="bg-[#111] border border-[#222] rounded-lg overflow-hidden hover:border-white/20 transition-colors"
           >
             {/* Main Row */}
             <button
               onClick={() => setExpandedId(expandedId === order.id ? null : order.id)}
-              className="w-full p-4 flex items-center justify-between hover:bg-white/5 transition-colors text-left"
+              className="w-full p-4 flex items-center justify-between hover:bg-surface transition-colors text-left"
             >
               <div className="flex-1 min-w-0 flex items-center gap-4">
                 <div className="flex-1">
-                  <h3 className="font-semibold text-white truncate">{order.title}</h3>
-                  <div className="flex items-center gap-4 mt-2 text-sm text-gray-400 flex-wrap">
+                  <h3 className="font-semibold text-text1 truncate">{order.title}</h3>
+                  <div className="flex items-center gap-4 mt-2 text-sm text-text2 flex-wrap">
                     <span className="flex items-center gap-1.5">
                       <MapPin size={14} />
                       {order.community}
                       {order.lot_number && ` / Lot ${order.lot_number}`}
                     </span>
-                    <span className="px-2 py-1 rounded bg-white/10 text-xs">
+                    <span className="px-2 py-1 rounded bg-[#1a1a1a] text-xs">
                       {WORK_TYPES[order.work_type as keyof typeof WORK_TYPES] || order.work_type}
                     </span>
                   </div>
@@ -366,7 +366,7 @@ function ListView({
                 </span>
                 <motion.div
                   animate={{ rotate: expandedId === order.id ? 90 : 0 }}
-                  className="text-gray-400"
+                  className="text-text2"
                 >
                   <ChevronRight size={18} />
                 </motion.div>
@@ -380,7 +380,7 @@ function ListView({
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="border-t border-white/10 bg-white/2.5 px-4 py-4"
+                  className="border-t border-[#222] bg-surface px-4 py-4"
                 >
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-3">
@@ -398,20 +398,20 @@ function ListView({
                   </div>
 
                   {order.description && (
-                    <div className="mt-4 pt-4 border-t border-white/10">
-                      <p className="text-xs text-gray-400 font-medium mb-2">Description</p>
-                      <p className="text-sm text-gray-300">{order.description}</p>
+                    <div className="mt-4 pt-4 border-t border-[#222]">
+                      <p className="text-xs text-text2 font-medium mb-2">Description</p>
+                      <p className="text-sm text-text2">{order.description}</p>
                     </div>
                   )}
 
                   {order.completion_notes && (
-                    <div className="mt-4 pt-4 border-t border-white/10">
-                      <p className="text-xs text-gray-400 font-medium mb-2">Completion Notes</p>
-                      <p className="text-sm text-gray-300">{order.completion_notes}</p>
+                    <div className="mt-4 pt-4 border-t border-[#222]">
+                      <p className="text-xs text-text2 font-medium mb-2">Completion Notes</p>
+                      <p className="text-sm text-text2">{order.completion_notes}</p>
                     </div>
                   )}
 
-                  <div className="mt-4 pt-4 border-t border-white/10 flex gap-2 flex-wrap">
+                  <div className="mt-4 pt-4 border-t border-[#222] flex gap-2 flex-wrap">
                     <QuickActionButton icon={<User size={14} />} label="Assign" />
                     <QuickActionButton icon={<Clock size={14} />} label="Start" />
                     <QuickActionButton icon={<CheckCircle2 size={14} />} label="Complete" />
@@ -431,8 +431,8 @@ function ListView({
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex justify-between items-start gap-2">
-      <span className="text-xs text-gray-500 font-medium">{label}</span>
-      <span className="text-sm text-gray-300 text-right">{value}</span>
+      <span className="text-xs text-text3 font-medium">{label}</span>
+      <span className="text-sm text-text2 text-right">{value}</span>
     </div>
   );
 }
@@ -450,8 +450,8 @@ function QuickActionButton({
     <button
       className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-colors ${
         variant === "danger"
-          ? "bg-red-500/20 text-red-300 hover:bg-red-500/30"
-          : "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+          ? "bg-red-dim text-red hover:bg-red-dim"
+          : "bg-green-dim text-green hover:bg-green-dim"
       }`}
     >
       {icon}
@@ -480,18 +480,18 @@ function ScheduleView({
       <div className="flex items-center justify-between mb-6">
         <button
           onClick={onPrevWeek}
-          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400"
+          className="p-2 hover:bg-[#1a1a1a] rounded-lg transition-colors text-text2"
         >
           <ArrowLeft size={20} />
         </button>
         <div className="text-center">
-          <p className="text-sm text-gray-400">
+          <p className="text-sm text-text2">
             {formatDate(days[0])} - {formatDate(days[6])}
           </p>
         </div>
         <button
           onClick={onNextWeek}
-          className="p-2 hover:bg-white/10 rounded-lg transition-colors text-gray-400"
+          className="p-2 hover:bg-[#1a1a1a] rounded-lg transition-colors text-text2"
         >
           <ArrowRight size={20} />
         </button>
@@ -512,20 +512,20 @@ function ScheduleView({
               transition={{ delay: idx * 0.05 }}
               className={`rounded-lg border-2 p-4 min-h-[400px] flex flex-col ${
                 isToday
-                  ? "border-emerald-500/50 bg-emerald-500/10"
-                  : "border-white/10 bg-white/5"
+                  ? "border-green/50 bg-green-dim"
+                  : "border-[#222] bg-[#111]"
               }`}
             >
               <div className="mb-4">
-                <p className="text-xs text-gray-500 font-medium uppercase">{dayName}</p>
-                <p className={`text-lg font-bold ${isToday ? "text-emerald-300" : "text-white"}`}>
+                <p className="text-xs text-text3 font-medium uppercase">{dayName}</p>
+                <p className={`text-lg font-bold ${isToday ? "text-green" : "text-text1"}`}>
                   {new Date(day + "T00:00:00").getDate()}
                 </p>
               </div>
 
               <div className="flex-1 space-y-2">
                 {dayOrders.length === 0 ? (
-                  <div className="text-center text-gray-500 text-xs py-8">No orders scheduled</div>
+                  <div className="text-center text-text3 text-xs py-8">No orders scheduled</div>
                 ) : (
                   dayOrders.map((order) => (
                     <motion.div
@@ -534,12 +534,12 @@ function ScheduleView({
                       animate={{ opacity: 1, scale: 1 }}
                       className={`p-2 rounded text-xs border ${
                         order.priority === "urgent"
-                          ? "bg-red-500/20 text-red-200 border-red-500/30"
+                          ? "bg-red-dim text-red border-red-bdr"
                           : order.priority === "high"
-                            ? "bg-amber-500/20 text-amber-200 border-amber-500/30"
+                            ? "bg-amber-dim text-amber border-amber-bdr"
                             : order.priority === "normal"
-                              ? "bg-purple-500/20 text-purple-200 border-purple-500/30"
-                              : "bg-blue-500/20 text-blue-200 border-blue-500/30"
+                              ? "bg-[rgba(192,160,255,0.12)] text-purple border-[rgba(192,160,255,0.3)]"
+                              : "bg-[rgba(144,191,249,0.12)] text-blue border-[rgba(144,191,249,0.3)]"
                       }`}
                     >
                       <p className="font-medium truncate">{order.title}</p>
@@ -588,14 +588,14 @@ function CreateWorkOrderModal({ open, onClose }: { open: boolean; onClose: () =>
             initial={{ opacity: 0, x: 400 }}
             animate={{ opacity: 1, x: 0 }}
             exit={{ opacity: 0, x: 400 }}
-            className="fixed right-0 top-0 h-full w-full max-w-md bg-[#0C1B2A] border-l border-white/10 z-50 overflow-y-auto"
+            className="fixed right-0 top-0 h-full w-full max-w-md border-l border-[#222] z-50 overflow-y-auto"
           >
             <div className="p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-white">New Work Order</h2>
+                <h2 className="text-2xl font-bold text-text1">New Work Order</h2>
                 <button
                   onClick={onClose}
-                  className="text-gray-400 hover:text-white transition-colors"
+                  className="text-text2 hover:text-text1 transition-colors"
                 >
                   <XCircle size={24} />
                 </button>
@@ -713,13 +713,13 @@ function CreateWorkOrderModal({ open, onClose }: { open: boolean; onClose: () =>
                   <button
                     type="button"
                     onClick={onClose}
-                    className="flex-1 px-4 py-2 rounded-lg border border-white/20 text-white hover:bg-white/5 transition-colors"
+                    className="flex-1 px-4 py-2 rounded-lg border border-[#222] text-text1 hover:bg-[#1a1a1a] transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-black font-medium transition-colors"
+                    className="flex-1 px-4 py-2 rounded-lg bg-green hover:bg-green text-black font-medium transition-colors"
                   >
                     Create
                   </button>
@@ -748,13 +748,13 @@ function FormField({
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-300 mb-2">{label}</label>
+      <label className="block text-xs font-medium text-text2 mb-2">{label}</label>
       {type === "textarea" ? (
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
+          className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:outline-none focus:border-green/50 transition-colors"
           rows={3}
         />
       ) : (
@@ -763,7 +763,7 @@ function FormField({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={placeholder}
-          className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-emerald-500/50 transition-colors"
+          className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:outline-none focus:border-green/50 transition-colors"
         />
       )}
     </div>
@@ -783,11 +783,11 @@ function FormSelect({
 }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-gray-300 mb-2">{label}</label>
+      <label className="block text-xs font-medium text-text2 mb-2">{label}</label>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:border-emerald-500/50 transition-colors"
+        className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 focus:outline-none focus:border-green/50 transition-colors"
       >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>

@@ -44,27 +44,27 @@ const CATEGORIES = {
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
-  drywall_damage: "bg-red-500/20 text-red-300",
+  drywall_damage: "bg-red-dim text-red",
   drywall_finish: "bg-orange-500/20 text-orange-300",
-  paint_touch_up: "bg-blue-500/20 text-blue-300",
+  paint_touch_up: "bg-[rgba(144,191,249,0.12)] text-blue",
   paint_color: "bg-cyan-500/20 text-cyan-300",
   texture_issue: "bg-purple-500/20 text-purple-300",
-  nail_pop: "bg-red-600/20 text-red-300",
-  crack: "bg-amber-500/20 text-amber-300",
+  nail_pop: "bg-red-600/20 text-red",
+  crack: "bg-amber-dim text-amber",
   scuff_mark: "bg-yellow-500/20 text-yellow-300",
   missed_area: "bg-indigo-500/20 text-indigo-300",
   caulking: "bg-pink-500/20 text-pink-300",
   trim_issue: "bg-violet-500/20 text-violet-300",
   ceiling: "bg-sky-500/20 text-sky-300",
   moisture_damage: "bg-teal-500/20 text-teal-300",
-  other: "bg-gray-500/20 text-gray-300",
+  other: "bg-gray-500/20 text-text2",
 };
 
 const PRIORITY_COLORS: Record<string, { dot: string; bg: string }> = {
-  low: { dot: "bg-emerald-400", bg: "bg-emerald-500/10" },
-  medium: { dot: "bg-amber-400", bg: "bg-amber-500/10" },
-  high: { dot: "bg-orange-400", bg: "bg-orange-500/10" },
-  critical: { dot: "bg-red-400", bg: "bg-red-500/10" },
+  low: { dot: "bg-green", bg: "bg-green-dim" },
+  medium: { dot: "bg-amber", bg: "bg-amber-dim" },
+  high: { dot: "bg-amber", bg: "bg-amber-dim" },
+  critical: { dot: "bg-red", bg: "bg-red-dim" },
 };
 
 export default function PunchListPage() {
@@ -176,10 +176,10 @@ export default function PunchListPage() {
 
   const statuses = ["open", "in_progress", "completed", "verified"];
   const statusColors: Record<string, string> = {
-    open: "border-red-500/30 bg-red-500/5",
-    in_progress: "border-amber-500/30 bg-amber-500/5",
-    completed: "border-blue-500/30 bg-blue-500/5",
-    verified: "border-emerald-500/30 bg-emerald-500/5",
+    open: "border-red-bdr bg-red-dim",
+    in_progress: "border-amber-bdr bg-amber-dim",
+    completed: "border-[rgba(144,191,249,0.25)] bg-[rgba(144,191,249,0.12)]",
+    verified: "border-green-bdr bg-green-dim",
   };
 
   const statusLabels: Record<string, string> = {
@@ -198,18 +198,18 @@ export default function PunchListPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#0C1B2A] text-white">
+    <div className="min-h-screen text-text1">
       {/* Header */}
-      <div className="border-b border-white/10 bg-white/[0.02] sticky top-0 z-20">
+      <div className="border-b border-[#222] bg-surface sticky top-0 z-20">
         <div className="max-w-7xl mx-auto px-6 py-6">
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-emerald-500/10 rounded-lg">
-                <Hammer size={24} className="text-emerald-400" />
+              <div className="p-2 bg-green-dim rounded-lg">
+                <Hammer size={24} className="text-green" />
               </div>
               <div>
                 <h1 className="text-3xl font-bold">Punch List</h1>
-                <p className="text-sm text-gray-400 mt-1">Manage deficiencies & closeout items</p>
+                <p className="text-sm text-text2 mt-1">Manage deficiencies & closeout items</p>
               </div>
             </div>
             <motion.button
@@ -233,7 +233,7 @@ export default function PunchListPage() {
                 });
                 setShowModal(true);
               }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2.5 bg-green hover:bg-green text-text1 rounded-lg font-medium transition-colors"
             >
               <Plus size={18} />
               New Item
@@ -245,54 +245,54 @@ export default function PunchListPage() {
             <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
               <motion.div
                 whileHover={{ y: -4 }}
-                className="p-4 rounded-lg bg-white/5 border border-white/10"
+                className="p-4 rounded-lg bg-[#111] border border-[#222]"
               >
-                <p className="text-xs text-gray-400 mb-1">Open</p>
-                <p className={`text-2xl font-bold ${summary.open > 0 ? "text-red-400" : "text-gray-300"}`}>
+                <p className="text-xs text-text2 mb-1">Open</p>
+                <p className={`text-2xl font-bold ${summary.open > 0 ? "text-red" : "text-text2"}`}>
                   {summary.open}
                 </p>
               </motion.div>
 
               <motion.div
                 whileHover={{ y: -4 }}
-                className="p-4 rounded-lg bg-white/5 border border-white/10"
+                className="p-4 rounded-lg bg-[#111] border border-[#222]"
               >
-                <p className="text-xs text-gray-400 mb-1">In Progress</p>
-                <p className="text-2xl font-bold text-amber-400">{summary.in_progress}</p>
+                <p className="text-xs text-text2 mb-1">In Progress</p>
+                <p className="text-2xl font-bold text-amber">{summary.in_progress}</p>
               </motion.div>
 
               <motion.div
                 whileHover={{ y: -4 }}
-                className="p-4 rounded-lg bg-white/5 border border-white/10"
+                className="p-4 rounded-lg bg-[#111] border border-[#222]"
               >
-                <p className="text-xs text-gray-400 mb-1">Completed</p>
-                <p className="text-2xl font-bold text-blue-400">{summary.completed}</p>
+                <p className="text-xs text-text2 mb-1">Completed</p>
+                <p className="text-2xl font-bold text-blue">{summary.completed}</p>
               </motion.div>
 
               <motion.div
                 whileHover={{ y: -4 }}
-                className="p-4 rounded-lg bg-white/5 border border-white/10"
+                className="p-4 rounded-lg bg-[#111] border border-[#222]"
               >
-                <p className="text-xs text-gray-400 mb-1">Verified</p>
-                <p className="text-2xl font-bold text-emerald-400">{summary.verified}</p>
+                <p className="text-xs text-text2 mb-1">Verified</p>
+                <p className="text-2xl font-bold text-green">{summary.verified}</p>
               </motion.div>
 
               <motion.div
                 whileHover={{ y: -4 }}
-                className="p-4 rounded-lg bg-white/5 border border-white/10"
+                className="p-4 rounded-lg bg-[#111] border border-[#222]"
               >
-                <p className="text-xs text-gray-400 mb-1">Overdue</p>
-                <p className={`text-2xl font-bold ${summary.overdue > 0 ? "text-red-400" : "text-gray-300"}`}>
+                <p className="text-xs text-text2 mb-1">Overdue</p>
+                <p className={`text-2xl font-bold ${summary.overdue > 0 ? "text-red" : "text-text2"}`}>
                   {summary.overdue}
                 </p>
               </motion.div>
 
               <motion.div
                 whileHover={{ y: -4 }}
-                className="p-4 rounded-lg bg-white/5 border border-white/10"
+                className="p-4 rounded-lg bg-[#111] border border-[#222]"
               >
-                <p className="text-xs text-gray-400 mb-1">Avg Resolution</p>
-                <p className="text-2xl font-bold text-gray-300">
+                <p className="text-xs text-text2 mb-1">Avg Resolution</p>
+                <p className="text-2xl font-bold text-text2">
                   {summary.avg_resolution_days ? Math.round(summary.avg_resolution_days) : "-"}d
                 </p>
               </motion.div>
@@ -304,7 +304,7 @@ export default function PunchListPage() {
             <select
               value={filters.community}
               onChange={(e) => setFilters({ ...filters, community: e.target.value })}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white hover:bg-white/10 transition-colors"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-sm text-text1 hover:bg-[#1a1a1a] transition-colors"
             >
               <option value="">All Communities</option>
               {summary?.by_community.map((c) => (
@@ -317,7 +317,7 @@ export default function PunchListPage() {
             <select
               value={filters.status}
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white hover:bg-white/10 transition-colors"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-sm text-text1 hover:bg-[#1a1a1a] transition-colors"
             >
               <option value="">All Statuses</option>
               <option value="open">Open</option>
@@ -329,7 +329,7 @@ export default function PunchListPage() {
             <select
               value={filters.priority}
               onChange={(e) => setFilters({ ...filters, priority: e.target.value })}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white hover:bg-white/10 transition-colors"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-sm text-text1 hover:bg-[#1a1a1a] transition-colors"
             >
               <option value="">All Priorities</option>
               <option value="low">Low</option>
@@ -341,7 +341,7 @@ export default function PunchListPage() {
             <select
               value={filters.category}
               onChange={(e) => setFilters({ ...filters, category: e.target.value })}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-sm text-white hover:bg-white/10 transition-colors"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-sm text-text1 hover:bg-[#1a1a1a] transition-colors"
             >
               <option value="">All Categories</option>
               {Object.entries(CATEGORIES).map(([key, label]) => (
@@ -359,8 +359,8 @@ export default function PunchListPage() {
                 onClick={() => setViewMode("kanban")}
                 className={`p-2 rounded-lg transition-colors ${
                   viewMode === "kanban"
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "text-gray-400 hover:text-white"
+                    ? "bg-green-dim text-green"
+                    : "text-text2 hover:text-text1"
                 }`}
               >
                 <LayoutGrid size={20} />
@@ -371,8 +371,8 @@ export default function PunchListPage() {
                 onClick={() => setViewMode("list")}
                 className={`p-2 rounded-lg transition-colors ${
                   viewMode === "list"
-                    ? "bg-emerald-500/20 text-emerald-400"
-                    : "text-gray-400 hover:text-white"
+                    ? "bg-green-dim text-green"
+                    : "text-text2 hover:text-text1"
                 }`}
               >
                 <List size={20} />
@@ -386,7 +386,7 @@ export default function PunchListPage() {
       <div className="max-w-7xl mx-auto px-6 py-8">
         {loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-12 w-12 border border-white/20 border-t-emerald-400"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border border-[#222] border-t-green"></div>
           </div>
         ) : viewMode === "kanban" ? (
           // Kanban View
@@ -399,9 +399,9 @@ export default function PunchListPage() {
                 className={`rounded-lg p-4 min-h-[600px] border-2 ${statusColors[status]}`}
               >
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-semibold text-white flex items-center gap-2">
+                  <h3 className="font-semibold text-text1 flex items-center gap-2">
                     {statusLabels[status]}
-                    <span className="px-2 py-0.5 rounded-full bg-white/10 text-xs text-gray-300">
+                    <span className="px-2 py-0.5 rounded-full bg-white/10 text-xs text-text2">
                       {groupedByStatus[status].length}
                     </span>
                   </h3>
@@ -412,15 +412,15 @@ export default function PunchListPage() {
                     <motion.div
                       key={item.id}
                       whileHover={{ y: -2 }}
-                      className="p-3 rounded-lg bg-white/5 border border-white/10 hover:border-white/20 cursor-pointer transition-colors group"
+                      className="p-3 rounded-lg bg-[#111] border border-[#222] hover:border-[#222] cursor-pointer transition-colors group"
                     >
                       <div className="flex items-start gap-2 mb-2">
                         <div className={`w-2 h-2 rounded-full mt-1 ${PRIORITY_COLORS[item.priority].dot}`}></div>
                         <div className="flex-1">
-                          <h4 className="text-sm font-medium text-white group-hover:text-emerald-300 transition-colors">
+                          <h4 className="text-sm font-medium text-text1 group-hover:text-green transition-colors">
                             {item.title}
                           </h4>
-                          <p className="text-xs text-gray-400 mt-0.5">
+                          <p className="text-xs text-text2 mt-0.5">
                             {item.community} • Lot {item.lot_number}
                           </p>
                         </div>
@@ -438,21 +438,21 @@ export default function PunchListPage() {
                       </div>
 
                       {item.location && (
-                        <p className="text-xs text-gray-400 mb-2 flex items-center gap-1">
+                        <p className="text-xs text-text2 mb-2 flex items-center gap-1">
                           <MapPin size={12} />
                           {item.location}
                         </p>
                       )}
 
                       {item.assigned_to_name && (
-                        <p className="text-xs text-gray-400 mb-2 flex items-center gap-1">
+                        <p className="text-xs text-text2 mb-2 flex items-center gap-1">
                           <User size={12} />
                           {item.assigned_to_name}
                         </p>
                       )}
 
                       {item.due_date && (
-                        <p className="text-xs text-gray-400 flex items-center gap-1">
+                        <p className="text-xs text-text2 flex items-center gap-1">
                           <Clock size={12} />
                           {new Date(item.due_date).toLocaleDateString()}
                         </p>
@@ -466,7 +466,7 @@ export default function PunchListPage() {
                               e.stopPropagation();
                               updatePunchItem(item.id, { status: "in_progress" }).then(() => loadData());
                             }}
-                            className="text-xs px-2 py-1 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30 transition-colors"
+                            className="text-xs px-2 py-1 rounded bg-amber-dim text-amber hover:bg-amber-dim transition-colors"
                           >
                             Start
                           </button>
@@ -477,7 +477,7 @@ export default function PunchListPage() {
                               e.stopPropagation();
                               handleCompleteItem(item.id);
                             }}
-                            className="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-colors"
+                            className="text-xs px-2 py-1 rounded bg-[rgba(144,191,249,0.12)] text-blue hover:bg-[rgba(144,191,249,0.12)] transition-colors"
                           >
                             Complete
                           </button>
@@ -489,7 +489,7 @@ export default function PunchListPage() {
                                 e.stopPropagation();
                                 handleVerifyItem(item.id, true);
                               }}
-                              className="text-xs px-2 py-1 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition-colors"
+                              className="text-xs px-2 py-1 rounded bg-green-dim text-green hover:bg-green/30 transition-colors"
                             >
                               Verify
                             </button>
@@ -498,7 +498,7 @@ export default function PunchListPage() {
                                 e.stopPropagation();
                                 handleVerifyItem(item.id, false);
                               }}
-                              className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30 transition-colors"
+                              className="text-xs px-2 py-1 rounded bg-red-dim text-red hover:bg-red-dim transition-colors"
                             >
                               Reject
                             </button>
@@ -513,9 +513,9 @@ export default function PunchListPage() {
           </div>
         ) : (
           // List View
-          <div className="overflow-x-auto rounded-lg border border-white/10">
+          <div className="overflow-x-auto rounded-lg border border-[#222]">
             <table className="w-full text-sm">
-              <thead className="bg-white/5 border-b border-white/10">
+              <thead className="bg-[#111] border-b border-[#222]">
                 <tr>
                   <th className="px-6 py-3 text-left font-semibold">Title</th>
                   <th className="px-6 py-3 text-left font-semibold">Community</th>
@@ -534,7 +534,7 @@ export default function PunchListPage() {
                     className="hover:bg-white/[0.02] transition-colors"
                   >
                     <td className="px-6 py-4">{item.title}</td>
-                    <td className="px-6 py-4 text-gray-400">{item.community}</td>
+                    <td className="px-6 py-4 text-text2">{item.community}</td>
                     <td className="px-6 py-4">
                       <span
                         className={`text-[11px] px-2.5 py-1 rounded-full font-medium ${
@@ -551,12 +551,12 @@ export default function PunchListPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-xs px-2.5 py-1 rounded-full bg-white/10 text-white capitalize">
+                      <span className="text-xs px-2.5 py-1 rounded-full bg-white/10 text-text1 capitalize">
                         {item.status.replace("_", " ")}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-gray-400">{item.assigned_to_name || "-"}</td>
-                    <td className="px-6 py-4 text-gray-400">
+                    <td className="px-6 py-4 text-text2">{item.assigned_to_name || "-"}</td>
+                    <td className="px-6 py-4 text-text2">
                       {item.due_date ? new Date(item.due_date).toLocaleDateString() : "-"}
                     </td>
                   </motion.tr>
@@ -582,15 +582,15 @@ export default function PunchListPage() {
               initial={{ x: 400, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
               exit={{ x: 400, opacity: 0 }}
-              className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0C1B2A] border-l border-white/10 overflow-y-auto"
+              className="fixed inset-y-0 right-0 z-50 w-full max-w-md bg-[#0a0a0a] border-l border-[#222] overflow-y-auto"
             >
-              <div className="sticky top-0 z-10 bg-[#0C1B2A]/95 backdrop-blur border-b border-white/10 px-6 py-4 flex items-center justify-between">
+              <div className="sticky top-0 z-10 bg-[#0a0a0a]/95 backdrop-blur border-b border-[#222] px-6 py-4 flex items-center justify-between">
                 <h2 className="text-lg font-semibold">
                   {modalMode === "create" ? "New Punch Item" : "Edit Item"}
                 </h2>
                 <button
                   onClick={() => setShowModal(false)}
-                  className="text-gray-400 hover:text-white transition-colors"
+                  className="text-text2 hover:text-text1 transition-colors"
                 >
                   <X size={20} />
                 </button>
@@ -603,7 +603,7 @@ export default function PunchListPage() {
                     type="text"
                     value={formData.community || ""}
                     onChange={(e) => setFormData({ ...formData, community: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors"
                     placeholder="Community name"
                     required
                   />
@@ -615,7 +615,7 @@ export default function PunchListPage() {
                     type="text"
                     value={formData.lot_number || ""}
                     onChange={(e) => setFormData({ ...formData, lot_number: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors"
                     placeholder="Lot number"
                     required
                   />
@@ -627,7 +627,7 @@ export default function PunchListPage() {
                     type="text"
                     value={formData.location || ""}
                     onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors"
                     placeholder="Location (optional)"
                   />
                 </div>
@@ -638,7 +638,7 @@ export default function PunchListPage() {
                     type="text"
                     value={formData.title || ""}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors"
                     placeholder="Item title"
                     required
                   />
@@ -649,7 +649,7 @@ export default function PunchListPage() {
                   <textarea
                     value={formData.description || ""}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors resize-none"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors resize-none"
                     placeholder="Description"
                     rows={3}
                   />
@@ -660,7 +660,7 @@ export default function PunchListPage() {
                   <select
                     value={formData.category || "other"}
                     onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 focus:border-green outline-none transition-colors"
                     required
                   >
                     {Object.entries(CATEGORIES).map(([key, label]) => (
@@ -676,7 +676,7 @@ export default function PunchListPage() {
                   <select
                     value={formData.priority || "medium"}
                     onChange={(e) => setFormData({ ...formData, priority: e.target.value as any })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 focus:border-green outline-none transition-colors"
                     required
                   >
                     <option value="low">Low</option>
@@ -692,7 +692,7 @@ export default function PunchListPage() {
                     type="text"
                     value={formData.reported_by || ""}
                     onChange={(e) => setFormData({ ...formData, reported_by: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors"
                     placeholder="Reporter name"
                   />
                 </div>
@@ -703,7 +703,7 @@ export default function PunchListPage() {
                     type="text"
                     value={formData.builder_name || ""}
                     onChange={(e) => setFormData({ ...formData, builder_name: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors"
                     placeholder="Builder name"
                   />
                 </div>
@@ -714,7 +714,7 @@ export default function PunchListPage() {
                     type="date"
                     value={formData.due_date || ""}
                     onChange={(e) => setFormData({ ...formData, due_date: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:border-emerald-400 outline-none transition-colors"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 focus:border-green outline-none transition-colors"
                   />
                 </div>
 
@@ -723,7 +723,7 @@ export default function PunchListPage() {
                   <textarea
                     value={formData.resolution_notes || ""}
                     onChange={(e) => setFormData({ ...formData, resolution_notes: e.target.value })}
-                    className="w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white placeholder-gray-500 focus:border-emerald-400 outline-none transition-colors resize-none"
+                    className="w-full px-3 py-2 rounded-lg bg-[#111] border border-[#222] text-text1 placeholder-text3 focus:border-green outline-none transition-colors resize-none"
                     placeholder="Notes"
                     rows={2}
                   />
@@ -731,7 +731,7 @@ export default function PunchListPage() {
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg transition-colors mt-6"
+                  className="w-full py-2.5 bg-green hover:bg-green text-text1 font-medium rounded-lg transition-colors mt-6"
                 >
                   {modalMode === "create" ? "Create Item" : "Save Changes"}
                 </button>

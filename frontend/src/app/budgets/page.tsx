@@ -59,10 +59,10 @@ function StatCard({
         <div
           className={`p-2.5 rounded-lg ${
             color === "emerald"
-              ? "bg-emerald-500/10 text-emerald-400"
+              ? "bg-green-dim text-green"
               : color === "red"
-              ? "bg-red-500/10 text-red-400"
-              : "bg-orange-500/10 text-orange-400"
+              ? "bg-red-dim text-red"
+              : "bg-amber-dim text-amber"
           }`}
         >
           {Icon}
@@ -72,11 +72,11 @@ function StatCard({
       {trend && (
         <div className="flex items-center gap-1 text-xs">
           {trend.direction === "up" ? (
-            <TrendingUp size={14} className="text-emerald-400" />
+            <TrendingUp size={14} className="text-green" />
           ) : (
-            <TrendingDown size={14} className="text-red-400" />
+            <TrendingDown size={14} className="text-red" />
           )}
-          <span className={trend.direction === "up" ? "text-emerald-400" : "text-red-400"}>
+          <span className={trend.direction === "up" ? "text-green" : "text-red"}>
             {trend.percent}% vs last month
           </span>
         </div>
@@ -88,9 +88,9 @@ function StatCard({
 // Progress Bar Component
 function ProgressBar({ percent, status }: { percent: number; status: string }) {
   const getColor = (p: number) => {
-    if (p < 75) return "bg-emerald-500";
-    if (p < 90) return "bg-orange-500";
-    return "bg-red-500";
+    if (p < 75) return "bg-green";
+    if (p < 90) return "bg-amber";
+    return "bg-red";
   };
 
   return (
@@ -120,10 +120,10 @@ function BudgetCard({
   onViewTrend: () => void;
 }) {
   const statusColors = {
-    on_track: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20",
-    warning: "bg-orange-500/10 text-orange-400 border border-orange-500/20",
-    over_budget: "bg-red-500/10 text-red-400 border border-red-500/20",
-    exceeded: "bg-red-600/10 text-red-500 border border-red-600/20",
+    on_track: "bg-green-dim text-green border border-green-bdr",
+    warning: "bg-amber-dim text-amber border border-amber-bdr",
+    over_budget: "bg-red-dim text-red border border-red-bdr",
+    exceeded: "bg-red-dim text-red border border-red-bdr",
   };
 
   const statusLabels = {
@@ -138,7 +138,7 @@ function BudgetCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="bg-surface border border-card-border rounded-xl p-6 space-y-5 hover:border-emerald-500/30 transition-colors cursor-pointer"
+      className="bg-surface border border-card-border rounded-xl p-6 space-y-5 hover:border-green-bdr transition-colors cursor-pointer"
       onClick={onViewTrend}
     >
       <div>
@@ -169,7 +169,7 @@ function BudgetCard({
           <p className="text-xs text-text3 mb-1">Remaining</p>
           <p
             className={`text-sm font-semibold ${
-              budget.remaining >= 0 ? "text-emerald-400" : "text-red-400"
+              budget.remaining >= 0 ? "text-green" : "text-red"
             }`}
           >
             ${Math.abs(budget.remaining / 1000).toFixed(1)}K
@@ -183,7 +183,7 @@ function BudgetCard({
         <span className="text-xs text-text3">
           {budget.epo_count} EPO{budget.epo_count !== 1 ? "s" : ""}
         </span>
-        <span className="text-xs text-emerald-400 hover:text-emerald-300 transition-colors font-medium">
+        <span className="text-xs text-green hover:text-green transition-colors font-medium">
           View Trends →
         </span>
       </div>
@@ -208,18 +208,18 @@ function UnbudgetedCard({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-5 flex items-start gap-4"
+      className="bg-amber-dim border border-amber-bdr rounded-xl p-5 flex items-start gap-4"
     >
-      <AlertTriangle size={20} className="text-orange-400 shrink-0 mt-0.5" />
+      <AlertTriangle size={20} className="text-amber shrink-0 mt-0.5" />
       <div className="flex-1">
-        <h4 className="font-semibold text-orange-300 mb-1">{community}</h4>
-        <p className="text-xs text-orange-200/80 mb-3">
+        <h4 className="font-semibold text-amber mb-1">{community}</h4>
+        <p className="text-xs text-text2 mb-3">
           Unbudgeted community with ${(actualSpend / 1000).toFixed(1)}K spent across {epoCount} EPO
           {epoCount !== 1 ? "s" : ""}
         </p>
         <button
           onClick={onSetBudget}
-          className="text-xs font-medium px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg transition-colors"
+          className="text-xs font-medium px-3 py-1.5 bg-amber hover:bg-amber text-white rounded-lg transition-colors"
         >
           Set Budget
         </button>
@@ -300,7 +300,7 @@ function TrendModal({
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "#0C1B2A",
+                      backgroundColor: "#111",
                       border: "1px solid rgba(255,255,255,0.1)",
                       borderRadius: "8px",
                     }}
@@ -443,7 +443,7 @@ function CreateBudgetModal({
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             {error && (
-              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
+              <div className="p-3 bg-red-dim border border-red-bdr rounded-lg text-sm text-red">
                 {error}
               </div>
             )}
@@ -456,7 +456,7 @@ function CreateBudgetModal({
                 list="communities-list"
                 value={formData.community}
                 onChange={(e) => setFormData({ ...formData, community: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-emerald-500/50"
+                className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-green/50"
                 placeholder="Enter community name"
                 required
               />
@@ -474,7 +474,7 @@ function CreateBudgetModal({
                 type="number"
                 value={formData.budget_amount}
                 onChange={(e) => setFormData({ ...formData, budget_amount: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-emerald-500/50"
+                className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-green/50"
                 placeholder="e.g., 100000"
                 step="0.01"
                 required
@@ -489,7 +489,7 @@ function CreateBudgetModal({
                   type="date"
                   value={formData.period_start}
                   onChange={(e) => setFormData({ ...formData, period_start: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 focus:outline-none focus:border-emerald-500/50"
+                  className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 focus:outline-none focus:border-green/50"
                   required
                 />
               </div>
@@ -499,7 +499,7 @@ function CreateBudgetModal({
                   type="date"
                   value={formData.period_end}
                   onChange={(e) => setFormData({ ...formData, period_end: e.target.value })}
-                  className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 focus:outline-none focus:border-emerald-500/50"
+                  className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 focus:outline-none focus:border-green/50"
                   required
                 />
               </div>
@@ -517,7 +517,7 @@ function CreateBudgetModal({
                     type="number"
                     value={formData.labor_budget}
                     onChange={(e) => setFormData({ ...formData, labor_budget: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-emerald-500/50"
+                    className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-green/50"
                     placeholder="e.g., 50000"
                     step="0.01"
                   />
@@ -528,7 +528,7 @@ function CreateBudgetModal({
                     type="number"
                     value={formData.materials_budget}
                     onChange={(e) => setFormData({ ...formData, materials_budget: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-emerald-500/50"
+                    className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-green/50"
                     placeholder="e.g., 35000"
                     step="0.01"
                   />
@@ -539,7 +539,7 @@ function CreateBudgetModal({
                     type="number"
                     value={formData.equipment_budget}
                     onChange={(e) => setFormData({ ...formData, equipment_budget: e.target.value })}
-                    className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-emerald-500/50"
+                    className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-green/50"
                     placeholder="e.g., 15000"
                     step="0.01"
                   />
@@ -553,7 +553,7 @@ function CreateBudgetModal({
               <textarea
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-emerald-500/50 resize-none"
+                className="w-full px-4 py-2.5 rounded-lg bg-surface-secondary border border-card-border text-text1 placeholder-text3 focus:outline-none focus:border-green/50 resize-none"
                 placeholder="Add any notes about this budget..."
                 rows={3}
               />
@@ -564,7 +564,7 @@ function CreateBudgetModal({
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full px-4 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
+                className="w-full px-4 py-3 bg-green hover:bg-green disabled:opacity-50 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Plus size={18} />
                 {loading ? "Creating..." : "Create Budget"}
@@ -645,14 +645,14 @@ export default function BudgetsPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold text-text1 flex items-center gap-3">
-              <Target size={32} className="text-emerald-400" />
+              <Target size={32} className="text-green" />
               Budget Tracking
             </h1>
             <p className="text-sm text-text3 mt-1">Monitor community budgets vs actual spend</p>
           </div>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+            className="px-4 py-2.5 bg-green hover:bg-green text-white font-medium rounded-lg transition-colors flex items-center gap-2"
           >
             <Plus size={18} />
             Create Budget
@@ -666,7 +666,7 @@ export default function BudgetsPage() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg text-red-300 text-sm"
+            className="p-4 bg-red-dim border border-red-bdr rounded-lg text-red text-sm"
           >
             {error}
           </motion.div>
@@ -675,7 +675,7 @@ export default function BudgetsPage() {
         {loading ? (
           <div className="flex items-center justify-center min-h-64">
             <div className="text-center">
-              <div className="inline-block w-12 h-12 border-4 border-card-border border-t-emerald-400 rounded-full animate-spin mb-4" />
+              <div className="inline-block w-12 h-12 border-4 border-card-border border-t-green rounded-full animate-spin mb-4" />
               <p className="text-text2">Loading budget data...</p>
             </div>
           </div>
@@ -736,7 +736,7 @@ export default function BudgetsPage() {
             {overview.unbudgeted.length > 0 && (
               <div>
                 <h2 className="text-lg font-semibold text-text1 mb-4 flex items-center gap-2">
-                  <AlertTriangle size={20} className="text-orange-400" />
+                  <AlertTriangle size={20} className="text-amber" />
                   Unbudgeted Communities
                 </h2>
                 <div className="space-y-3">
@@ -770,7 +770,7 @@ export default function BudgetsPage() {
                 </p>
                 <button
                   onClick={() => setShowCreateModal(true)}
-                  className="px-4 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-medium rounded-lg transition-colors inline-flex items-center gap-2"
+                  className="px-4 py-2.5 bg-green hover:bg-green text-white font-medium rounded-lg transition-colors inline-flex items-center gap-2"
                 >
                   <Plus size={18} />
                   Create Budget

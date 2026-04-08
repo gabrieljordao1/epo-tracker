@@ -58,7 +58,7 @@ const formatDateForInput = (dateStr: string): string => {
 const getWeatherIcon = (weather: string | null) => {
   if (!weather) return null;
   const w = weather.toLowerCase();
-  const iconProps = { size: 16, className: "text-emerald-400" };
+  const iconProps = { size: 16, className: "text-green" };
   if (w.includes("sun")) return <Sun {...iconProps} />;
   if (w.includes("cloud") && !w.includes("rain")) return <Cloud {...iconProps} />;
   if (w.includes("rain")) return <CloudRain {...iconProps} />;
@@ -111,30 +111,30 @@ function SummaryCard({
       variants={itemVariants}
       className={`rounded-xl border p-6 backdrop-blur-sm ${
         highlight
-          ? "bg-red-500/10 border-red-500/30"
-          : "bg-white/5 border-white/10"
+          ? "bg-red-dim border-red-bdr"
+          : "bg-[#111] border-[#222]"
       }`}
     >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+          <p className="text-xs font-medium text-text2 uppercase tracking-wide">
             {title}
           </p>
-          <p className={`text-3xl font-bold mt-2 ${highlight ? "text-red-400" : "text-white"}`}>
+          <p className={`text-3xl font-bold mt-2 ${highlight ? "text-red" : "text-text1"}`}>
             {value}
           </p>
           {subtitle && (
-            <p className="text-xs text-gray-500 mt-1">{subtitle}</p>
+            <p className="text-xs text-text3 mt-1">{subtitle}</p>
           )}
           {trend && (
-            <p className="text-xs text-emerald-400 mt-2 font-medium">{trend}</p>
+            <p className="text-xs text-green mt-2 font-medium">{trend}</p>
           )}
         </div>
         <div
           className={`p-3 rounded-lg ${
             highlight
-              ? "bg-red-500/20 text-red-400"
-              : "bg-emerald-500/10 text-emerald-400"
+              ? "bg-red-dim text-red"
+              : "bg-green-dim text-green"
           }`}
         >
           {icon}
@@ -281,18 +281,18 @@ export default function DailyReportsPage() {
   if (!mounted) return null;
 
   return (
-    <div className="flex-1 bg-[#0C1B2A] min-h-screen overflow-auto">
+    <div className="flex-1 min-h-screen overflow-auto">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="sticky top-0 z-30 border-b border-white/10 bg-[#0C1B2A]/95 backdrop-blur-sm"
+        className="sticky top-0 z-30 border-b border-[#222] bg-[#0a0a0a]/95 backdrop-blur-sm"
       >
         <div className="px-8 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold text-white">Daily Field Reports</h1>
-              <p className="text-gray-400 text-sm mt-1">
+              <h1 className="text-3xl font-bold text-text1">Daily Field Reports</h1>
+              <p className="text-text2 text-sm mt-1">
                 Track crew work, materials, and safety incidents
               </p>
             </div>
@@ -300,7 +300,7 @@ export default function DailyReportsPage() {
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleCreateNew}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-green-dim border border-green-bdr text-green rounded-lg hover:bg-green-dim transition-colors"
             >
               <Plus size={18} />
               <span className="font-medium">New Report</span>
@@ -354,35 +354,35 @@ export default function DailyReportsPage() {
           variants={itemVariants}
           initial="hidden"
           animate="visible"
-          className="bg-white/5 border border-white/10 rounded-xl p-6 mb-8 backdrop-blur-sm"
+          className="bg-[#111] border border-[#222] rounded-xl p-6 mb-8 backdrop-blur-sm"
         >
-          <h3 className="text-sm font-semibold text-white mb-4">Filters</h3>
+          <h3 className="text-sm font-semibold text-text1 mb-4">Filters</h3>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <input
               type="text"
               placeholder="Community"
               value={communityFilter}
               onChange={(e) => setCommunityFilter(e.target.value)}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 placeholder-text3 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
             />
             <input
               type="date"
               value={dateFromFilter}
               onChange={(e) => setDateFromFilter(e.target.value)}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 placeholder-text3 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
             />
             <input
               type="date"
               value={dateToFilter}
               onChange={(e) => setDateToFilter(e.target.value)}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 placeholder-text3 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
             />
             <select
               value={statusFilter}
               onChange={(e) =>
                 setStatusFilter(e.target.value as "all" | "draft" | "submitted")
               }
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
             >
               <option value="all">All Status</option>
               <option value="draft">Draft</option>
@@ -394,18 +394,18 @@ export default function DailyReportsPage() {
         {/* Reports List */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-8 h-8 text-emerald-400 animate-spin" />
+            <Loader2 className="w-8 h-8 text-green animate-spin" />
           </div>
         ) : reports.length === 0 ? (
           <motion.div
             variants={itemVariants}
-            className="bg-white/5 border border-white/10 rounded-xl p-12 text-center backdrop-blur-sm"
+            className="bg-[#111] border border-[#222] rounded-xl p-12 text-center backdrop-blur-sm"
           >
-            <FileText className="w-12 h-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400 mb-4">No reports found</p>
+            <FileText className="w-12 h-12 text-text3 mx-auto mb-4" />
+            <p className="text-text2 mb-4">No reports found</p>
             <button
               onClick={handleCreateNew}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors"
+              className="inline-flex items-center gap-2 px-4 py-2 bg-green-dim border border-green-bdr text-green rounded-lg hover:bg-green-dim transition-colors"
             >
               <Plus size={16} />
               Create your first report
@@ -424,7 +424,7 @@ export default function DailyReportsPage() {
                 <motion.div
                   key={report.id}
                   variants={itemVariants}
-                  className="bg-white/5 border border-white/10 rounded-xl overflow-hidden backdrop-blur-sm hover:bg-white/[0.07] transition-colors"
+                  className="bg-[#111] border border-[#222] rounded-xl overflow-hidden backdrop-blur-sm hover:bg-surface transition-colors"
                 >
                   {/* Card Header - Always Visible */}
                   <button
@@ -436,15 +436,15 @@ export default function DailyReportsPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start mb-4">
                       <div>
                         <div className="flex items-center gap-3 mb-3">
-                          <Calendar size={16} className="text-emerald-400" />
-                          <span className="font-semibold text-white">
+                          <Calendar size={16} className="text-green" />
+                          <span className="font-semibold text-text1">
                             {formatDate(report.report_date)}
                           </span>
                           <span
                             className={`px-2 py-1 text-xs font-medium rounded-full ${
                               report.status === "submitted"
-                                ? "bg-green-500/20 text-green-400"
-                                : "bg-amber-500/20 text-amber-400"
+                                ? "bg-green-dim text-green"
+                                : "bg-amber-dim text-amber"
                             }`}
                           >
                             {report.status === "submitted"
@@ -453,13 +453,13 @@ export default function DailyReportsPage() {
                           </span>
                         </div>
                         <div className="space-y-2">
-                          <p className="text-sm text-gray-300">
-                            <span className="text-gray-400">Community:</span>{" "}
+                          <p className="text-sm text-text2">
+                            <span className="text-text3">Community:</span>{" "}
                             {report.community}
                           </p>
                           {report.lot_number && (
-                            <p className="text-sm text-gray-300">
-                              <span className="text-gray-400">Lot:</span>{" "}
+                            <p className="text-sm text-text2">
+                              <span className="text-text3">Lot:</span>{" "}
                               {report.lot_number}
                             </p>
                           )}
@@ -469,16 +469,16 @@ export default function DailyReportsPage() {
                       <div className="space-y-3">
                         {report.phase && (
                           <div className="flex items-center gap-2">
-                            <Construction size={16} className="text-emerald-400" />
-                            <span className="text-sm text-gray-300">
+                            <Construction size={16} className="text-green" />
+                            <span className="text-sm text-text2">
                               {report.phase}
                             </span>
                           </div>
                         )}
                         {report.crew_size !== null && (
                           <div className="flex items-center gap-2">
-                            <Users size={16} className="text-emerald-400" />
-                            <span className="text-sm text-gray-300">
+                            <Users size={16} className="text-green" />
+                            <span className="text-sm text-text2">
                               {report.crew_size} crew,{" "}
                               {report.crew_hours?.toFixed(1)} hours
                             </span>
@@ -487,7 +487,7 @@ export default function DailyReportsPage() {
                         {report.weather && (
                           <div className="flex items-center gap-2">
                             {getWeatherIcon(report.weather)}
-                            <span className="text-sm text-gray-300">
+                            <span className="text-sm text-text2">
                               {report.weather}
                               {report.temperature_high &&
                                 ` / ${report.temperature_high}°F`}
@@ -500,17 +500,17 @@ export default function DailyReportsPage() {
                     {/* Warning Badges */}
                     <div className="flex items-center gap-2 flex-wrap">
                       {report.work_delayed && (
-                        <span className="px-2 py-1 text-xs font-medium bg-amber-500/20 text-amber-400 rounded-full">
+                        <span className="px-2 py-1 text-xs font-medium bg-amber-dim text-amber rounded-full">
                           Work Delayed
                         </span>
                       )}
                       {report.safety_incidents && (
-                        <span className="px-2 py-1 text-xs font-medium bg-red-500/20 text-red-400 rounded-full">
+                        <span className="px-2 py-1 text-xs font-medium bg-red-dim text-red rounded-full">
                           Safety Incident
                         </span>
                       )}
                       {report.work_performed && (
-                        <span className="text-xs text-gray-400">
+                        <span className="text-xs text-text3">
                           {report.work_performed.substring(0, 50)}
                           {report.work_performed.length > 50 ? "..." : ""}
                         </span>
@@ -524,7 +524,7 @@ export default function DailyReportsPage() {
                     >
                       <ChevronDown
                         size={18}
-                        className="text-gray-500 transition-transform"
+                        className="text-text3 transition-transform"
                       />
                     </motion.div>
                   </button>
@@ -537,24 +537,24 @@ export default function DailyReportsPage() {
                         animate={{ opacity: 1, height: "auto" }}
                         exit={{ opacity: 0, height: 0 }}
                         transition={{ duration: 0.2 }}
-                        className="border-t border-white/10 bg-white/[0.02] px-6 py-4"
+                        className="border-t border-[#222] bg-surface px-6 py-4"
                       >
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
                           {report.work_performed && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Work Performed
                               </h4>
-                              <p className="text-gray-300">{report.work_performed}</p>
+                              <p className="text-text2">{report.work_performed}</p>
                             </div>
                           )}
                           {(report.units_completed !== null ||
                             report.percent_complete !== null) && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Progress
                               </h4>
-                              <p className="text-gray-300">
+                              <p className="text-text2">
                                 {report.units_completed} units{" "}
                                 {report.percent_complete
                                   ? `(${report.percent_complete}%)`
@@ -564,44 +564,44 @@ export default function DailyReportsPage() {
                           )}
                           {report.issues_noted && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Issues Noted
                               </h4>
-                              <p className="text-gray-300">{report.issues_noted}</p>
+                              <p className="text-text2">{report.issues_noted}</p>
                             </div>
                           )}
                           {report.work_delayed && report.delay_reason && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Delay Reason
                               </h4>
-                              <p className="text-gray-300">{report.delay_reason}</p>
+                              <p className="text-text2">{report.delay_reason}</p>
                             </div>
                           )}
                           {report.safety_incidents && report.safety_notes && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Safety Notes
                               </h4>
-                              <p className="text-gray-300">{report.safety_notes}</p>
+                              <p className="text-text2">{report.safety_notes}</p>
                             </div>
                           )}
                           {report.materials_needed && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Materials Needed
                               </h4>
-                              <p className="text-gray-300">
+                              <p className="text-text2">
                                 {report.materials_needed}
                               </p>
                             </div>
                           )}
                           {report.materials_delivered && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Materials Delivered
                               </h4>
-                              <p className="text-gray-300">
+                              <p className="text-text2">
                                 {report.materials_delivered}
                               </p>
                             </div>
@@ -609,10 +609,10 @@ export default function DailyReportsPage() {
                           {(report.inspections_passed !== null ||
                             report.inspections_failed !== null) && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Inspections
                               </h4>
-                              <p className="text-gray-300">
+                              <p className="text-text2">
                                 Passed: {report.inspections_passed || 0}, Failed:{" "}
                                 {report.inspections_failed || 0}
                               </p>
@@ -620,36 +620,36 @@ export default function DailyReportsPage() {
                           )}
                           {report.rework_needed && (
                             <div>
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Rework Needed
                               </h4>
-                              <p className="text-gray-300">{report.rework_needed}</p>
+                              <p className="text-text2">{report.rework_needed}</p>
                             </div>
                           )}
                           {report.notes && (
                             <div className="md:col-span-2">
-                              <h4 className="text-xs font-semibold text-gray-400 uppercase mb-2">
+                              <h4 className="text-xs font-semibold text-text3 uppercase mb-2">
                                 Notes
                               </h4>
-                              <p className="text-gray-300">{report.notes}</p>
+                              <p className="text-text2">{report.notes}</p>
                             </div>
                           )}
                         </div>
 
                         {/* Action Buttons */}
-                        <div className="mt-6 flex items-center gap-2 pt-4 border-t border-white/10">
+                        <div className="mt-6 flex items-center gap-2 pt-4 border-t border-[#222]">
                           {report.status === "draft" && (
                             <>
                               <button
                                 onClick={() => handleEdit(report)}
-                                className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors"
+                                className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-green-dim text-green hover:bg-green-dim transition-colors"
                               >
                                 <Edit2 size={14} />
                                 Edit
                               </button>
                               <button
                                 onClick={() => handleDelete(report.id)}
-                                className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                                className="flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-lg bg-red-dim text-red hover:bg-red-dim transition-colors"
                               >
                                 <Trash2 size={14} />
                                 Delete
@@ -739,18 +739,18 @@ function DailyReportModal({
         exit={{ x: 400, opacity: 0 }}
         transition={{ type: "spring", damping: 25, stiffness: 200 }}
         onClick={(e) => e.stopPropagation()}
-        className="absolute right-0 top-0 h-screen w-full max-w-2xl bg-[#0C1B2A] border-l border-white/10 flex flex-col overflow-y-auto"
+        className="absolute right-0 top-0 h-screen w-full max-w-2xl bg-[#0a0a0a] border-l border-[#222] flex flex-col overflow-y-auto"
       >
         {/* Header */}
-        <div className="sticky top-0 z-50 border-b border-white/10 bg-[#0C1B2A]/95 backdrop-blur-sm px-6 py-4 flex items-center justify-between">
-          <h2 className="text-xl font-bold text-white">
+        <div className="sticky top-0 z-50 border-b border-[#222] bg-[#0a0a0a]/95 backdrop-blur-sm px-6 py-4 flex items-center justify-between">
+          <h2 className="text-xl font-bold text-text1">
             {report ? "Edit Report" : "Create Report"}
           </h2>
           <button
             onClick={onClose}
-            className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+            className="p-1 hover:bg-[#1a1a1a] rounded-lg transition-colors"
           >
-            <X size={20} className="text-gray-400" />
+            <X size={20} className="text-text2" />
           </button>
         </div>
 
@@ -759,7 +759,7 @@ function DailyReportModal({
           {/* Date & Community */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Date
               </label>
               <input
@@ -768,11 +768,11 @@ function DailyReportModal({
                 onChange={(e) =>
                   onFormChange({ ...formData, report_date: e.target.value })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Community
               </label>
               <input
@@ -781,7 +781,7 @@ function DailyReportModal({
                 onChange={(e) =>
                   onFormChange({ ...formData, community: e.target.value })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
                 placeholder="e.g., Sunset Valley"
               />
             </div>
@@ -789,7 +789,7 @@ function DailyReportModal({
 
           {/* Lot Number */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-text2 mb-2">
               Lot Number (Optional)
             </label>
             <input
@@ -798,14 +798,14 @@ function DailyReportModal({
               onChange={(e) =>
                 onFormChange({ ...formData, lot_number: e.target.value })
               }
-              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
               placeholder="e.g., LOT-001"
             />
           </div>
 
           {/* Phase */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-text2 mb-2">
               Phase
             </label>
             <select
@@ -813,7 +813,7 @@ function DailyReportModal({
               onChange={(e) =>
                 onFormChange({ ...formData, phase: e.target.value })
               }
-              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+              className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
             >
               <option value="">Select phase</option>
               <option value="Drywall Hang">Drywall Hang</option>
@@ -829,7 +829,7 @@ function DailyReportModal({
 
           {/* Work Performed */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-text2 mb-2">
               Work Performed
             </label>
             <textarea
@@ -837,7 +837,7 @@ function DailyReportModal({
               onChange={(e) =>
                 onFormChange({ ...formData, work_performed: e.target.value })
               }
-              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-h-[80px] resize-none"
+              className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 min-h-[80px] resize-none"
               placeholder="Describe work completed today..."
             />
           </div>
@@ -845,7 +845,7 @@ function DailyReportModal({
           {/* Crew Info */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Crew Size
               </label>
               <input
@@ -857,12 +857,12 @@ function DailyReportModal({
                     crew_size: e.target.value ? parseInt(e.target.value) : undefined,
                   })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
                 placeholder="0"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Crew Hours
               </label>
               <input
@@ -875,7 +875,7 @@ function DailyReportModal({
                     crew_hours: e.target.value ? parseFloat(e.target.value) : undefined,
                   })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
                 placeholder="0"
               />
             </div>
@@ -884,7 +884,7 @@ function DailyReportModal({
           {/* Progress */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Units Completed
               </label>
               <input
@@ -898,12 +898,12 @@ function DailyReportModal({
                       : undefined,
                   })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
                 placeholder="0"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Progress (%)
               </label>
               <div className="flex items-center gap-3">
@@ -918,9 +918,9 @@ function DailyReportModal({
                       percent_complete: parseInt(e.target.value),
                     })
                   }
-                  className="flex-1 accent-emerald-500"
+                  className="flex-1 accent-green"
                 />
-                <span className="text-sm text-gray-300 w-12 text-right">
+                <span className="text-sm text-text2 w-12 text-right">
                   {formData.percent_complete || 0}%
                 </span>
               </div>
@@ -930,7 +930,7 @@ function DailyReportModal({
           {/* Weather */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Weather
               </label>
               <select
@@ -938,7 +938,7 @@ function DailyReportModal({
                 onChange={(e) =>
                   onFormChange({ ...formData, weather: e.target.value })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
               >
                 <option value="">Select weather</option>
                 <option value="Sunny">Sunny</option>
@@ -950,7 +950,7 @@ function DailyReportModal({
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Temperature High (°F)
               </label>
               <input
@@ -964,14 +964,14 @@ function DailyReportModal({
                       : undefined,
                   })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
                 placeholder="72"
               />
             </div>
           </div>
 
           {/* Work Delayed */}
-          <div className="border-t border-white/10 pt-4">
+          <div className="border-t border-[#222] pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -979,9 +979,9 @@ function DailyReportModal({
                 onChange={(e) =>
                   onFormChange({ ...formData, work_delayed: e.target.checked })
                 }
-                className="w-4 h-4 rounded border-white/20 bg-white/5 text-emerald-500 focus:ring-emerald-500/50"
+                className="w-4 h-4 rounded border-[#444] bg-[#111] text-green focus:ring-green/50"
               />
-              <span className="text-sm font-medium text-gray-300">Work Delayed</span>
+              <span className="text-sm font-medium text-text2">Work Delayed</span>
             </label>
             {formData.work_delayed && (
               <textarea
@@ -989,7 +989,7 @@ function DailyReportModal({
                 onChange={(e) =>
                   onFormChange({ ...formData, delay_reason: e.target.value })
                 }
-                className="w-full mt-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none"
+                className="w-full mt-2 px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 resize-none"
                 placeholder="Reason for delay..."
                 rows={3}
               />
@@ -998,7 +998,7 @@ function DailyReportModal({
 
           {/* Issues */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-text2 mb-2">
               Issues Noted
             </label>
             <textarea
@@ -1006,13 +1006,13 @@ function DailyReportModal({
               onChange={(e) =>
                 onFormChange({ ...formData, issues_noted: e.target.value })
               }
-              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-h-[60px] resize-none"
+              className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 min-h-[60px] resize-none"
               placeholder="Any issues or concerns..."
             />
           </div>
 
           {/* Safety */}
-          <div className="border-t border-white/10 pt-4">
+          <div className="border-t border-[#222] pt-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
                 type="checkbox"
@@ -1023,9 +1023,9 @@ function DailyReportModal({
                     safety_incidents: e.target.checked,
                   })
                 }
-                className="w-4 h-4 rounded border-white/20 bg-white/5 text-red-500 focus:ring-red-500/50"
+                className="w-4 h-4 rounded border-[#444] bg-[#111] text-red focus:ring-red/50"
               />
-              <span className="text-sm font-medium text-gray-300">
+              <span className="text-sm font-medium text-text2">
                 Safety Incidents
               </span>
             </label>
@@ -1035,7 +1035,7 @@ function DailyReportModal({
                 onChange={(e) =>
                   onFormChange({ ...formData, safety_notes: e.target.value })
                 }
-                className="w-full mt-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 resize-none"
+                className="w-full mt-2 px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 resize-none"
                 placeholder="Describe the incident..."
                 rows={3}
               />
@@ -1045,7 +1045,7 @@ function DailyReportModal({
           {/* Materials */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Materials Needed
               </label>
               <textarea
@@ -1053,12 +1053,12 @@ function DailyReportModal({
                 onChange={(e) =>
                   onFormChange({ ...formData, materials_needed: e.target.value })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-h-[60px] resize-none"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 min-h-[60px] resize-none"
                 placeholder="List materials..."
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Materials Delivered
               </label>
               <textarea
@@ -1069,7 +1069,7 @@ function DailyReportModal({
                     materials_delivered: e.target.value,
                   })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-h-[60px] resize-none"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 min-h-[60px] resize-none"
                 placeholder="List delivered..."
               />
             </div>
@@ -1078,7 +1078,7 @@ function DailyReportModal({
           {/* Inspections */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Inspections Passed
               </label>
               <input
@@ -1092,12 +1092,12 @@ function DailyReportModal({
                       : undefined,
                   })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
                 placeholder="0"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label className="block text-sm font-medium text-text2 mb-2">
                 Inspections Failed
               </label>
               <input
@@ -1111,7 +1111,7 @@ function DailyReportModal({
                       : undefined,
                   })
                 }
-                className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50"
+                className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50"
                 placeholder="0"
               />
             </div>
@@ -1119,7 +1119,7 @@ function DailyReportModal({
 
           {/* Rework */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-text2 mb-2">
               Rework Needed
             </label>
             <textarea
@@ -1127,30 +1127,30 @@ function DailyReportModal({
               onChange={(e) =>
                 onFormChange({ ...formData, rework_needed: e.target.value })
               }
-              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-h-[60px] resize-none"
+              className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 min-h-[60px] resize-none"
               placeholder="Any rework needed..."
             />
           </div>
 
           {/* Notes */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label className="block text-sm font-medium text-text2 mb-2">
               General Notes
             </label>
             <textarea
               value={formData.notes || ""}
               onChange={(e) => onFormChange({ ...formData, notes: e.target.value })}
-              className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/50 min-h-[60px] resize-none"
+              className="w-full px-3 py-2 bg-[#111] border border-[#222] rounded-lg text-text1 text-sm focus:outline-none focus:ring-2 focus:ring-green/50 min-h-[60px] resize-none"
               placeholder="Additional notes..."
             />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="sticky bottom-0 border-t border-white/10 bg-[#0C1B2A]/95 backdrop-blur-sm px-6 py-4 flex items-center justify-between gap-3">
+        <div className="sticky bottom-0 border-t border-[#222] bg-[#0a0a0a]/95 backdrop-blur-sm px-6 py-4 flex items-center justify-between gap-3">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white transition-colors"
+            className="px-4 py-2 text-sm font-medium text-text2 hover:text-text1 transition-colors"
           >
             Cancel
           </button>
@@ -1160,7 +1160,7 @@ function DailyReportModal({
               whileTap={{ scale: 0.98 }}
               onClick={handleSaveDraft}
               disabled={submitting}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 border border-emerald-500/50 text-emerald-400 rounded-lg hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 px-4 py-2 bg-green-dim border border-green-bdr text-green rounded-lg hover:bg-green-dim transition-colors disabled:opacity-50"
             >
               {submitting ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -1174,7 +1174,7 @@ function DailyReportModal({
               whileTap={{ scale: 0.98 }}
               onClick={handleSubmit}
               disabled={submitting}
-              className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-colors disabled:opacity-50 font-medium"
+              className="flex items-center gap-2 px-4 py-2 bg-green text-text1 rounded-lg hover:bg-green transition-colors disabled:opacity-50 font-medium"
             >
               {submitting ? (
                 <Loader2 size={16} className="animate-spin" />
