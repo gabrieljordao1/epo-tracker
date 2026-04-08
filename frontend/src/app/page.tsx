@@ -230,7 +230,13 @@ export default function Dashboard() {
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       >
         <div>
-          <h1 className="text-3xl font-semibold mb-2 text-text1">Dashboard</h1>
+          <h1 className="text-3xl font-semibold mb-2 text-text1">
+            {(() => {
+              const hour = new Date().getHours();
+              const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+              return `${greeting}${activeUser ? `, ${activeUser.full_name.split(" ")[0]}` : ""}`;
+            })()}
+          </h1>
           <AnimatePresence mode="wait">
             <motion.p
               key={activeUser?.id || "all"}

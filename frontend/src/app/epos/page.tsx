@@ -12,6 +12,7 @@ import {
   ExternalLink,
   Loader2,
   Mail,
+  Inbox,
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { AddEPOModal } from "@/components/AddEPOModal";
@@ -464,8 +465,27 @@ export default function EPOsPage() {
           </tbody>
         </table>
         {filteredEpos.length === 0 && (
-          <div className="px-6 py-12 text-center">
-            <p className="text-text3">No EPOs found</p>
+          <div className="px-6 py-16 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface flex items-center justify-center">
+              <Inbox size={24} className="text-text3" />
+            </div>
+            <p className="text-text1 font-medium mb-1">No EPOs found</p>
+            <p className="text-text3 text-sm mb-4">
+              {filter !== "all"
+                ? `No ${filter} EPOs match your search.`
+                : search
+                ? "Try a different search term."
+                : "EPOs will appear here as emails come in, or add one manually."}
+            </p>
+            {epos.length === 0 && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="btn-primary text-sm inline-flex items-center gap-2"
+              >
+                <Plus size={16} />
+                Add Your First EPO
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -549,8 +569,25 @@ export default function EPOsPage() {
           </div>
         ))}
         {filteredEpos.length === 0 && (
-          <div className="py-12 text-center">
-            <p className="text-text3">No EPOs found</p>
+          <div className="py-16 text-center">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-surface flex items-center justify-center">
+              <Inbox size={24} className="text-text3" />
+            </div>
+            <p className="text-text1 font-medium mb-1">No EPOs found</p>
+            <p className="text-text3 text-sm mb-4">
+              {filter !== "all"
+                ? `No ${filter} EPOs.`
+                : "EPOs will appear here as emails arrive."}
+            </p>
+            {epos.length === 0 && (
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="btn-primary text-sm inline-flex items-center gap-2"
+              >
+                <Plus size={16} />
+                Add EPO
+              </button>
+            )}
           </div>
         )}
       </div>
