@@ -109,7 +109,7 @@ export default function BuildersPage() {
   );
   const fastestResponse = builders.reduce(
     (min, b) =>
-      b.avg_response_days < min.avg_response_days ? b : min,
+      (b.avg_response_days ?? Infinity) < (min.avg_response_days ?? Infinity) ? b : min,
     builders[0] || { vendor_name: "—", avg_response_days: 0 }
   );
   const highestValue = builders.reduce(
@@ -118,39 +118,44 @@ export default function BuildersPage() {
   );
 
   // Helper functions for formatting
-  const formatCurrency = (value: number) => {
-    if (value >= 1000000) {
-      return `$${(value / 1000000).toFixed(1)}M`;
+  const formatCurrency = (value: number | null | undefined) => {
+    const v = value ?? 0;
+    if (v >= 1000000) {
+      return `$${(v / 1000000).toFixed(1)}M`;
     }
-    if (value >= 1000) {
-      return `$${(value / 1000).toFixed(0)}K`;
+    if (v >= 1000) {
+      return `$${(v / 1000).toFixed(0)}K`;
     }
-    return `$${value}`;
+    return `$${v}`;
   };
 
-  const formatPercentage = (value: number) => `${value.toFixed(1)}%`;
+  const formatPercentage = (value: number | null | undefined) => `${(value ?? 0).toFixed(1)}%`;
 
-  const getCaptureRateColor = (rate: number) => {
-    if (rate > 70) return "text-emerald-400";
-    if (rate > 40) return "text-yellow-400";
+  const getCaptureRateColor = (rate: number | null | undefined) => {
+    const r = rate ?? 0;
+    if (r > 70) return "text-emerald-400";
+    if (r > 40) return "text-yellow-400";
     return "text-red-400";
   };
 
-  const getCaptureRateBgColor = (rate: number) => {
-    if (rate > 70) return "bg-emerald-500/20 border-emerald-500/30";
-    if (rate > 40) return "bg-yellow-500/20 border-yellow-500/30";
+  const getCaptureRateBgColor = (rate: number | null | undefined) => {
+    const r = rate ?? 0;
+    if (r > 70) return "bg-emerald-500/20 border-emerald-500/30";
+    if (r > 40) return "bg-yellow-500/20 border-yellow-500/30";
     return "bg-red-500/20 border-red-500/30";
   };
 
-  const getResponseTimeColor = (days: number) => {
-    if (days < 3) return "text-emerald-400";
-    if (days < 7) return "text-yellow-400";
+  const getResponseTimeColor = (days: number | null | undefined) => {
+    const d = days ?? 0;
+    if (d < 3) return "text-emerald-400";
+    if (d < 7) return "text-yellow-400";
     return "text-red-400";
   };
 
-  const getResponseTimeBgColor = (days: number) => {
-    if (days < 3) return "bg-emerald-500/20 border-emerald-500/30";
-    if (days < 7) return "bg-yellow-500/20 border-yellow-500/30";
+  const getResponseTimeBgColor = (days: number | null | undefined) => {
+    const d = days ?? 0;
+    if (d < 3) return "bg-emerald-500/20 border-emerald-500/30";
+    if (d < 7) return "bg-yellow-500/20 border-yellow-500/30";
     return "bg-red-500/20 border-red-500/30";
   };
 
@@ -166,15 +171,15 @@ export default function BuildersPage() {
       return;
     }
 
-    // Simulate fetching per-status breakdown
-    // In a real app, this would come from an API call
-    if (!expandedDetails[builderName]) {
+    // Use real data from the builder scorecard
+    const builder = builders.find(b => b.vendor_name === builderName);
+    if (builder && !expandedDetails[builderName]) {
       setExpandedDetails((prev) => ({
         ...prev,
         [builderName]: {
-          confirmed: Math.floor(Math.random() * 100),
-          denied: Math.floor(Math.random() * 50),
-          pending: Math.floor(Math.random() * 30),
+          confirmed: builder.confirmed_count || 0,
+          denied: builder.denied_count || 0,
+          pending: builder.pending_count || 0,
         },
       }));
     }
@@ -327,7 +332,7 @@ export default function BuildersPage() {
                   {fastestResponse.vendor_name}
                 </p>
                 <p className="text-emerald-400 text-sm font-medium">
-                  {fastestResponse.avg_response_days.toFixed(1)}d avg
+                  {(fastestResponse.avg_response_days ?? 0).toFixed(1)}d avg
                 </p>
               </div>
             )}
@@ -525,7 +530,7 @@ export default function BuildersPage() {
                                   builder.avg_response_days
                                 )}`}
                               >
-                                {builder.avg_response_days.toFixed(1)}d
+                                {(builder.avg_response_days ?? 0).toFixed(1)}d
                               </span>
                             </div>
                           </div>
@@ -652,7 +657,7 @@ export default function BuildersPage() {
                         Avg Days Open
                       </p>
                       <p className="text-yellow-400 font-semibold">
-                        {community.avg_days_open.toFixed(1)}d
+                        {(community.avg_days_open ?? 0).toFixed(1)}d
                       </p>
                     </div>
                   </div>
@@ -703,14 +708,14 @@ export default function BuildersPage() {
                       labelStyle={{ color: "white" }}
                     />
                     <Bar
-                      dataKey="confirmed"
+                      dataKey="confirmed_count"
                       fill="#10B981"
                       name="Confirmed"
                       stackId="a"
-                      radius={[8, 8, 0, 0]}
+                      radius={[0, 0, 0, 0]}
                     />
                     <Bar
-                      dataKey="denied"
+                      dataKey="denied_count"
                       fill="#EF4444"
                       name="Denied"
                       stackId="a"
