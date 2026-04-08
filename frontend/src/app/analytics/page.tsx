@@ -407,7 +407,7 @@ export default function AnalyticsPage() {
                   cy="50%"
                   labelLine={true}
                   label={({ name, value, percent }) =>
-                    `${name}: ${value} (${(percent * 100).toFixed(0)}%)`
+                    `${name}: ${value} (${((percent ?? 0) * 100).toFixed(0)}%)`
                   }
                   outerRadius={90}
                   innerRadius={40}
