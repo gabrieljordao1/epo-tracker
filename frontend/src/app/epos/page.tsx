@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getEPOs, getStats, sendFollowup, downloadCSV, batchFollowup } from "@/lib/api";
+import { getEPOs, getStats, sendFollowup, downloadCSV, batchFollowup, updateEPO } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
 import {
   AlertCircle,
@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { AddEPOModal } from "@/components/AddEPOModal";
+import { EPODetailDrawer } from "@/components/EPODetailDrawer";
 import { useRouter } from "next/navigation";
 
 export default function EPOsPage() {
@@ -38,6 +39,10 @@ export default function EPOsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [hasGmailConnected, setHasGmailConnected] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(true);
+  const [selectedEPO, setSelectedEPO] = useState<EPO | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const loadData = async () => {
     try {
@@ -124,6 +129,40 @@ export default function EPOsPage() {
       // Export failed
     } finally {
       setExporting(false);
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filteredEpos.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredEpos.map((e) => e.id)));
+    }
+  };
+
+  const handleBulkStatus = async (newStatus: string) => {
+    setBulkUpdating(true);
+    try {
+      await Promise.all(
+        Array.from(selectedIds).map((id) =>
+          updateEPO(id, { status: newStatus } as any)
+        )
+      );
+      setSelectedIds(new Set());
+      loadData();
+    } catch (err) {
+      console.error("Bulk update failed:", err);
+    } finally {
+      setBulkUpdating(false);
     }
   };
 
@@ -258,6 +297,45 @@ export default function EPOsPage() {
         />
       </div>
 
+      {/* Bulk Action Bar */}
+      {selectedIds.size > 0 && (
+        <div className="card p-3 bg-blue/5 border-blue/20 flex items-center gap-3 flex-wrap">
+          <span className="text-sm text-text1 font-medium">
+            {selectedIds.size} selected
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleBulkStatus("confirmed")}
+              disabled={bulkUpdating}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 hover:bg-emerald-400/20 transition-colors"
+            >
+              <CheckCircle size={12} className="inline mr-1" />
+              Confirm
+            </button>
+            <button
+              onClick={() => handleBulkStatus("denied")}
+              disabled={bulkUpdating}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-400/10 text-red-400 border border-red-400/30 hover:bg-red-400/20 transition-colors"
+            >
+              Deny
+            </button>
+            <button
+              onClick={() => handleBulkStatus("discount")}
+              disabled={bulkUpdating}
+              className="px-3 py-1.5 text-xs font-medium rounded-lg bg-purple-400/10 text-purple-400 border border-purple-400/30 hover:bg-purple-400/20 transition-colors"
+            >
+              Discount
+            </button>
+          </div>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="ml-auto text-xs text-text3 hover:text-text1 transition-colors"
+          >
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Desktop Table — hidden on mobile */}
       {loading ? (
         <div className="card overflow-hidden hidden md:block">
@@ -279,6 +357,14 @@ export default function EPOsPage() {
         <table className="w-full">
           <thead className="border-b border-card-border">
             <tr>
+              <th className="px-3 py-4 w-10">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.size === filteredEpos.length && filteredEpos.length > 0}
+                  onChange={toggleSelectAll}
+                  className="w-4 h-4 rounded border-card-border bg-surface accent-emerald-500"
+                />
+              </th>
               <th className="px-6 py-4 text-left label">Builder</th>
               <th className="px-6 py-4 text-left label">Community</th>
               <th className="px-6 py-4 text-left label">Lot</th>
@@ -293,8 +379,17 @@ export default function EPOsPage() {
             {filteredEpos.map((epo) => (
               <tr
                 key={epo.id}
-                className="border-b border-card-border hover:bg-surface/50 transition-colors"
+                className="border-b border-card-border hover:bg-surface/50 transition-colors cursor-pointer"
+                onClick={() => { setSelectedEPO(epo); setDrawerOpen(true); }}
               >
+                <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(epo.id)}
+                    onChange={() => toggleSelect(epo.id)}
+                    className="w-4 h-4 rounded border-card-border bg-surface accent-emerald-500"
+                  />
+                </td>
                 <td className="px-6 py-4 text-text1">{epo.vendor_name}</td>
                 <td className="px-6 py-4 text-text1">{epo.community}</td>
                 <td className="px-6 py-4">
@@ -396,7 +491,7 @@ export default function EPOsPage() {
       ) : (
       <div className="md:hidden space-y-3">
         {filteredEpos.map((epo) => (
-          <div key={epo.id} className="card p-4 space-y-3">
+          <div key={epo.id} className="card p-4 space-y-3 cursor-pointer" onClick={() => { setSelectedEPO(epo); setDrawerOpen(true); }}>
             {/* Top row: builder + status */}
             <div className="flex items-start justify-between">
               <div>
@@ -466,6 +561,14 @@ export default function EPOsPage() {
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
         onCreated={() => loadData()}
+      />
+
+      {/* EPO Detail Drawer */}
+      <EPODetailDrawer
+        epo={selectedEPO}
+        open={drawerOpen}
+        onClose={() => { setDrawerOpen(false); setSelectedEPO(null); }}
+        onUpdated={() => { loadData(); }}
       />
 
       {/* Follow-up Alert with Batch Action */}

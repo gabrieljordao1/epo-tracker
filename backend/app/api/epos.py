@@ -262,6 +262,7 @@ async def get_dashboard_stats(
             func.count(case((EPO.needs_review.is_(True), 1))).label("needs_review_count"),
             func.avg(EPO.amount).label("average_amount"),
             func.sum(EPO.amount).label("total_amount"),
+            func.avg(EPO.days_open).label("avg_days_open"),
         ).where(and_(*scope_filters))
 
         stats_result = await session.execute(stats_query)
@@ -275,6 +276,7 @@ async def get_dashboard_stats(
         needs_review_count = row.needs_review_count or 0
         average_amount = row.average_amount
         total_amount = row.total_amount
+        avg_days_open = row.avg_days_open
 
         stats = EPOStats(
             total_epos=total_epos,
@@ -285,6 +287,7 @@ async def get_dashboard_stats(
             needs_review_count=needs_review_count,
             average_amount=average_amount,
             total_amount=total_amount,
+            avg_days_open=avg_days_open,
         )
 
         # Get recent EPOs

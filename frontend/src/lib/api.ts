@@ -155,6 +155,7 @@ export interface Stats {
   capture_rate: number;
   needs_followup: number;
   avg_amount: number;
+  avg_days_open: number;
 }
 
 export interface User {
@@ -357,6 +358,7 @@ export async function getStats(supervisorId?: number): Promise<Stats> {
     capture_rate: s.total_epos ? Math.round((s.confirmed_count / s.total_epos) * 100) : 0,
     needs_followup: s.needs_review_count || s.needs_followup || 0,
     avg_amount: s.average_amount || s.avg_amount || 0,
+    avg_days_open: s.avg_days_open || 0,
   };
 }
 

@@ -195,6 +195,7 @@ class EPOStats(BaseModel):
     needs_review_count: int
     average_amount: Optional[float]
     total_amount: Optional[float]
+    avg_days_open: Optional[float] = None
 
 
 class DashboardStats(BaseModel):

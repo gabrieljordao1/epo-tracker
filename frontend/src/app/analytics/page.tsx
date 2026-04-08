@@ -291,8 +291,8 @@ export default function AnalyticsPage() {
     );
   }
 
-  const avgResponseDays = stats?.avg_amount
-    ? Math.round(stats.avg_amount / 100)
+  const avgResponseDays = stats?.avg_days_open
+    ? Math.round(stats.avg_days_open)
     : 0;
 
   return (
@@ -356,7 +356,7 @@ export default function AnalyticsPage() {
               <p className="text-text3 text-sm mb-1">Avg Response Time</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-3xl font-bold text-amber-400">
-                  {stats?.avg_amount ? Math.round(stats.avg_amount) : 0}
+                  {avgResponseDays}
                 </span>
                 <span className="text-sm text-text3">days</span>
               </div>
