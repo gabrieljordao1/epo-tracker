@@ -519,3 +519,32 @@ class PunchItem(Base):
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     completed_by = relationship("User", foreign_keys=[completed_by_id])
     verified_by = relationship("User", foreign_keys=[verified_by_id])
+
+
+class CommunityBudget(Base):
+    """Budget allocation per community — tracks planned vs actual EPO spend"""
+    __tablename__ = "community_budgets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    community = Column(String(255), nullable=False, index=True)
+    budget_amount = Column(Float, nullable=False)  # Total budget for this community
+    period_start = Column(DateTime(timezone=True), nullable=False)
+    period_end = Column(DateTime(timezone=True), nullable=False)
+
+    # Budget breakdown by category (optional)
+    labor_budget = Column(Float, nullable=True)
+    materials_budget = Column(Float, nullable=True)
+    equipment_budget = Column(Float, nullable=True)
+
+    notes = Column(Text, nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    company = relationship("Company")
+    created_by = relationship("User")

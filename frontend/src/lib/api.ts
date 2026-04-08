@@ -1108,3 +1108,123 @@ export async function getPunchByLot(community: string, lot_number: string): Prom
   return res.json();
 }
 
+// ─── Budget Tracking ─────────────────────────────────────────
+export interface CommunityBudget {
+  id: number;
+  company_id: number;
+  community: string;
+  budget_amount: number;
+  period_start: string;
+  period_end: string;
+  labor_budget: number | null;
+  materials_budget: number | null;
+  equipment_budget: number | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  // Computed fields from API
+  actual_spend?: number;
+  remaining?: number;
+  percent_used?: number;
+  epo_count?: number;
+  status?: "on_track" | "warning" | "over_budget" | "exceeded";
+}
+
+export interface BudgetOverview {
+  communities: {
+    community: string;
+    budget_amount: number;
+    actual_spend: number;
+    remaining: number;
+    percent_used: number;
+    epo_count: number;
+    status: "on_track" | "warning" | "over_budget" | "exceeded";
+  }[];
+  unbudgeted: {
+    community: string;
+    actual_spend: number;
+    epo_count: number;
+  }[];
+  totals: {
+    total_budget: number;
+    total_spend: number;
+    total_remaining: number;
+    overall_percent: number;
+  };
+}
+
+export interface BudgetTrendMonth {
+  month: string;
+  budget_portion: number;
+  actual_spend: number;
+  epo_count: number;
+}
+
+export async function getBudgets(community?: string): Promise<CommunityBudget[]> {
+  await ensureTokenValid();
+  const qs = community ? `?community=${encodeURIComponent(community)}` : "";
+  const res = await fetch(`${API_BASE}/api/budgets${qs}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch budgets");
+  return res.json();
+}
+
+export async function getBudget(id: number): Promise<CommunityBudget> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/budgets/${id}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch budget");
+  return res.json();
+}
+
+export async function createBudget(data: Partial<CommunityBudget>): Promise<CommunityBudget> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/budgets`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create budget");
+  return res.json();
+}
+
+export async function updateBudget(id: number, data: Partial<CommunityBudget>): Promise<CommunityBudget> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/budgets/${id}`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update budget");
+  return res.json();
+}
+
+export async function deleteBudget(id: number): Promise<void> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/budgets/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete budget");
+}
+
+export async function getBudgetOverview(): Promise<BudgetOverview> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/budgets/overview`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch budget overview");
+  return res.json();
+}
+
+export async function getBudgetTrends(community: string): Promise<BudgetTrendMonth[]> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/budgets/trends/${encodeURIComponent(community)}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch budget trends");
+  return res.json();
+}
+

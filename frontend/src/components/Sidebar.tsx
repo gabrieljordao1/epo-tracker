@@ -16,6 +16,7 @@ import {
   Activity,
   ClipboardList,
   Hammer,
+  Target,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -50,6 +51,7 @@ export function Sidebar() {
     { href: "/activity", label: "Activity", icon: Activity },
     { href: "/daily-reports", label: "Daily Reports", icon: ClipboardList },
     { href: "/punch-list", label: "Punch List", icon: Hammer },
+    { href: "/budgets", label: "Budgets", icon: Target },
     { href: "/team", label: "Team", icon: Users },
   ];
 

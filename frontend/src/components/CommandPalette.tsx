@@ -20,6 +20,7 @@ import {
   X,
   ClipboardList,
   Hammer,
+  Target,
 } from "lucide-react";
 
 interface CommandItem {
@@ -118,6 +119,16 @@ export function CommandPalette() {
         action: () => router.push("/punch-list"),
         keywords: ["punch", "list", "deficiency", "closeout", "items"],
         shortcut: "G P",
+        category: "navigation",
+      },
+      {
+        id: "nav-budgets",
+        label: "Go to Budgets",
+        description: "Track budget vs actual spend",
+        icon: <Target size={18} />,
+        action: () => router.push("/budgets"),
+        keywords: ["budget", "budgets", "financials", "spend", "tracking"],
+        shortcut: "G U",
         category: "navigation",
       },
       {
