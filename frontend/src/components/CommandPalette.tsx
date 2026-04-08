@@ -18,6 +18,7 @@ import {
   ArrowRight,
   Keyboard,
   X,
+  ClipboardList,
 } from "lucide-react";
 
 interface CommandItem {
@@ -96,6 +97,16 @@ export function CommandPalette() {
         action: () => router.push("/activity"),
         keywords: ["activity", "feed", "log", "events", "timeline"],
         shortcut: "G F",
+        category: "navigation",
+      },
+      {
+        id: "nav-daily-reports",
+        label: "Go to Daily Reports",
+        description: "Field work documentation",
+        icon: <ClipboardList size={18} />,
+        action: () => router.push("/daily-reports"),
+        keywords: ["daily", "reports", "field", "work", "crew"],
+        shortcut: "G R",
         category: "navigation",
       },
       {

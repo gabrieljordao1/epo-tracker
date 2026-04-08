@@ -818,3 +818,129 @@ export async function healthCheck(): Promise<boolean> {
   }
 }
 
+// ─── Daily Reports ───────────────────────────────────────────
+export interface DailyReport {
+  id: number;
+  company_id: number;
+  created_by_id: number;
+  report_date: string;
+  community: string;
+  lot_number: string | null;
+  work_performed: string | null;
+  phase: string | null;
+  units_completed: number | null;
+  percent_complete: number | null;
+  crew_size: number | null;
+  crew_hours: number | null;
+  weather: string | null;
+  temperature_high: number | null;
+  work_delayed: boolean;
+  delay_reason: string | null;
+  issues_noted: string | null;
+  safety_incidents: boolean;
+  safety_notes: string | null;
+  materials_needed: string | null;
+  materials_delivered: string | null;
+  inspections_passed: number | null;
+  inspections_failed: number | null;
+  rework_needed: string | null;
+  status: "draft" | "submitted";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_name?: string;
+}
+
+export interface DailyReportSummary {
+  reports_this_week: number;
+  reports_this_month: number;
+  active_communities: number;
+  total_crew_hours_this_week: number;
+  safety_incidents_this_month: number;
+  avg_crew_size: number;
+  communities_breakdown: { community: string; count: number }[];
+}
+
+export async function getDailyReports(params?: {
+  community?: string;
+  date_from?: string;
+  date_to?: string;
+  status?: string;
+  page?: number;
+  per_page?: number;
+}): Promise<{ reports: DailyReport[]; total: number; page: number; per_page: number }> {
+  await ensureTokenValid();
+  const searchParams = new URLSearchParams();
+  if (params?.community) searchParams.set("community", params.community);
+  if (params?.date_from) searchParams.set("date_from", params.date_from);
+  if (params?.date_to) searchParams.set("date_to", params.date_to);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.per_page) searchParams.set("per_page", String(params.per_page));
+  const qs = searchParams.toString();
+  const res = await fetch(`${API_BASE}/api/daily-reports${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch daily reports");
+  return res.json();
+}
+
+export async function getDailyReport(id: number): Promise<DailyReport> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/daily-reports/${id}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch daily report");
+  return res.json();
+}
+
+export async function createDailyReport(data: Partial<DailyReport>): Promise<DailyReport> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/daily-reports`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create daily report");
+  return res.json();
+}
+
+export async function updateDailyReport(id: number, data: Partial<DailyReport>): Promise<DailyReport> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/daily-reports/${id}`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update daily report");
+  return res.json();
+}
+
+export async function deleteDailyReport(id: number): Promise<void> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/daily-reports/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete daily report");
+}
+
+export async function submitDailyReport(id: number): Promise<DailyReport> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/daily-reports/${id}/submit`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to submit daily report");
+  return res.json();
+}
+
+export async function getDailyReportSummary(): Promise<DailyReportSummary> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/daily-reports/summary`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch summary");
+  return res.json();
+}
+

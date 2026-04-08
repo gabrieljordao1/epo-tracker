@@ -363,3 +363,75 @@ class PasswordResetToken(Base):
 
     # Relationships
     user = relationship("User")
+
+
+class WeatherCondition(str, Enum):
+    """Weather condition for daily reports"""
+    SUNNY = "sunny"
+    CLOUDY = "cloudy"
+    RAINY = "rainy"
+    STORMY = "stormy"
+    SNOWY = "snowy"
+    WINDY = "windy"
+    HOT = "hot"
+    COLD = "cold"
+
+
+class ReportStatus(str, Enum):
+    """Daily report status"""
+    DRAFT = "draft"
+    SUBMITTED = "submitted"
+
+
+class DailyReport(Base):
+    """Daily field report — what happened at a community/lot today"""
+    __tablename__ = "daily_reports"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+
+    report_date = Column(DateTime(timezone=True), nullable=False, index=True)
+    community = Column(String(255), nullable=False, index=True)
+    lot_number = Column(String(255), nullable=True)
+
+    # Work summary
+    work_performed = Column(Text, nullable=True)  # Free-text description
+    phase = Column(String(100), nullable=True)  # e.g., "Drywall Hang", "Texture", "Prime", "Paint", "Touch-up"
+    units_completed = Column(Integer, nullable=True)  # Number of lots/units completed
+    percent_complete = Column(Float, nullable=True)  # Overall phase progress 0-100
+
+    # Crew info
+    crew_size = Column(Integer, nullable=True)
+    crew_hours = Column(Float, nullable=True)  # Total man-hours
+
+    # Conditions
+    weather = Column(SQLEnum(WeatherCondition), nullable=True)
+    temperature_high = Column(Integer, nullable=True)
+    work_delayed = Column(Boolean, default=False, nullable=False)
+    delay_reason = Column(Text, nullable=True)
+
+    # Issues & safety
+    issues_noted = Column(Text, nullable=True)
+    safety_incidents = Column(Boolean, default=False, nullable=False)
+    safety_notes = Column(Text, nullable=True)
+
+    # Materials
+    materials_needed = Column(Text, nullable=True)
+    materials_delivered = Column(Text, nullable=True)
+
+    # Quality
+    inspections_passed = Column(Integer, nullable=True)
+    inspections_failed = Column(Integer, nullable=True)
+    rework_needed = Column(Text, nullable=True)
+
+    # Meta
+    status = Column(SQLEnum(ReportStatus), default=ReportStatus.DRAFT, nullable=False)
+    notes = Column(Text, nullable=True)  # Additional notes
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    company = relationship("Company")
+    created_by = relationship("User")
