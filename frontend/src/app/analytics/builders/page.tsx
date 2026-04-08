@@ -59,15 +59,22 @@ export default function BuildersPage() {
     setLoading(true);
     setError(null);
     try {
-      const [buildersData, communitiesData, trendsData] = await Promise.all([
+      // Use Promise.allSettled so partial failures don't break everything
+      const [buildersResult, communitiesResult, trendsResult] = await Promise.allSettled([
         getBuilderScores(sortBy, days),
         getCommunityScores(days),
-        getTrends(days),
+        getTrends(Math.ceil(days / 7)),  // Convert days to weeks for trends API
       ]);
 
-      setBuilders(buildersData || []);
-      setCommunities(communitiesData || []);
-      setTrends(trendsData || []);
+      if (buildersResult.status === "fulfilled") setBuilders(buildersResult.value || []);
+      if (communitiesResult.status === "fulfilled") setCommunities(communitiesResult.value || []);
+      if (trendsResult.status === "fulfilled") setTrends(trendsResult.value || []);
+
+      // Only show error if ALL requests failed
+      const allFailed = [buildersResult, communitiesResult, trendsResult].every(r => r.status === "rejected");
+      if (allFailed) {
+        setError("Failed to load builder data. Please try again.");
+      }
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to load builder data"
