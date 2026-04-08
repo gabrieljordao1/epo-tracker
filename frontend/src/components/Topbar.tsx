@@ -1,8 +1,10 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { Search, Bell, ChevronDown, Users, Eye } from "lucide-react";
+import { Search, Bell, ChevronDown, Users, Eye, AlertTriangle, CheckCircle2, Mail, Clock, Flame, X } from "lucide-react";
 import { useUser } from "@/lib/user-context";
+import { getEPOs } from "@/lib/api";
+import type { EPO } from "@/lib/api";
 import { CommandPalette } from "@/components/CommandPalette";
 
 export function Topbar() {
@@ -24,6 +26,89 @@ export function Topbar() {
 
   const [notifOpen, setNotifOpen] = useState(false);
   const notifRef = useRef<HTMLDivElement>(null);
+  const [alerts, setAlerts] = useState<{ id: string; type: string; title: string; description: string; icon: any; color: string; time: string }[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+
+  // Build alerts from live EPO data
+  useEffect(() => {
+    const buildAlerts = async () => {
+      try {
+        const epos: EPO[] = await getEPOs();
+        const newAlerts: typeof alerts = [];
+
+        // Overdue EPOs (7+ days pending)
+        const overdue = epos.filter((e) => e.status === "pending" && (e.days_open || 0) >= 7);
+        if (overdue.length > 0) {
+          newAlerts.push({
+            id: "overdue",
+            type: "urgent",
+            title: `${overdue.length} Overdue EPO${overdue.length > 1 ? "s" : ""}`,
+            description: `${overdue.map((e) => `${e.vendor_name} Lot ${e.lot_number}`).slice(0, 2).join(", ")}${overdue.length > 2 ? ` +${overdue.length - 2} more` : ""}`,
+            icon: Flame,
+            color: "text-red-400",
+            time: "Now",
+          });
+        }
+
+        // Needs follow-up (4-6 days)
+        const needsFollowup = epos.filter((e) => e.status === "pending" && (e.days_open || 0) >= 4 && (e.days_open || 0) < 7);
+        if (needsFollowup.length > 0) {
+          newAlerts.push({
+            id: "followup",
+            type: "warning",
+            title: `${needsFollowup.length} Need${needsFollowup.length > 1 ? "" : "s"} Follow-up`,
+            description: `Pending 4+ days without response`,
+            icon: Clock,
+            color: "text-amber-400",
+            time: "Today",
+          });
+        }
+
+        // Recent confirmations (last 24h)
+        const recentConfirmed = epos.filter((e) => {
+          if (e.status !== "confirmed") return false;
+          const updated = new Date(e.created_at);
+          const hoursAgo = (Date.now() - updated.getTime()) / (1000 * 60 * 60);
+          return hoursAgo < 24;
+        });
+        if (recentConfirmed.length > 0) {
+          newAlerts.push({
+            id: "confirmed",
+            type: "success",
+            title: `${recentConfirmed.length} EPO${recentConfirmed.length > 1 ? "s" : ""} Confirmed`,
+            description: `${recentConfirmed.map((e) => e.vendor_name).slice(0, 2).join(", ")} confirmed recently`,
+            icon: CheckCircle2,
+            color: "text-emerald-400",
+            time: "Recently",
+          });
+        }
+
+        // Needs review (AI flagged)
+        const needsReview = epos.filter((e) => e.needs_review);
+        if (needsReview.length > 0) {
+          newAlerts.push({
+            id: "review",
+            type: "info",
+            title: `${needsReview.length} Need${needsReview.length > 1 ? "" : "s"} Review`,
+            description: "AI flagged for manual review",
+            icon: AlertTriangle,
+            color: "text-blue-400",
+            time: "Today",
+          });
+        }
+
+        setAlerts(newAlerts);
+      } catch {
+        // Silently fail
+      }
+    };
+    buildAlerts();
+    const interval = setInterval(buildAlerts, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, []);
+
+  const visibleAlerts = alerts.filter((a) => !dismissedIds.has(a.id));
+  const alertCount = visibleAlerts.filter((a) => a.type === "urgent" || a.type === "warning").length;
 
   useEffect(() => {
     const handleNotifClick = (e: MouseEvent) => {
@@ -137,18 +222,65 @@ export function Topbar() {
             className="relative text-text2 hover:text-text1 transition-colors"
           >
             <Bell size={20} />
+            {alertCount > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[10px] font-bold text-white flex items-center justify-center">
+                {alertCount}
+              </span>
+            )}
           </button>
 
           {notifOpen && (
-            <div className="absolute right-0 top-full mt-2 w-72 bg-[#141414] border border-card-border rounded-xl shadow-2xl z-50 overflow-hidden">
-              <div className="px-4 py-3 border-b border-card-border">
+            <div className="absolute right-0 top-full mt-2 w-80 bg-[#141414] border border-card-border rounded-xl shadow-2xl z-50 overflow-hidden">
+              <div className="px-4 py-3 border-b border-card-border flex items-center justify-between">
                 <p className="text-sm font-medium text-text1">Notifications</p>
+                {visibleAlerts.length > 0 && (
+                  <button
+                    onClick={() => setDismissedIds(new Set(alerts.map((a) => a.id)))}
+                    className="text-xs text-text3 hover:text-text1 transition-colors"
+                  >
+                    Clear all
+                  </button>
+                )}
               </div>
-              <div className="px-4 py-8 text-center">
-                <Bell size={24} className="mx-auto mb-2 text-text3" />
-                <p className="text-sm text-text3">No new notifications</p>
-                <p className="text-xs text-text3 mt-1">You&apos;re all caught up!</p>
-              </div>
+              {visibleAlerts.length === 0 ? (
+                <div className="px-4 py-8 text-center">
+                  <Bell size={24} className="mx-auto mb-2 text-text3" />
+                  <p className="text-sm text-text3">All caught up!</p>
+                  <p className="text-xs text-text3 mt-1">No alerts right now</p>
+                </div>
+              ) : (
+                <div className="max-h-[320px] overflow-y-auto">
+                  {visibleAlerts.map((alert) => {
+                    const Icon = alert.icon;
+                    return (
+                      <div
+                        key={alert.id}
+                        className="px-4 py-3 border-b border-card-border/50 hover:bg-surface/50 transition-colors group"
+                      >
+                        <div className="flex items-start gap-3">
+                          <Icon size={16} className={`mt-0.5 shrink-0 ${alert.color}`} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-text1">{alert.title}</p>
+                            <p className="text-xs text-text3 mt-0.5 truncate">{alert.description}</p>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] text-text3">{alert.time}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDismissedIds((prev) => new Set([...prev, alert.id]));
+                              }}
+                              className="opacity-0 group-hover:opacity-100 text-text3 hover:text-text1 transition-all"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>

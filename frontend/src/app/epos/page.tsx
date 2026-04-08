@@ -13,6 +13,9 @@ import {
   Loader2,
   Mail,
   Inbox,
+  Flame,
+  Clock,
+  Filter,
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { AddEPOModal } from "@/components/AddEPOModal";
@@ -44,6 +47,9 @@ export default function EPOsPage() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [communityFilter, setCommunityFilter] = useState<string>("all");
+  const [sortField, setSortField] = useState<"date" | "amount" | "age">("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const loadData = async () => {
     try {
@@ -81,6 +87,13 @@ export default function EPOsPage() {
   useEffect(() => {
     loadData();
   }, [supervisorId]);
+
+  // Listen for command palette "new EPO" event
+  useEffect(() => {
+    const handler = () => setShowAddModal(true);
+    window.addEventListener("open-add-epo", handler);
+    return () => window.removeEventListener("open-add-epo", handler);
+  }, []);
 
   const handleFollowup = async (epoId: number) => {
     setFollowingUp(epoId);
@@ -167,16 +180,30 @@ export default function EPOsPage() {
     }
   };
 
-  const filteredEpos = epos.filter((epo) => {
-    if (filter !== "all" && epo.status !== filter) return false;
-    if (
-      search &&
-      !(epo.vendor_name || "").toLowerCase().includes(search.toLowerCase()) &&
-      !(epo.description || "").toLowerCase().includes(search.toLowerCase())
-    )
-      return false;
-    return true;
-  });
+  // Get unique communities for filter dropdown
+  const communities = Array.from(new Set(epos.map((e) => e.community).filter(Boolean))).sort();
+
+  const filteredEpos = epos
+    .filter((epo) => {
+      if (filter !== "all" && epo.status !== filter) return false;
+      if (communityFilter !== "all" && epo.community !== communityFilter) return false;
+      if (
+        search &&
+        !(epo.vendor_name || "").toLowerCase().includes(search.toLowerCase()) &&
+        !(epo.description || "").toLowerCase().includes(search.toLowerCase()) &&
+        !(epo.community || "").toLowerCase().includes(search.toLowerCase()) &&
+        !(epo.lot_number || "").toLowerCase().includes(search.toLowerCase())
+      )
+        return false;
+      return true;
+    })
+    .sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      if (sortField === "amount") return ((a.amount || 0) - (b.amount || 0)) * dir;
+      if (sortField === "age") return ((a.days_open || 0) - (b.days_open || 0)) * dir;
+      // date (default)
+      return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * dir;
+    });
 
   const counts = {
     all: epos.length,
@@ -205,6 +232,14 @@ export default function EPOsPage() {
     if (age >= 7) return "text-red";
     if (age >= 4) return "text-amber";
     return "text-text2";
+  };
+
+  const getUrgencyBadge = (epo: EPO) => {
+    if (epo.status !== "pending") return null;
+    const age = epo.days_open || 0;
+    if (age >= 7) return { label: "Overdue", color: "bg-red/15 text-red border-red/30", icon: Flame };
+    if (age >= 4) return { label: "Follow up", color: "bg-amber/15 text-amber border-amber/30", icon: Clock };
+    return null;
   };
 
   const needsFollowupCount = epos.filter(
@@ -287,15 +322,28 @@ export default function EPOsPage() {
         </div>
       ) : null}
 
-      {/* Search */}
-      <div className="flex gap-4">
+      {/* Search + Community Filter */}
+      <div className="flex gap-3 flex-wrap">
         <input
           type="text"
-          placeholder="Search builders or description..."
+          placeholder="Search builder, community, lot, or description..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="flex-1 px-4 py-2 bg-surface border border-card-border rounded-lg text-text1 placeholder-text3 focus:outline-none focus:border-border-lt"
+          className="flex-1 min-w-[200px] px-4 py-2 bg-surface border border-card-border rounded-lg text-text1 placeholder-text3 focus:outline-none focus:border-border-lt"
         />
+        <div className="relative">
+          <select
+            value={communityFilter}
+            onChange={(e) => setCommunityFilter(e.target.value)}
+            className="appearance-none px-4 py-2 pr-8 bg-surface border border-card-border rounded-lg text-text2 text-sm focus:outline-none focus:border-border-lt cursor-pointer"
+          >
+            <option value="all">All Communities</option>
+            {communities.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <Filter size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text3 pointer-events-none" />
+        </div>
       </div>
 
       {/* Bulk Action Bar */}
@@ -414,12 +462,23 @@ export default function EPOsPage() {
                     {epo.status.charAt(0).toUpperCase() + epo.status.slice(1)}
                   </span>
                 </td>
-                <td
-                  className={`px-4 py-4 font-mono text-sm ${getAgeColor(
-                    epo.days_open || 0
-                  )}`}
-                >
-                  {epo.days_open || 0}d
+                <td className="px-4 py-4">
+                  <div className="flex items-center gap-2">
+                    <span className={`font-mono text-sm ${getAgeColor(epo.days_open || 0)}`}>
+                      {epo.days_open || 0}d
+                    </span>
+                    {(() => {
+                      const badge = getUrgencyBadge(epo);
+                      if (!badge) return null;
+                      const Icon = badge.icon;
+                      return (
+                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border ${badge.color}`}>
+                          <Icon size={10} />
+                          {badge.label}
+                        </span>
+                      );
+                    })()}
+                  </div>
                 </td>
                 <td className="px-4 py-4">
                   <div className="flex items-center gap-2">
