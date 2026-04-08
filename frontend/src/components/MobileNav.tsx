@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   ClipboardList,
+  Hammer,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -27,6 +28,7 @@ export function MobileNav() {
     { href: "/epos", label: "EPOs", icon: FileText },
     { href: "/analytics", label: "Stats", icon: TrendingUp },
     { href: "/daily-reports", label: "Reports", icon: ClipboardList },
+    { href: "/punch-list", label: "Punch", icon: Hammer },
     { href: "/settings", label: "More", icon: Settings },
   ];
 

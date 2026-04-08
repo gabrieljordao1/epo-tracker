@@ -19,6 +19,7 @@ import {
   Keyboard,
   X,
   ClipboardList,
+  Hammer,
 } from "lucide-react";
 
 interface CommandItem {
@@ -107,6 +108,16 @@ export function CommandPalette() {
         action: () => router.push("/daily-reports"),
         keywords: ["daily", "reports", "field", "work", "crew"],
         shortcut: "G R",
+        category: "navigation",
+      },
+      {
+        id: "nav-punch-list",
+        label: "Go to Punch List",
+        description: "Manage deficiencies & closeout items",
+        icon: <Hammer size={18} />,
+        action: () => router.push("/punch-list"),
+        keywords: ["punch", "list", "deficiency", "closeout", "items"],
+        shortcut: "G P",
         category: "navigation",
       },
       {

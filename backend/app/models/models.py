@@ -435,3 +435,87 @@ class DailyReport(Base):
     # Relationships
     company = relationship("Company")
     created_by = relationship("User")
+
+
+class PunchPriority(str, Enum):
+    """Punch item priority"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class PunchStatus(str, Enum):
+    """Punch item status"""
+    OPEN = "open"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    VERIFIED = "verified"  # Inspected and approved
+    REJECTED = "rejected"  # Fix attempt rejected, needs redo
+
+
+class PunchCategory(str, Enum):
+    """Punch item category for paint/drywall"""
+    DRYWALL_DAMAGE = "drywall_damage"
+    DRYWALL_FINISH = "drywall_finish"
+    PAINT_TOUCH_UP = "paint_touch_up"
+    PAINT_COLOR = "paint_color"
+    TEXTURE_ISSUE = "texture_issue"
+    NAIL_POP = "nail_pop"
+    CRACK = "crack"
+    SCUFF_MARK = "scuff_mark"
+    MISSED_AREA = "missed_area"
+    CAULKING = "caulking"
+    TRIM_ISSUE = "trim_issue"
+    CEILING = "ceiling"
+    MOISTURE_DAMAGE = "moisture_damage"
+    OTHER = "other"
+
+
+class PunchItem(Base):
+    """Punch list item — deficiency that needs fixing before closeout"""
+    __tablename__ = "punch_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    assigned_to_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+
+    community = Column(String(255), nullable=False, index=True)
+    lot_number = Column(String(255), nullable=False, index=True)
+    location = Column(String(255), nullable=True)  # e.g., "Master Bedroom", "Kitchen", "Garage"
+
+    title = Column(String(500), nullable=False)
+    description = Column(Text, nullable=True)
+    category = Column(SQLEnum(PunchCategory), default=PunchCategory.OTHER, nullable=False)
+    priority = Column(SQLEnum(PunchPriority), default=PunchPriority.MEDIUM, nullable=False)
+    status = Column(SQLEnum(PunchStatus), default=PunchStatus.OPEN, nullable=False, index=True)
+
+    # Builder/vendor info (who reported it)
+    reported_by = Column(String(255), nullable=True)  # Builder name or superintendent
+    builder_name = Column(String(255), nullable=True)
+
+    # Resolution
+    resolution_notes = Column(Text, nullable=True)
+    completed_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    verified_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Scheduling
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    scheduled_date = Column(DateTime(timezone=True), nullable=True)
+
+    # Photo references (store URLs)
+    photo_url = Column(String(1024), nullable=True)
+    completion_photo_url = Column(String(1024), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    company = relationship("Company")
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    assigned_to = relationship("User", foreign_keys=[assigned_to_id])
+    completed_by = relationship("User", foreign_keys=[completed_by_id])
+    verified_by = relationship("User", foreign_keys=[verified_by_id])

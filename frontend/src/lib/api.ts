@@ -944,3 +944,167 @@ export async function getDailyReportSummary(): Promise<DailyReportSummary> {
   return res.json();
 }
 
+// ─── Punch List ──────────────────────────────────────────────
+export interface PunchItem {
+  id: number;
+  company_id: number;
+  created_by_id: number;
+  assigned_to_id: number | null;
+  community: string;
+  lot_number: string;
+  location: string | null;
+  title: string;
+  description: string | null;
+  category: string;
+  priority: "low" | "medium" | "high" | "critical";
+  status: "open" | "in_progress" | "completed" | "verified" | "rejected";
+  reported_by: string | null;
+  builder_name: string | null;
+  resolution_notes: string | null;
+  completed_by_id: number | null;
+  completed_at: string | null;
+  verified_by_id: number | null;
+  verified_at: string | null;
+  due_date: string | null;
+  scheduled_date: string | null;
+  photo_url: string | null;
+  completion_photo_url: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_name?: string;
+  assigned_to_name?: string;
+}
+
+export interface PunchSummary {
+  total: number;
+  open: number;
+  in_progress: number;
+  completed: number;
+  verified: number;
+  rejected: number;
+  overdue: number;
+  avg_resolution_days: number | null;
+  by_community: { community: string; open: number; total: number }[];
+  by_category: { category: string; count: number }[];
+  by_priority: { priority: string; count: number }[];
+}
+
+export async function getPunchItems(params?: {
+  community?: string;
+  lot_number?: string;
+  status?: string;
+  priority?: string;
+  category?: string;
+  assigned_to_id?: number;
+  page?: number;
+  per_page?: number;
+}): Promise<{ items: PunchItem[]; total: number; page: number; per_page: number }> {
+  await ensureTokenValid();
+  const searchParams = new URLSearchParams();
+  if (params?.community) searchParams.set("community", params.community);
+  if (params?.lot_number) searchParams.set("lot_number", params.lot_number);
+  if (params?.status) searchParams.set("status", params.status);
+  if (params?.priority) searchParams.set("priority", params.priority);
+  if (params?.category) searchParams.set("category", params.category);
+  if (params?.assigned_to_id) searchParams.set("assigned_to_id", String(params.assigned_to_id));
+  if (params?.page) searchParams.set("page", String(params.page));
+  if (params?.per_page) searchParams.set("per_page", String(params.per_page));
+  const qs = searchParams.toString();
+  const res = await fetch(`${API_BASE}/api/punch-list${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch punch items");
+  return res.json();
+}
+
+export async function getPunchItem(id: number): Promise<PunchItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/${id}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch punch item");
+  return res.json();
+}
+
+export async function createPunchItem(data: Partial<PunchItem>): Promise<PunchItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to create punch item");
+  return res.json();
+}
+
+export async function updatePunchItem(id: number, data: Partial<PunchItem>): Promise<PunchItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/${id}`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error("Failed to update punch item");
+  return res.json();
+}
+
+export async function assignPunchItem(id: number, assigned_to_id: number): Promise<PunchItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/${id}/assign`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ assigned_to_id }),
+  });
+  if (!res.ok) throw new Error("Failed to assign punch item");
+  return res.json();
+}
+
+export async function completePunchItem(id: number, data?: { resolution_notes?: string; completion_photo_url?: string }): Promise<PunchItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/${id}/complete`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(data || {}),
+  });
+  if (!res.ok) throw new Error("Failed to complete punch item");
+  return res.json();
+}
+
+export async function verifyPunchItem(id: number, approved: boolean, notes?: string): Promise<PunchItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/${id}/verify`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ approved, notes }),
+  });
+  if (!res.ok) throw new Error("Failed to verify punch item");
+  return res.json();
+}
+
+export async function deletePunchItem(id: number): Promise<void> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete punch item");
+}
+
+export async function getPunchSummary(): Promise<PunchSummary> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/summary`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch punch summary");
+  return res.json();
+}
+
+export async function getPunchByLot(community: string, lot_number: string): Promise<{ items: PunchItem[] }> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/punch-list/lot/${encodeURIComponent(community)}/${encodeURIComponent(lot_number)}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch punch items by lot");
+  return res.json();
+}
+

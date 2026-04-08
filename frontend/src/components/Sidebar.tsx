@@ -15,6 +15,7 @@ import {
   ChevronUp,
   Activity,
   ClipboardList,
+  Hammer,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -48,6 +49,7 @@ export function Sidebar() {
     { href: "/analytics", label: "Analytics", icon: TrendingUp },
     { href: "/activity", label: "Activity", icon: Activity },
     { href: "/daily-reports", label: "Daily Reports", icon: ClipboardList },
+    { href: "/punch-list", label: "Punch List", icon: Hammer },
     { href: "/team", label: "Team", icon: Users },
   ];
 
