@@ -61,6 +61,7 @@ export default function ResetPasswordPage() {
       1: { score: 1, label: "Weak", color: "text-orange-400", bgColor: "bg-orange-500/20" },
       2: { score: 2, label: "Fair", color: "text-yellow-400", bgColor: "bg-yellow-500/20" },
       3: { score: 3, label: "Good", color: "text-emerald-400", bgColor: "bg-emerald-500/20" },
+      4: { score: 3, label: "Strong", color: "text-emerald-400", bgColor: "bg-emerald-500/20" },
     };
 
     return strengths[score] as PasswordStrength;
@@ -104,7 +105,7 @@ export default function ResetPasswordPage() {
         let msg = "Failed to send reset code";
         try {
           const data = await response.json();
-          msg = data.detail || data.error || msg;
+          msg = extractErrorMessage(data, msg);
         } catch {}
         throw new Error(msg);
       }
@@ -142,7 +143,7 @@ export default function ResetPasswordPage() {
         let msg = "Invalid code";
         try {
           const data = await response.json();
-          msg = data.detail || data.error || msg;
+          msg = extractErrorMessage(data, msg);
         } catch {}
         throw new Error(msg);
       }
@@ -172,7 +173,7 @@ export default function ResetPasswordPage() {
         let msg = "Failed to resend code";
         try {
           const data = await response.json();
-          msg = data.detail || data.error || msg;
+          msg = extractErrorMessage(data, msg);
         } catch {}
         throw new Error(msg);
       }
@@ -184,6 +185,19 @@ export default function ResetPasswordPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to extract error message from FastAPI responses
+  const extractErrorMessage = (data: any, fallback: string): string => {
+    if (!data) return fallback;
+    // FastAPI returns { detail: "string" } or { detail: [{msg: "..."}] }
+    if (typeof data.detail === "string") return data.detail;
+    if (Array.isArray(data.detail) && data.detail.length > 0) {
+      return data.detail.map((d: any) => d.msg || String(d)).join(", ");
+    }
+    if (typeof data.error === "string") return data.error;
+    if (typeof data.message === "string") return data.message;
+    return fallback;
   };
 
   // Step 3: Reset password
@@ -210,20 +224,31 @@ export default function ResetPasswordPage() {
         body: JSON.stringify({ email, code, new_password: password }),
       });
 
+      console.log("[reset-password] Step 3 response status:", response.status);
+
       if (!response.ok) {
         let msg = "Failed to reset password";
         try {
           const data = await response.json();
-          msg = data.detail || data.error || msg;
-        } catch {}
+          console.log("[reset-password] Step 3 error data:", data);
+          msg = extractErrorMessage(data, msg);
+        } catch (jsonErr) {
+          console.error("[reset-password] Failed to parse error response:", jsonErr);
+        }
         throw new Error(msg);
       }
 
+      console.log("[reset-password] Step 3 success — transitioning to success screen");
       setStep("success");
       setTimeout(() => {
-        router.push("/login");
+        try {
+          router.push("/login");
+        } catch (navErr) {
+          console.error("[reset-password] Navigation error:", navErr);
+        }
       }, 3000);
     } catch (err: any) {
+      console.error("[reset-password] Step 3 caught error:", err);
       setError(err.message || "Failed to reset password. Try again.");
     } finally {
       setLoading(false);
