@@ -696,7 +696,7 @@ export default function BudgetsPage() {
                   value={`$${(overview.totals.total_spend / 1000000).toFixed(1)}M`}
                 />
                 <StatCard
-                  icon={overview.totals.total_remaining >= 0 ? TrendingUp : TrendingDown}
+                  icon={overview.totals.total_remaining >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
                   label="Total Remaining"
                   value={`$${Math.abs(overview.totals.total_remaining / 1000000).toFixed(1)}M`}
                   color={overview.totals.total_remaining >= 0 ? "emerald" : "red"}

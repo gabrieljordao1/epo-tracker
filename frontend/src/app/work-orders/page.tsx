@@ -215,7 +215,7 @@ export default function WorkOrdersPage() {
                 label="Community"
                 value={filters.community}
                 onChange={(v) => setFilters({ ...filters, community: v })}
-                options={[""] + (summary?.by_community.map((c) => c.community) || [])}
+                options={["", ...(summary?.by_community.map((c) => c.community) || [])]}
               />
               <FilterSelect
                 label="Status"
@@ -233,7 +233,7 @@ export default function WorkOrdersPage() {
                 label="Type"
                 value={filters.work_type}
                 onChange={(v) => setFilters({ ...filters, work_type: v })}
-                options={[""] + Object.keys(WORK_TYPES)}
+                options={["", ...Object.keys(WORK_TYPES)]}
               />
             </div>
           </div>
