@@ -40,6 +40,7 @@ interface ExpandedDetails {
 }
 
 export default function BuildersPage() {
+  const [mounted, setMounted] = useState(false);
   const [builders, setBuilders] = useState<BuilderScore[]>([]);
   const [communities, setCommunities] = useState<CommunityScore[]>([]);
   const [trends, setTrends] = useState<TrendWeek[]>([]);
@@ -50,10 +51,16 @@ export default function BuildersPage() {
   const [expandedBuilder, setExpandedBuilder] = useState<string | null>(null);
   const [expandedDetails, setExpandedDetails] = useState<Record<string, ExpandedDetails>>({});
 
+  // Hydration guard — prevent SSR/client mismatch
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Load data on mount and when days or sortBy changes
   useEffect(() => {
+    if (!mounted) return;
     loadData();
-  }, [days, sortBy]);
+  }, [mounted, days, sortBy]);
 
   const loadData = async () => {
     setLoading(true);
@@ -186,6 +193,19 @@ export default function BuildersPage() {
 
     setExpandedBuilder(builderName);
   };
+
+  // Hydration guard — render minimal shell during SSR to avoid mismatch
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-[#0C1B2A] p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-emerald-400 text-sm mb-8">← Back to Analytics</div>
+          <h1 className="text-4xl font-bold text-white mb-2">Builder Scorecards</h1>
+          <p className="text-gray-400">Track builder performance and response patterns</p>
+        </div>
+      </div>
+    );
+  }
 
   if (error) {
     return (

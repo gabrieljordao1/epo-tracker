@@ -23,8 +23,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="bg-bg text-text1">
+    <html lang="en" suppressHydrationWarning>
+      <body className="bg-bg text-text1" suppressHydrationWarning>
         <Providers>
           <LayoutShell>{children}</LayoutShell>
         </Providers>

@@ -32,12 +32,18 @@ interface CommandItem {
 }
 
 export function CommandPalette() {
+  const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  // Hydration guard for navigator.platform
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const commands: CommandItem[] = useMemo(
     () => [
@@ -248,7 +254,7 @@ export function CommandPalette() {
         <Search size={14} />
         <span>Search...</span>
         <kbd className="ml-2 px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-mono">
-          {typeof navigator !== "undefined" && navigator.platform?.includes("Mac") ? "⌘" : "Ctrl+"}K
+          {mounted && typeof navigator !== "undefined" && navigator.platform?.includes("Mac") ? "⌘" : "Ctrl+"}K
         </kbd>
       </button>
 
