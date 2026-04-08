@@ -136,6 +136,7 @@ async def get_builder_scorecards(
         sixty_days_ago = now - timedelta(days=60)
 
         for epo in epos:
+            vendor_key = (epo.vendor_name, epo.vendor_email)
 
             if vendor_key not in vendor_metrics:
                 vendor_metrics[vendor_key] = {
