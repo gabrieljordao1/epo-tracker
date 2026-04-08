@@ -37,14 +37,21 @@ export default function EPOsPage() {
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [hasGmailConnected, setHasGmailConnected] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
-    const [eposData, statsData] = await Promise.all([
-      getEPOs(undefined, supervisorId),
-      getStats(supervisorId),
-    ]);
-    setEpos(eposData);
-    setStats(statsData);
+    try {
+      const [eposData, statsData] = await Promise.all([
+        getEPOs(undefined, supervisorId),
+        getStats(supervisorId),
+      ]);
+      setEpos(eposData);
+      setStats(statsData);
+    } catch (err) {
+      console.error("Failed to load EPOs:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   // Check if user has Gmail connected
@@ -252,6 +259,22 @@ export default function EPOsPage() {
       </div>
 
       {/* Desktop Table — hidden on mobile */}
+      {loading ? (
+        <div className="card overflow-hidden hidden md:block">
+          <div className="p-6 space-y-4">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="flex gap-6 animate-pulse">
+                <div className="h-4 bg-surface rounded w-28"></div>
+                <div className="h-4 bg-surface rounded w-24"></div>
+                <div className="h-4 bg-surface rounded w-12"></div>
+                <div className="h-4 bg-surface rounded flex-1"></div>
+                <div className="h-4 bg-surface rounded w-16"></div>
+                <div className="h-4 bg-surface rounded w-20"></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
       <div className="card overflow-hidden hidden md:block">
         <table className="w-full">
           <thead className="border-b border-card-border">
@@ -351,8 +374,26 @@ export default function EPOsPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Mobile Cards — hidden on desktop */}
+      {loading ? (
+        <div className="md:hidden space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="card p-4 animate-pulse space-y-3">
+              <div className="flex justify-between">
+                <div className="h-4 bg-surface rounded w-32"></div>
+                <div className="h-6 bg-surface rounded w-20"></div>
+              </div>
+              <div className="flex gap-3">
+                <div className="h-4 bg-surface rounded w-16"></div>
+                <div className="h-4 bg-surface rounded w-16"></div>
+              </div>
+              <div className="h-4 bg-surface rounded w-full"></div>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="md:hidden space-y-3">
         {filteredEpos.map((epo) => (
           <div key={epo.id} className="card p-4 space-y-3">
@@ -418,6 +459,7 @@ export default function EPOsPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* Add EPO Modal */}
       <AddEPOModal

@@ -232,6 +232,7 @@ class EmailParserService:
         "Plott", "Byrnes", "Hasentree", "Wendell Falls", "5401 North",
         "Holding Village", "Chatham Park", "Traditions", "Magnolia Green",
         "12 Oaks", "Regency at White Oak Creek", "Jordan Pointe",
+        "Sugar Creek", "Westfall", "Avendale", "The Pines",
     ]
 
     def _extract_vendor_name(self, subject: str, body: str) -> Optional[str]:
@@ -370,12 +371,12 @@ class EmailParserService:
 
 CRITICAL RULES:
 1. Emails are often INFORMAL — short texts, missing punctuation, abbreviations, typos. This is normal. Extract what you can.
-2. An email may contain MULTIPLE lots. If you see "lot 2b and 2c" or "lots 5, 6, 7" — create a SEPARATE entry for each lot.
-3. Community/subdivision names may be misspelled (e.g. "plott" = "Plott", "gallway" = "Galloway", "mallrd park" = "Mallard Park"). Fix obvious typos.
-4. The builder name might be in the subject, body, email signature, OR derivable from the sender's email domain (e.g. "john@redcedarco.com" → "Red Cedar Co").
-5. For description: use the actual work being described. If no explicit "Description:" field, summarize what work the email is about. Include the full context — don't leave it blank.
-6. Dollar amounts may appear as "$350", "350.00", "350 each", or described in words.
-7. If the email just says "epo for lot X at Y" with no amount, still extract what you have — set amount to null and confidence lower.
+2. An email may contain MULTIPLE lots. If you see "lot 2b and 2c" or "lots 5, 6, 7" — create a SEPARATE entry for EACH individual lot. Never combine multiple lots into one entry. "lot 2b and 2c" = TWO entries, one for 2B and one for 2C. Each entry gets the SAME description and amount (split evenly if total given).
+3. Community/subdivision names may be misspelled (e.g. "plott" = "Plott", "gallway" = "Galloway", "mallrd park" = "Mallard Park", "sugar crk" = "Sugar Creek"). Fix obvious typos.
+4. The builder_name is the HOMEBUILDER COMPANY — NOT the paint/drywall company sending the email. Common builders: Pulte, Summit, DRB, Hovnanian, Ryan Homes, Meritage, Toll Brothers, Lennar, KB Home, NVR, M/I Homes, Taylor Morrison, Dream Finders, Stanley Martin. The builder name might appear in the subject, body, email signature, or email domain. If the email is addressed TO a builder (like "Hi Pulte team"), that's the builder.
+5. DESCRIPTION — this is the most important field. Describe WHAT WORK the EPO is for. Examples of GOOD descriptions: "Extra paint for garage ceiling", "Drywall repair in master bedroom", "Touch-up paint after cabinet install", "Additional texture coat on hallway walls". Examples of BAD descriptions (DO NOT DO THIS): "EPO for lot 12", "Extra purchase order", "Paint order". The description should explain the actual work, not just restate that it's an EPO.
+6. AMOUNT — look carefully for dollar values. They may appear as "$350", "350.00", "350 each", "$1,200", or even "twelve hundred". If a total is given for multiple lots, divide evenly (e.g. "$700 for lots 2b and 2c" = $350 each). If no amount at all, set null.
+7. If the email just says "epo for lot X at Y" with no details, still extract what you have — set amount to null, description to best guess from context, and confidence lower.
 
 Email Subject: {email_subject}
 Email Body:
@@ -384,15 +385,15 @@ Email Body:
 For EACH EPO/lot found, extract:
 - community: Subdivision/community name, properly capitalized (string, fix typos)
 - lot_number: Lot identifier (string, e.g. "2B", "12", "A-5")
-- builder_name: Builder/homebuilder company (string). Check subject, body, signature, and email domain.
-- description: What work is being requested. Use the email content to describe it. NEVER leave blank — at minimum summarize the email. (string)
-- amount: Dollar amount as float, or null if not mentioned
+- builder_name: Builder/homebuilder company name (string). This is NOT the paint company — it's the homebuilder like Pulte, Summit, DRB, etc.
+- description: What specific WORK is being done. Describe the actual paint/drywall work, not just "EPO for lot X". (string, NEVER blank)
+- amount: Dollar amount as float, or null if not mentioned. If total given for multiple lots, divide evenly.
 - confirmation_number: PO/confirmation number if present, or null
-- confidence_score: 0-1 (be honest — 0.7+ if you got community+lot+builder, 0.5+ if missing some fields)
+- confidence_score: 0-1 (0.8+ if you got all fields, 0.7+ if community+lot+builder, 0.5+ if missing some)
 - needs_review: true if missing critical fields (community, lot, or amount)
 
 Return ONLY a valid JSON array (one object per lot):
-[{{"community": "Plott", "lot_number": "2B", "builder_name": "Red Cedar Co", "description": "Extra paint order for touch-ups", "amount": null, "confirmation_number": null, "confidence_score": 0.75, "needs_review": true}}]"""
+[{{"community": "Plott", "lot_number": "2B", "builder_name": "Pulte", "description": "Extra paint for garage ceiling and touch-up in master bath", "amount": 350.0, "confirmation_number": null, "confidence_score": 0.85, "needs_review": false}}]"""
 
             # Retry wrapper for Gemini API calls (handles transient 429/500 errors)
             @retry(

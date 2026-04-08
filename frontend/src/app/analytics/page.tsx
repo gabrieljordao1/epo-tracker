@@ -402,29 +402,41 @@ export default function AnalyticsPage() {
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 <Pie
-                  data={statusData}
+                  data={statusData.filter((d) => (d.value ?? 0) > 0)}
                   cx="50%"
                   cy="50%"
-                  labelLine={false}
-                  label={({ name, value }) =>
-                    `${name}: ${value}`
+                  labelLine={true}
+                  label={({ name, value, percent }) =>
+                    `${name}: ${value} (${(percent * 100).toFixed(0)}%)`
                   }
-                  outerRadius={100}
+                  outerRadius={90}
+                  innerRadius={40}
                   fill="#8884d8"
                   dataKey="value"
+                  paddingAngle={2}
+                  stroke="none"
                 >
-                  {statusData.map((entry) => (
-                    <Cell
-                      key={`cell-${entry.name}`}
-                      fill={
-                        COLORS_STATUS[
-                          entry.name.toLowerCase() as keyof typeof COLORS_STATUS
-                        ] || "#999"
-                      }
-                    />
-                  ))}
+                  {statusData
+                    .filter((d) => (d.value ?? 0) > 0)
+                    .map((entry) => (
+                      <Cell
+                        key={`cell-${entry.name}`}
+                        fill={
+                          COLORS_STATUS[
+                            entry.name.toLowerCase() as keyof typeof COLORS_STATUS
+                          ] || "#999"
+                        }
+                      />
+                    ))}
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
+                <Legend
+                  verticalAlign="bottom"
+                  height={36}
+                  formatter={(value: string) => (
+                    <span style={{ color: "#999", fontSize: "12px" }}>{value}</span>
+                  )}
+                />
               </PieChart>
             </ResponsiveContainer>
           ) : (
@@ -474,7 +486,7 @@ export default function AnalyticsPage() {
         {/* Top Vendors */}
         <div className="bg-[#111] rounded-lg p-6 border border-[#222]">
           <h2 className="text-lg font-semibold text-text1 mb-6">
-            Top Vendors by EPO Count
+            Top Builders by EPO Count
           </h2>
           {vendorData.length > 0 ? (
             <ResponsiveContainer width="100%" height={300}>
@@ -531,7 +543,7 @@ export default function AnalyticsPage() {
         {/* Top Vendors by Value */}
         <div className="bg-[#111] rounded-lg p-6 border border-[#222] overflow-hidden">
           <h2 className="text-lg font-semibold text-text1 mb-6">
-            Top Vendors by Total Value
+            Top Builders by Total Value
           </h2>
           {vendorStats.length > 0 ? (
             <div className="overflow-x-auto">
@@ -542,7 +554,7 @@ export default function AnalyticsPage() {
                       Rank
                     </th>
                     <th className="text-left text-text2 font-semibold pb-3">
-                      Vendor
+                      Builder
                     </th>
                     <th className="text-right text-text2 font-semibold pb-3">
                       Total Value
@@ -580,7 +592,7 @@ export default function AnalyticsPage() {
               </table>
             </div>
           ) : (
-            <p className="text-text3 text-sm">No vendor data available</p>
+            <p className="text-text3 text-sm">No builder data available</p>
           )}
         </div>
 
@@ -595,7 +607,7 @@ export default function AnalyticsPage() {
                 <thead>
                   <tr className="border-b border-[#333]">
                     <th className="text-left text-text2 font-semibold pb-3">
-                      Vendor
+                      Builder
                     </th>
                     <th className="text-left text-text2 font-semibold pb-3">
                       Community
