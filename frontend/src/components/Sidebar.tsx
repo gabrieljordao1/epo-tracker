@@ -13,6 +13,7 @@ import {
   LogOut,
   LogIn,
   ChevronUp,
+  Activity,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -44,6 +45,7 @@ export function Sidebar() {
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/epos", label: "EPOs", icon: FileText },
     { href: "/analytics", label: "Analytics", icon: TrendingUp },
+    { href: "/activity", label: "Activity", icon: Activity },
     { href: "/team", label: "Team", icon: Users },
   ];
 

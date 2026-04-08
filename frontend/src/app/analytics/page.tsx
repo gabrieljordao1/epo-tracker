@@ -27,7 +27,10 @@ import {
   Download,
   FileText,
   Loader2,
+  BarChart3,
+  ArrowRight,
 } from "lucide-react";
+import Link from "next/link";
 
 interface ChartData {
   name: string;
@@ -354,13 +357,23 @@ tr:hover{background:#1a1a1a}
   return (
     <div className="p-8 space-y-8 bg-[#0a0a0a] min-h-screen">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-semibold mb-2 text-text1">Analytics</h1>
-        <p className="text-text2">
-          {isBossView
-            ? "Performance breakdown across all communities"
-            : `${activeUser?.full_name} — ${(activeUser?.communities ?? []).join(", ")}`}
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-semibold mb-2 text-text1">Analytics</h1>
+          <p className="text-text2">
+            {isBossView
+              ? "Performance breakdown across all communities"
+              : `${activeUser?.full_name} — ${(activeUser?.communities ?? []).join(", ")}`}
+          </p>
+        </div>
+        <Link
+          href="/analytics/builders"
+          className="flex items-center gap-2 px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 text-sm font-medium hover:bg-emerald-500/20 transition-colors"
+        >
+          <BarChart3 size={16} />
+          Builder Scorecards
+          <ArrowRight size={14} />
+        </Link>
       </div>
 
       {/* KPI Cards Row */}

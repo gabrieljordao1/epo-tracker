@@ -734,6 +734,80 @@ export async function setupStripeProducts(): Promise<any> {
   return res.json();
 }
 
+// ─── Builder Analytics API ──────────────────────
+export interface BuilderScore {
+  vendor_name: string;
+  vendor_email: string;
+  total_epos: number;
+  confirmed_count: number;
+  denied_count: number;
+  pending_count: number;
+  discount_count: number;
+  total_value: number;
+  confirmed_value: number;
+  capture_rate: number;
+  avg_response_days: number;
+  last_epo_date: string | null;
+  trend: "up" | "down" | "stable";
+}
+
+export interface CommunityScore {
+  community_name: string;
+  total_epos: number;
+  confirmed: number;
+  pending: number;
+  denied: number;
+  total_value: number;
+  confirmed_value: number;
+  top_vendor: string;
+  avg_days_open: number;
+}
+
+export interface TrendWeek {
+  week: string;
+  new_count: number;
+  confirmed_count: number;
+  denied_count: number;
+  total_value: number;
+}
+
+export async function getBuilderScores(sortBy?: string, days?: number): Promise<BuilderScore[]> {
+  await ensureTokenValid();
+  const params = new URLSearchParams();
+  if (sortBy) params.set("sort_by", sortBy);
+  if (days) params.set("days", days.toString());
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/api/analytics/builders${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch builder scores");
+  return res.json();
+}
+
+export async function getCommunityScores(days?: number): Promise<CommunityScore[]> {
+  await ensureTokenValid();
+  const params = new URLSearchParams();
+  if (days) params.set("days", days.toString());
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/api/analytics/communities${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch community scores");
+  return res.json();
+}
+
+export async function getTrends(weeks?: number): Promise<TrendWeek[]> {
+  await ensureTokenValid();
+  const params = new URLSearchParams();
+  if (weeks) params.set("weeks", weeks.toString());
+  const qs = params.toString();
+  const res = await fetch(`${API_BASE}/api/analytics/trends${qs ? `?${qs}` : ""}`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to fetch trends");
+  return res.json();
+}
+
 // ─── Health Check ────────────────────────────────
 export async function healthCheck(): Promise<boolean> {
   try {

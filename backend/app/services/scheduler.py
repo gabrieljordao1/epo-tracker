@@ -245,6 +245,23 @@ async def run_smart_followup_check():
         logger.info(f"Smart follow-up check complete: {total_followups_sent} total follow-ups sent")
 
 
+async def run_weekly_digest():
+    """Send weekly digest emails to all company admins/managers.
+    Runs every Monday at 8 AM.
+    """
+    from .weekly_digest import send_weekly_digest
+
+    logger.info("Running weekly digest job...")
+    try:
+        result = await send_weekly_digest()
+        logger.info(
+            f"Weekly digest complete: {result.get('total_sent', 0)} sent, "
+            f"{result.get('total_failed', 0)} failed across {result.get('companies_processed', 0)} companies"
+        )
+    except Exception as e:
+        logger.error(f"Weekly digest job failed: {e}")
+
+
 async def run_all_scheduled_tasks():
     """Run all scheduled tasks. Called by the scheduler or manually."""
     await update_days_open()
@@ -292,6 +309,14 @@ def start_scheduler():
             run_smart_followup_check,
             CronTrigger(hour=10, minute=0),  # 10:00 AM
             id="smart_followup_check",
+            replace_existing=True,
+        )
+
+        # Weekly digest every Monday at 8 AM
+        scheduler.add_job(
+            run_weekly_digest,
+            CronTrigger(day_of_week="0", hour=8, minute=0),  # Monday 8:00 AM
+            id="weekly_digest",
             replace_existing=True,
         )
 

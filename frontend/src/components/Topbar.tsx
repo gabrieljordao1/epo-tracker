@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Search, Bell, ChevronDown, Users, Eye } from "lucide-react";
 import { useUser } from "@/lib/user-context";
+import { CommandPalette } from "@/components/CommandPalette";
 
 export function Topbar() {
   const { activeUser, setActiveUser, teamMembers, isBossView, currentUser } = useUser();
@@ -54,6 +55,9 @@ export function Topbar() {
 
       {/* Right side */}
       <div className="flex items-center gap-5 ml-8">
+        {/* Command Palette Trigger */}
+        <CommandPalette />
+
         {/* View Switcher */}
         <div className="relative" ref={dropdownRef}>
           <button
