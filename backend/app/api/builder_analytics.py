@@ -3,7 +3,7 @@ from sqlalchemy import select, func, and_, case, desc, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import logging
 
 from ..core.database import get_db
@@ -109,7 +109,7 @@ async def get_builder_scorecards(
     - trend (compare last 30 days vs previous 30 days: "up", "down", "stable")
     """
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
         # Base query for EPOs in date range
         base_query = select(EPO).where(
@@ -131,9 +131,11 @@ async def get_builder_scorecards(
 
         # Group by vendor and calculate metrics
         vendor_metrics = {}
+        now = datetime.now(timezone.utc)
+        thirty_days_ago = now - timedelta(days=30)
+        sixty_days_ago = now - timedelta(days=60)
 
         for epo in epos:
-            vendor_key = (epo.vendor_name, epo.vendor_email)
 
             if vendor_key not in vendor_metrics:
                 vendor_metrics[vendor_key] = {
@@ -178,11 +180,8 @@ async def get_builder_scorecards(
                 metrics["last_epo_date"] = epo.created_at
 
             # Track for trend calculation (last 30 vs previous 30)
-            now = datetime.utcnow()
-            thirty_days_ago = now - timedelta(days=30)
-            sixty_days_ago = now - timedelta(days=60)
-
-            if epo.created_at >= thirty_days_ago:
+            epo_date = epo.created_at.replace(tzinfo=timezone.utc) if epo.created_at.tzinfo is None else epo.created_at
+            if epo_date >= thirty_days_ago:
                 metrics["last_30_count"] += 1
             elif epo.created_at >= sixty_days_ago:
                 metrics["prev_30_count"] += 1
@@ -260,7 +259,7 @@ async def get_community_analytics(
     - avg_days_open
     """
     try:
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
+        cutoff_date = datetime.now(timezone.utc) - timedelta(days=days)
 
         # Base query for EPOs in date range
         base_query = select(EPO).where(
@@ -380,7 +379,7 @@ async def get_trends(
     """
     try:
         # Calculate date range
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         cutoff_date = now - timedelta(weeks=weeks)
 
         # Base query for EPOs in date range
