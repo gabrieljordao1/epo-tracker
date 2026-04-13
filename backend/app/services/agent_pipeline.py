@@ -6,13 +6,13 @@ Orchestrates parsing, EPO creation, vendor confirmation, and follow-up logic.
 import logging
 import secrets
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import get_settings
-from ..models.models import EPO, Company, EPOStatus
+from ..models.models import EPO, Company, EPOStatus, EPOFollowup, FollowupStatus
 from .email_parser import EmailParserService
 from .email_sender import EmailSenderService
 
@@ -299,17 +299,45 @@ class AgentPipelineService:
 
             # Step 2: Parse image attachments with Gemini Vision
             vision_confirmation = None
-            if image_attachments and gmail_api and access_token and message_id:
+            if image_attachments:
+                logger.info(
+                    f"EPO #{epo.id}: Processing {len(image_attachments)} image "
+                    f"attachment(s): {[a.get('filename') for a in image_attachments]}"
+                )
                 for attachment in image_attachments[:3]:  # Limit to 3 images
                     try:
-                        image_bytes = await gmail_api.get_attachment(
-                            access_token=access_token,
-                            refresh_token=refresh_token,
-                            token_expires_at=token_expires_at,
-                            message_id=message_id,
-                            attachment_id=attachment["attachmentId"],
-                        )
+                        image_bytes = None
+
+                        # Handle inline images (base64 data embedded in payload)
+                        if "inlineData" in attachment:
+                            import base64 as b64
+                            image_bytes = b64.urlsafe_b64decode(attachment["inlineData"])
+                            logger.info(
+                                f"Using inline image data for "
+                                f"{attachment.get('filename')} ({len(image_bytes)} bytes)"
+                            )
+                        # Handle regular attachments (need API call to download)
+                        elif gmail_api and access_token and message_id and "attachmentId" in attachment:
+                            image_bytes = await gmail_api.get_attachment(
+                                access_token=access_token,
+                                refresh_token=refresh_token,
+                                token_expires_at=token_expires_at,
+                                message_id=message_id,
+                                attachment_id=attachment["attachmentId"],
+                            )
+                        else:
+                            logger.warning(
+                                f"Cannot fetch image {attachment.get('filename')}: "
+                                f"no attachmentId or inlineData, "
+                                f"gmail_api={bool(gmail_api)}, "
+                                f"access_token={bool(access_token)}"
+                            )
+
                         if image_bytes:
+                            logger.info(
+                                f"Sending {len(image_bytes)} bytes to Gemini Vision "
+                                f"for {attachment.get('filename')}"
+                            )
                             vision_result = await self.parser.parse_image_for_confirmation(
                                 image_bytes=image_bytes,
                                 mime_type=attachment.get("mimeType", "image/png"),
@@ -317,12 +345,14 @@ class AgentPipelineService:
                             )
                             if vision_result:
                                 result["image_parsed"] = True
+                                logger.info(
+                                    f"Vision result for {attachment.get('filename')}: "
+                                    f"intent={vision_result.get('intent')}, "
+                                    f"conf#={vision_result.get('confirmation_number')}, "
+                                    f"confidence={vision_result.get('confidence')}"
+                                )
                                 if vision_result.get("confirmation_number"):
                                     vision_confirmation = vision_result["confirmation_number"]
-                                    logger.info(
-                                        f"Vision extracted conf#={vision_confirmation} "
-                                        f"from {attachment.get('filename')}"
-                                    )
                                 # If vision says it's a confirmation, upgrade intent
                                 if vision_result.get("intent") == "confirmation" and intent != "confirmation":
                                     if vision_result.get("confidence", 0) >= 0.7:
@@ -331,8 +361,22 @@ class AgentPipelineService:
                                         logger.info(
                                             f"Vision upgraded intent to 'confirmation' for EPO #{epo.id}"
                                         )
+                            else:
+                                logger.warning(
+                                    f"Vision returned None for {attachment.get('filename')} "
+                                    f"— check GOOGLE_AI_API_KEY or Gemini errors"
+                                )
+                        else:
+                            logger.warning(
+                                f"No image bytes retrieved for {attachment.get('filename')}"
+                            )
                     except Exception as e:
-                        logger.error(f"Error parsing attachment {attachment.get('filename')}: {e}")
+                        logger.error(
+                            f"Error parsing attachment {attachment.get('filename')}: {e}",
+                            exc_info=True,
+                        )
+            elif not image_attachments:
+                logger.debug(f"EPO #{epo.id}: No image attachments in reply")
 
             # Use the best confirmation number available
             final_confirmation = vision_confirmation or confirmation_number
@@ -436,9 +480,38 @@ class AgentPipelineService:
                     # Determine if we should send a follow-up
                     followup_days = settings.AGENT_FOLLOWUP_DAYS  # [3, 5, 7]
 
-                    # Count existing follow-ups
-                    # This would require additional DB access
-                    # For now, simple heuristic: send if days_open matches followup_days
+                    # ── DEDUP: Count existing follow-ups from ALL systems ──
+                    followup_query = select(EPOFollowup).where(
+                        and_(
+                            EPOFollowup.epo_id == epo.id,
+                            EPOFollowup.status == FollowupStatus.SENT,
+                        )
+                    )
+                    followup_result = await session.execute(followup_query)
+                    existing_followups = followup_result.scalars().all()
+
+                    # Max 3 total follow-ups across both basic + smart systems
+                    if len(existing_followups) >= 3:
+                        logger.debug(
+                            f"EPO #{epo.id}: already has {len(existing_followups)} "
+                            f"follow-ups, skipping"
+                        )
+                        continue
+
+                    # Check if a follow-up was already sent today (prevent same-day dups)
+                    today_start = datetime.utcnow().replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                    sent_today = any(
+                        fu.sent_at and fu.sent_at.replace(tzinfo=None) >= today_start
+                        for fu in existing_followups
+                    )
+                    if sent_today:
+                        logger.debug(
+                            f"EPO #{epo.id}: follow-up already sent today, skipping"
+                        )
+                        continue
+
                     if days_open in followup_days:
                         # Send follow-up
                         vendor_portal_url = f"{settings.APP_URL}/vendor/{epo.vendor_token}"
@@ -456,10 +529,24 @@ class AgentPipelineService:
                         )
 
                         if send_result.get("success"):
+                            # ── Record the follow-up in DB ──
+                            followup_record = EPOFollowup(
+                                epo_id=epo.id,
+                                company_id=epo.company_id,
+                                sent_to_email=epo.vendor_email,
+                                subject=f"Follow-up: EPO - {epo.community} Lot {epo.lot_number}",
+                                body=f"Smart follow-up #{len(existing_followups) + 1} "
+                                     f"for ${epo.amount or 0:,.2f} ({days_open} days open)",
+                                status=FollowupStatus.SENT,
+                                sent_at=datetime.utcnow(),
+                            )
+                            session.add(followup_record)
+
                             result["followups_sent"] += 1
                             logger.info(
                                 f"Follow-up sent for EPO #{epo.id} "
-                                f"({days_open} days old)"
+                                f"({days_open} days old, "
+                                f"total followups: {len(existing_followups) + 1})"
                             )
                         else:
                             result["errors"].append(
@@ -469,6 +556,9 @@ class AgentPipelineService:
                 except Exception as e:
                     logger.error(f"Error processing EPO #{epo.id}: {e}")
                     result["errors"].append(f"EPO #{epo.id}: {str(e)}")
+
+            # Flush followup records to DB
+            await session.flush()
 
             result["success"] = True
             return result

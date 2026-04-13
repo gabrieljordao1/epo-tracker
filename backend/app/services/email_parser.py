@@ -272,8 +272,13 @@ class EmailParserService:
                 amount_str = match.group(1).replace(",", "").replace("$", "")
                 try:
                     amount = float(amount_str)
-                    if 50 <= amount <= 50000:  # Reasonable EPO range
+                    if 1 <= amount <= 500000:  # Widened range for all EPO sizes
                         return amount, 0.95
+                    else:
+                        logger.warning(
+                            f"Amount ${amount:,.2f} found but outside range "
+                            f"$1-$500K, discarding"
+                        )
                 except ValueError:
                     pass
 
@@ -713,8 +718,16 @@ Return ONLY valid JSON:
             }
         """
         if not settings.GOOGLE_AI_API_KEY:
-            logger.warning("No GOOGLE_AI_API_KEY for Vision parsing")
+            logger.error(
+                "GOOGLE_AI_API_KEY not configured — cannot parse image attachments. "
+                "Set this in Railway environment variables."
+            )
             return None
+
+        logger.info(
+            f"Starting Gemini Vision parse: {len(image_bytes)} bytes, "
+            f"mime={mime_type}"
+        )
 
         try:
             from google import genai
@@ -765,7 +778,8 @@ Return ONLY valid JSON:
                     contents=[text_part, image_part],
                 )
 
-            response = _call_gemini_vision()
+            import asyncio
+            response = await asyncio.to_thread(_call_gemini_vision)
 
             response_text = response.text.strip()
 
@@ -782,6 +796,13 @@ Return ONLY valid JSON:
             )
             return result
 
+        except json.JSONDecodeError as e:
+            raw = locals().get("response_text", "N/A")
+            logger.error(
+                f"Gemini Vision returned invalid JSON: {e}. "
+                f"Raw response: {str(raw)[:500]}"
+            )
+            return None
         except Exception as e:
-            logger.error(f"Gemini Vision parsing failed: {e}")
+            logger.error(f"Gemini Vision parsing failed: {e}", exc_info=True)
             return None

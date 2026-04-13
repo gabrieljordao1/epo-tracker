@@ -5,6 +5,7 @@ Handles Gmail push notifications, message fetching, and watch management.
 
 import logging
 import base64
+import re
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
@@ -236,19 +237,39 @@ class GmailAPIService:
         return attachments
 
     def _find_image_parts(self, part: Dict[str, Any], attachments: List[Dict[str, str]]):
-        """Recursively find image parts in MIME structure."""
+        """Recursively find image parts in MIME structure.
+
+        Handles both:
+        - Regular attachments (have attachmentId)
+        - Inline images (have body.data directly, e.g., Content-Disposition: inline)
+        """
         mime_type = part.get("mimeType", "")
 
         # Check if this part is an image
         if mime_type.startswith("image/"):
-            attachment_id = part.get("body", {}).get("attachmentId")
+            body = part.get("body", {})
+            attachment_id = body.get("attachmentId")
+            inline_data = body.get("data")
+
             if attachment_id:
                 attachments.append({
                     "filename": part.get("filename", "image"),
                     "mimeType": mime_type,
                     "attachmentId": attachment_id,
-                    "size": part.get("body", {}).get("size", 0),
+                    "size": body.get("size", 0),
                 })
+            elif inline_data:
+                # Inline image — store base64 data directly
+                attachments.append({
+                    "filename": part.get("filename", "inline_image"),
+                    "mimeType": mime_type,
+                    "inlineData": inline_data,
+                    "size": body.get("size", 0),
+                })
+                logger.info(
+                    f"Found inline image: {part.get('filename', 'unnamed')} "
+                    f"({body.get('size', 0)} bytes)"
+                )
 
         # Recurse into sub-parts
         for sub_part in part.get("parts", []):
@@ -293,17 +314,52 @@ class GmailAPIService:
             return None
 
     def _extract_message_body(self, payload: Dict[str, Any]) -> str:
-        """Extract text body from Gmail payload."""
-        if "parts" in payload:
-            for part in payload["parts"]:
-                if part["mimeType"] == "text/plain":
-                    data = part.get("body", {}).get("data", "")
-                    if data:
-                        return base64.urlsafe_b64decode(data).decode("utf-8")
-        else:
+        """Extract text body from Gmail payload.
+
+        Tries text/plain first, then falls back to text/html (stripped of tags).
+        Also handles nested multipart structures (e.g., multipart/alternative
+        inside multipart/mixed).
+        """
+        # Try to find text/plain first, then text/html as fallback
+        plain_text = self._find_body_by_mime(payload, "text/plain")
+        if plain_text:
+            return plain_text
+
+        # Fallback: extract HTML and strip tags
+        html_text = self._find_body_by_mime(payload, "text/html")
+        if html_text:
+            # Strip HTML tags to get readable text
+            text = re.sub(r'<style[^>]*>.*?</style>', '', html_text, flags=re.DOTALL)
+            text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.DOTALL)
+            text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
+            text = re.sub(r'</p>', '\n', text, flags=re.IGNORECASE)
+            text = re.sub(r'</div>', '\n', text, flags=re.IGNORECASE)
+            text = re.sub(r'<[^>]+>', '', text)
+            # Clean up whitespace
+            text = re.sub(r'\n{3,}', '\n\n', text)
+            text = text.strip()
+            if text:
+                logger.info("Extracted body from HTML fallback (no text/plain part)")
+                return text
+
+        return ""
+
+    def _find_body_by_mime(self, payload: Dict[str, Any], target_mime: str) -> str:
+        """Recursively search MIME parts for a specific content type."""
+        mime_type = payload.get("mimeType", "")
+
+        # Direct match (single-part message)
+        if mime_type == target_mime:
             data = payload.get("body", {}).get("data", "")
             if data:
                 return base64.urlsafe_b64decode(data).decode("utf-8")
+
+        # Multipart — recurse into parts
+        for part in payload.get("parts", []):
+            result = self._find_body_by_mime(part, target_mime)
+            if result:
+                return result
+
         return ""
 
     async def get_messages_since(
