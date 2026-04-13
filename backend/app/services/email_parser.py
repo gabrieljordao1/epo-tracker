@@ -32,8 +32,15 @@ class EmailParserService:
     ]
 
     AMOUNT_PATTERNS = [
-        r"\$\s*([0-9]+(?:[,\.][0-9]{2})?)",
-        r"Amount:\s*\$?\s*([0-9]+(?:[,\.][0-9]{2})?)",
+        # $1,234.56  or  $1234.56  or  $350  or  $350.00  or  $ 1,234.56
+        # Comma-thousands format first (most specific)
+        r"\$\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?)",
+        # Plain number with $
+        r"\$\s*([0-9]+(?:\.[0-9]{1,2})?)",
+        # Keyword + comma-thousands: Amount: $1,234.56
+        r"(?:Amount|Total|Price|Cost|Charge)[\s:]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?)",
+        # Keyword + plain number: Amount: 1234.56  or  Amount: $350
+        r"(?:Amount|Total|Price|Cost|Charge)[\s:]*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)",
     ]
 
     CONFIRMATION_PATTERNS = [

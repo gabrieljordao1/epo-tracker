@@ -1,8 +1,8 @@
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy import select, func, and_, case
+from sqlalchemy import select, func, and_, case, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,8 @@ from ..core.database import get_db
 from ..core.auth import get_current_user
 from ..core.security import sanitize_html, validate_email, audit_log
 from ..models.models import EPO, EPOFollowup, User, EPOStatus, UserRole
+from ..services.email_parser import EmailParserService
+from ..core.config import get_settings
 from ..models.schemas import (
     EPOCreate,
     EPOUpdate,
@@ -358,3 +360,72 @@ async def create_followup(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create followup"
         )
+
+
+@router.post("/backfill-amounts", response_model=Dict[str, Any])
+async def backfill_epo_amounts(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Re-parse amounts for EPOs that have null or zero amounts.
+    Uses the stored raw_email_subject and raw_email_body to re-extract.
+    Admin-only endpoint.
+    """
+    if current_user.role not in (UserRole.ADMIN, UserRole.OWNER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+
+    settings = get_settings()
+    parser = EmailParserService(
+        anthropic_api_key=settings.ANTHROPIC_API_KEY,
+    )
+
+    # Find EPOs with missing amounts that have raw email data
+    query = select(EPO).where(
+        and_(
+            EPO.company_id == current_user.company_id,
+            or_(EPO.amount == None, EPO.amount == 0),  # noqa: E711
+            EPO.raw_email_body != None,  # noqa: E711
+            EPO.raw_email_body != "",
+        )
+    )
+    result = await session.execute(query)
+    epos = result.scalars().all()
+
+    updated = 0
+    skipped = 0
+    errors = []
+
+    for epo in epos:
+        try:
+            # Combine subject + body for parsing
+            text = f"{epo.raw_email_subject or ''}\n{epo.raw_email_body or ''}"
+
+            # Use regex extraction (fast, no API calls)
+            amount, confidence = parser._extract_amount(text)
+
+            if amount and amount > 0:
+                old_amount = epo.amount
+                epo.amount = amount
+                updated += 1
+                logger.info(
+                    f"Backfill EPO #{epo.id}: amount {old_amount} -> ${amount:,.2f} "
+                    f"(confidence: {confidence})"
+                )
+            else:
+                skipped += 1
+        except Exception as e:
+            errors.append(f"EPO #{epo.id}: {str(e)}")
+            logger.error(f"Backfill error on EPO #{epo.id}: {e}")
+
+    await session.flush()
+
+    return {
+        "total_checked": len(epos),
+        "updated": updated,
+        "skipped": skipped,
+        "errors": errors,
+    }
