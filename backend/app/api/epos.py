@@ -9,8 +9,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.database import get_db
 from ..core.auth import get_current_user
 from ..core.security import sanitize_html, validate_email, audit_log
-from ..models.models import EPO, EPOFollowup, User, EPOStatus, UserRole
+from ..models.models import EPO, EPOFollowup, EmailConnection, User, EPOStatus, UserRole
 from ..services.email_parser import EmailParserService
+from ..services.gmail_api import GmailAPIService
 from ..core.config import get_settings
 from ..models.schemas import (
     EPOCreate,
@@ -369,8 +370,12 @@ async def backfill_epo_amounts(
 ) -> Dict[str, Any]:
     """
     Re-parse amounts for EPOs that have null or zero amounts.
-    Uses the stored raw_email_subject and raw_email_body to re-extract.
-    Admin-only endpoint.
+
+    Strategy (3-pass):
+    1. Regex on stored raw_email_subject + raw_email_body (fast, free)
+    2. AI re-parse on stored subject + body via Gemini/Haiku
+    3. For EPOs with empty body but a gmail_message_id: re-fetch from Gmail,
+       extract body (now with HTML support), then AI parse
     """
     if current_user.role not in (UserRole.ADMIN, UserRole.OWNER):
         raise HTTPException(
@@ -383,49 +388,168 @@ async def backfill_epo_amounts(
         anthropic_api_key=settings.ANTHROPIC_API_KEY,
     )
 
-    # Find EPOs with missing amounts that have raw email data
+    # Find ALL EPOs with missing or zero amounts
     query = select(EPO).where(
         and_(
             EPO.company_id == current_user.company_id,
             or_(EPO.amount == None, EPO.amount == 0),  # noqa: E711
-            EPO.raw_email_body != None,  # noqa: E711
-            EPO.raw_email_body != "",
         )
     )
     result = await session.execute(query)
     epos = result.scalars().all()
 
-    updated = 0
+    updated_regex = 0
+    updated_ai = 0
+    updated_refetch = 0
     skipped = 0
     errors = []
+    details = []
 
+    # ── PASS 1: Quick regex on stored text ──────────────────────────
+    still_missing = []
     for epo in epos:
         try:
-            # Combine subject + body for parsing
             text = f"{epo.raw_email_subject or ''}\n{epo.raw_email_body or ''}"
-
-            # Use regex extraction (fast, no API calls)
-            amount, confidence = parser._extract_amount(text)
-
-            if amount and amount > 0:
-                old_amount = epo.amount
-                epo.amount = amount
-                updated += 1
-                logger.info(
-                    f"Backfill EPO #{epo.id}: amount {old_amount} -> ${amount:,.2f} "
-                    f"(confidence: {confidence})"
-                )
-            else:
-                skipped += 1
+            if text.strip():
+                amount, confidence = parser._extract_amount(text)
+                if amount and amount > 0:
+                    epo.amount = amount
+                    updated_regex += 1
+                    details.append(f"EPO #{epo.id}: regex -> ${amount:,.2f}")
+                    continue
+            still_missing.append(epo)
         except Exception as e:
-            errors.append(f"EPO #{epo.id}: {str(e)}")
-            logger.error(f"Backfill error on EPO #{epo.id}: {e}")
+            errors.append(f"EPO #{epo.id} regex: {str(e)}")
+            still_missing.append(epo)
+
+    # ── PASS 2: AI re-parse on stored text ──────────────────────────
+    still_missing_after_ai = []
+    for epo in still_missing:
+        subject = epo.raw_email_subject or ""
+        body = epo.raw_email_body or ""
+        if not subject.strip() and not body.strip():
+            still_missing_after_ai.append(epo)
+            continue
+
+        try:
+            parsed = await parser.parse_email(
+                email_subject=subject,
+                email_body=body,
+                vendor_email=epo.vendor_email,
+            )
+            if parsed and parsed.get("amount"):
+                amount = parsed["amount"]
+                if isinstance(amount, (int, float)) and amount > 0:
+                    epo.amount = float(amount)
+                    updated_ai += 1
+                    details.append(
+                        f"EPO #{epo.id}: AI ({parsed.get('parse_model')}) "
+                        f"-> ${float(amount):,.2f}"
+                    )
+                    continue
+            still_missing_after_ai.append(epo)
+        except Exception as e:
+            errors.append(f"EPO #{epo.id} AI: {str(e)}")
+            still_missing_after_ai.append(epo)
+
+    # ── PASS 3: Re-fetch from Gmail for EPOs with empty body ────────
+    # Group EPOs by email_connection_id to minimize credential lookups
+    gmail_api = GmailAPIService()
+    conn_cache: Dict[int, Any] = {}
+
+    for epo in still_missing_after_ai:
+        if not epo.gmail_message_id or not epo.email_connection_id:
+            skipped += 1
+            continue
+
+        try:
+            # Get email connection credentials (cached)
+            conn_id = epo.email_connection_id
+            if conn_id not in conn_cache:
+                conn_result = await session.execute(
+                    select(EmailConnection).where(
+                        and_(
+                            EmailConnection.id == conn_id,
+                            EmailConnection.is_active == True,  # noqa: E712
+                        )
+                    )
+                )
+                conn_cache[conn_id] = conn_result.scalars().first()
+
+            conn = conn_cache[conn_id]
+            if not conn or not conn.access_token:
+                skipped += 1
+                continue
+
+            # Re-fetch the message from Gmail
+            msg = await gmail_api.get_message(
+                access_token=conn.access_token,
+                refresh_token=conn.refresh_token,
+                token_expires_at=conn.token_expires_at,
+                message_id=epo.gmail_message_id,
+            )
+
+            if not msg.get("success"):
+                skipped += 1
+                continue
+
+            new_body = msg.get("body", "")
+            new_subject = msg.get("subject", "") or epo.raw_email_subject or ""
+
+            if not new_body.strip():
+                skipped += 1
+                continue
+
+            # Update stored body if it was empty before
+            if not epo.raw_email_body or not epo.raw_email_body.strip():
+                epo.raw_email_body = new_body
+                logger.info(
+                    f"EPO #{epo.id}: backfilled empty raw_email_body "
+                    f"({len(new_body)} chars)"
+                )
+
+            # Try regex first on the new body
+            text = f"{new_subject}\n{new_body}"
+            amount, confidence = parser._extract_amount(text)
+            if amount and amount > 0:
+                epo.amount = amount
+                updated_refetch += 1
+                details.append(f"EPO #{epo.id}: Gmail refetch+regex -> ${amount:,.2f}")
+                continue
+
+            # Try full AI parse on the new body
+            parsed = await parser.parse_email(
+                email_subject=new_subject,
+                email_body=new_body,
+                vendor_email=epo.vendor_email,
+            )
+            if parsed and parsed.get("amount"):
+                amt = parsed["amount"]
+                if isinstance(amt, (int, float)) and amt > 0:
+                    epo.amount = float(amt)
+                    updated_refetch += 1
+                    details.append(
+                        f"EPO #{epo.id}: Gmail refetch+AI "
+                        f"({parsed.get('parse_model')}) -> ${float(amt):,.2f}"
+                    )
+                    continue
+
+            skipped += 1
+
+        except Exception as e:
+            errors.append(f"EPO #{epo.id} Gmail: {str(e)}")
+            logger.error(f"Backfill Gmail error EPO #{epo.id}: {e}")
 
     await session.flush()
 
+    total_updated = updated_regex + updated_ai + updated_refetch
     return {
         "total_checked": len(epos),
-        "updated": updated,
+        "updated_total": total_updated,
+        "updated_regex": updated_regex,
+        "updated_ai": updated_ai,
+        "updated_gmail_refetch": updated_refetch,
         "skipped": skipped,
         "errors": errors,
+        "details": details,
     }
