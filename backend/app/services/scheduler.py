@@ -184,9 +184,20 @@ async def renew_gmail_watches():
                     logger.warning("GMAIL_PUBSUB_TOPIC not set, skipping watch renewal")
                     continue
 
+                # Decrypt stored tokens before passing to Gmail API
+                from ..core.security import decrypt_token
+                try:
+                    _acc = decrypt_token(conn.access_token, settings.SECRET_KEY) if conn.access_token else ""
+                except Exception:
+                    _acc = conn.access_token or ""
+                try:
+                    _ref = decrypt_token(conn.refresh_token, settings.SECRET_KEY) if conn.refresh_token else ""
+                except Exception:
+                    _ref = conn.refresh_token or ""
+
                 watch_result = await gmail_api.setup_watch(
-                    access_token=conn.access_token,
-                    refresh_token=conn.refresh_token,
+                    access_token=_acc,
+                    refresh_token=_ref,
                     token_expires_at=conn.token_expires_at,
                     email_address=conn.email_address,
                     pubsub_topic=settings.GMAIL_PUBSUB_TOPIC,

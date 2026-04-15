@@ -24,9 +24,26 @@ from ..models.models import EmailConnection, User, WebhookLog, EPO, EPOStatus
 from ..models.schemas import GmailWebhookPayload, WebhookSetupResponse
 from ..services.gmail_api import GmailAPIService
 from ..services.agent_pipeline import AgentPipelineService
+from ..core.security import decrypt_token
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
+
+
+def _decrypt_conn_tokens(conn) -> tuple[str, str]:
+    """Decrypt access+refresh tokens stored on an EmailConnection row.
+    Tokens are stored encrypted via encrypt_token(); Google API calls need
+    plaintext. Returns (access_token, refresh_token) or raises on failure.
+    """
+    try:
+        access = decrypt_token(conn.access_token, settings.SECRET_KEY) if conn.access_token else ""
+    except Exception:
+        access = conn.access_token or ""  # fall back to raw in case legacy unencrypted
+    try:
+        refresh = decrypt_token(conn.refresh_token, settings.SECRET_KEY) if conn.refresh_token else ""
+    except Exception:
+        refresh = conn.refresh_token or ""
+    return access, refresh
 
 router = APIRouter(prefix="/api/webhook", tags=["webhooks"])
 
@@ -455,14 +472,15 @@ async def gmail_webhook(
         session.add(webhook_log)
         await session.commit()
 
-        # Queue background task
+        # Queue background task — decrypt tokens before passing to Google API layer
+        _acc, _ref = _decrypt_conn_tokens(email_conn)
         background_tasks.add_task(
             _process_gmail_notification,
             email_address=email_address,
             company_id=email_conn.company_id,
             history_id=history_id,
-            access_token=email_conn.access_token,
-            refresh_token=email_conn.refresh_token,
+            access_token=_acc,
+            refresh_token=_ref,
             token_expires_at=email_conn.token_expires_at,
             session=session,
         )
@@ -525,11 +543,16 @@ async def setup_gmail_webhook(
                     client_secret=settings.GOOGLE_CLIENT_SECRET,
                     redirect_uri=settings.GOOGLE_REDIRECT_URI,
                 )
-                refresh_result = await sync_service.refresh_access_token(
-                    email_conn.refresh_token
-                )
+                _acc, _ref = _decrypt_conn_tokens(email_conn)
+                refresh_result = await sync_service.refresh_access_token(_ref)
                 if refresh_result.get("success"):
-                    email_conn.access_token = refresh_result["access_token"]
+                    # Store encrypted access token
+                    from ..core.security import encrypt_token
+                    try:
+                        email_conn.access_token = encrypt_token(refresh_result["access_token"], settings.SECRET_KEY)
+                    except Exception:
+                        email_conn.access_token = refresh_result["access_token"]
+                    _acc = refresh_result["access_token"]
                     from datetime import timedelta
                     email_conn.token_expires_at = datetime.utcnow() + timedelta(hours=1)
                     logger.info(f"Refreshed token for {email_conn.email_address} before watch setup")
@@ -540,8 +563,8 @@ async def setup_gmail_webhook(
                     )
 
                 watch_result = await gmail_api.setup_watch(
-                    access_token=email_conn.access_token,
-                    refresh_token=email_conn.refresh_token,
+                    access_token=_acc,
+                    refresh_token=_ref,
                     token_expires_at=email_conn.token_expires_at,
                     email_address=email_conn.email_address,
                     pubsub_topic=settings.GMAIL_PUBSUB_TOPIC,
@@ -630,9 +653,10 @@ async def sync_recent_gmail(
 
         for email_conn in email_conns:
             try:
+                _acc, _ref = _decrypt_conn_tokens(email_conn)
                 messages = await gmail_api.get_messages_since(
-                    access_token=email_conn.access_token,
-                    refresh_token=email_conn.refresh_token,
+                    access_token=_acc,
+                    refresh_token=_ref,
                     token_expires_at=email_conn.token_expires_at,
                     since_date=since_date,
                     max_results=100,
@@ -694,8 +718,8 @@ async def sync_recent_gmail(
                                 email_body=body,
                                 image_attachments=image_attachments,
                                 gmail_api=gmail_api,
-                                access_token=email_conn.access_token,
-                                refresh_token=email_conn.refresh_token,
+                                access_token=_acc,
+                                refresh_token=_ref,
                                 token_expires_at=email_conn.token_expires_at,
                                 message_id=message_id,
                             )

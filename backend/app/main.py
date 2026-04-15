@@ -389,7 +389,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "decrypt-tokens-v4-2026-04-15",
+            "build_marker": "sync-decrypt-v5-2026-04-15",
         }
 
     @app.get("/")
