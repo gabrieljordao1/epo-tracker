@@ -605,14 +605,11 @@ async def reparse_all_epos(
             if not parsed:
                 continue
 
-            # Not an EPO per new classifier — archive, don't delete
+            # Not an EPO per new classifier — hard delete the auto-created junk row
             if parsed.get("is_epo") is False:
-                if hasattr(epo, "archived"):
-                    epo.archived = True
-                # Also mark via status/needs_review as a safety net
-                epo.needs_review = True
+                details.append({"id": epo.id, "action": "deleted_not_epo", "subject": subject[:80]})
+                await session.delete(epo)
                 archived_not_epo += 1
-                details.append({"id": epo.id, "action": "archived_not_epo"})
                 continue
 
             changes: Dict[str, Any] = {}
