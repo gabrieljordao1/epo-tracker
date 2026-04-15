@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getEPOs, getStats, sendFollowup, downloadCSV, batchFollowup, updateEPO, backfillEPOAmounts } from "@/lib/api";
+import { getEPOs, getStats, sendFollowup, downloadCSV, batchFollowup, updateEPO, backfillEPOAmounts, syncRecentGmail } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
 import {
   AlertCircle,
@@ -53,6 +53,25 @@ export default function EPOsPage() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSyncRecent = async () => {
+    if (!confirm("Pull the last 14 days of emails from Gmail and process any missed EPOs? This may take 1-3 minutes.")) return;
+    setSyncing(true);
+    setBackfillResult(null);
+    try {
+      const result = await syncRecentGmail(14);
+      setBackfillResult(
+        `Synced: ${result.new_epos_created} new EPOs, ${result.replies_processed} replies, ` +
+        `${result.skipped_already_ingested} already had (fetched ${result.total_fetched} total)`
+      );
+      await loadData();
+    } catch (err: any) {
+      setBackfillResult(`Sync error: ${err.message || "Failed"}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const handleBackfillAmounts = async () => {
     if (!confirm("Re-scan all EPOs with missing amounts? This reads stored emails + re-fetches from Gmail. Takes 1-3 minutes.")) return;
@@ -282,6 +301,15 @@ export default function EPOsPage() {
           </p>
         </div>
         <div className="flex gap-2 sm:gap-3">
+          <button
+            onClick={handleSyncRecent}
+            disabled={syncing}
+            className="btn-secondary flex items-center gap-2 text-sm"
+            title="Pull last 14 days of emails from Gmail"
+          >
+            <DollarSign size={16} />
+            <span className="hidden sm:inline">{syncing ? "Syncing..." : "Sync Recent"}</span>
+          </button>
           <button
             onClick={handleBackfillAmounts}
             disabled={backfilling}

@@ -406,6 +406,26 @@ export async function backfillEPOAmounts(): Promise<{
   return res.json();
 }
 
+export async function syncRecentGmail(days: number = 14): Promise<{
+  success: boolean;
+  total_fetched: number;
+  new_epos_created: number;
+  replies_processed: number;
+  skipped_already_ingested: number;
+  errors: string[];
+}> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/webhook/gmail/sync-recent?days=${days}`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Sync failed: ${err}`);
+  }
+  return res.json();
+}
+
 // ─── Sub Payments / Profit Tracker ─────────────
 export interface SubPayment {
   id: number;

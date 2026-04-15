@@ -583,3 +583,187 @@ async def setup_gmail_webhook(
             status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),
         )
+
+
+@router.post("/gmail/sync-recent")
+async def sync_recent_gmail(
+    days: int = 14,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Manually pull the last N days of emails from Gmail and run them through
+    the agent pipeline. Useful when the Pub/Sub watch has expired and emails
+    stopped flowing in. Deduplicates against existing EPOs by gmail_message_id.
+    """
+    from datetime import timedelta
+    from ..services.agent_pipeline import AgentPipelineService
+
+    try:
+        if days < 1 or days > 90:
+            raise HTTPException(status_code=400, detail="days must be 1-90")
+
+        # Get active Gmail connections for this company
+        conn_query = select(EmailConnection).where(
+            (EmailConnection.company_id == current_user.company_id)
+            & (EmailConnection.provider == "gmail")
+            & (EmailConnection.is_active.is_(True))
+        )
+        conn_result = await session.execute(conn_query)
+        email_conns = conn_result.scalars().all()
+
+        if not email_conns:
+            raise HTTPException(status_code=404, detail="No active Gmail connections")
+
+        gmail_api = GmailAPIService(
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+        )
+        agent = AgentPipelineService()
+        since_date = datetime.utcnow() - timedelta(days=days)
+
+        total_fetched = 0
+        total_new_epos = 0
+        total_replies = 0
+        total_skipped_existing = 0
+        errors = []
+
+        for email_conn in email_conns:
+            try:
+                messages = await gmail_api.get_messages_since(
+                    access_token=email_conn.access_token,
+                    refresh_token=email_conn.refresh_token,
+                    token_expires_at=email_conn.token_expires_at,
+                    since_date=since_date,
+                    max_results=100,
+                )
+                total_fetched += len(messages)
+                logger.info(f"sync-recent: fetched {len(messages)} msgs for {email_conn.email_address}")
+
+                internal_addresses, internal_domains = await _build_internal_email_set(
+                    session, current_user.company_id, email_conn.email_address
+                )
+
+                for msg in messages:
+                    message_id = msg.get("message_id") or msg.get("id", "")
+                    if not message_id:
+                        continue
+
+                    # Dedup: skip if we already have an EPO for this Gmail message
+                    existing_query = select(EPO.id).where(
+                        (EPO.gmail_message_id == message_id)
+                        & (EPO.company_id == current_user.company_id)
+                    )
+                    existing_result = await session.execute(existing_query)
+                    if existing_result.scalar() is not None:
+                        total_skipped_existing += 1
+                        continue
+
+                    from_field = msg.get("from", "")
+                    to_field = msg.get("to", "")
+                    cc_field = msg.get("cc", "")
+                    subject = msg.get("subject", "")
+                    body = msg.get("body", "")
+                    thread_id = msg.get("thread_id", "")
+                    in_reply_to = msg.get("in_reply_to", "")
+                    image_attachments = msg.get("image_attachments", [])
+
+                    # Check if this is a reply to an existing EPO thread
+                    matched_epo = None
+                    if thread_id:
+                        q = select(EPO).where(
+                            (EPO.gmail_thread_id == thread_id)
+                            & (EPO.company_id == current_user.company_id)
+                        ).order_by(EPO.created_at.desc())
+                        r = await session.execute(q)
+                        matched_epo = r.scalars().first()
+                    if not matched_epo and in_reply_to:
+                        q = select(EPO).where(
+                            (EPO.gmail_message_id == in_reply_to.strip("<>"))
+                            & (EPO.company_id == current_user.company_id)
+                        )
+                        r = await session.execute(q)
+                        matched_epo = r.scalars().first()
+
+                    if matched_epo:
+                        try:
+                            await agent.process_reply_email(
+                                session=session,
+                                epo=matched_epo,
+                                email_subject=subject,
+                                email_body=body,
+                                image_attachments=image_attachments,
+                                gmail_api=gmail_api,
+                                access_token=email_conn.access_token,
+                                refresh_token=email_conn.refresh_token,
+                                token_expires_at=email_conn.token_expires_at,
+                                message_id=message_id,
+                            )
+                            total_replies += 1
+                        except Exception as e:
+                            errors.append(f"reply {message_id}: {e}")
+                        continue
+
+                    # New EPO path
+                    submitter_email = _extract_email_address(from_field)
+                    if not submitter_email:
+                        continue
+
+                    user_q = select(User).where(
+                        or_(
+                            User.email.ilike(submitter_email),
+                            User.work_email.ilike(submitter_email),
+                        )
+                    )
+                    user_r = await session.execute(user_q)
+                    submitter_user = user_r.scalars().first()
+                    submitted_by_id = submitter_user.id if submitter_user else None
+
+                    all_recipients = _extract_all_emails(to_field) + _extract_all_emails(cc_field)
+                    builder_email = ""
+                    for recipient in all_recipients:
+                        if not _is_internal_email(recipient, internal_addresses, internal_domains) and recipient != submitter_email:
+                            builder_email = recipient
+                            break
+                    builder_name = _builder_name_from_domain(builder_email) if builder_email else "Unknown Builder"
+
+                    try:
+                        result = await agent.process_new_email(
+                            session=session,
+                            email_subject=subject,
+                            email_body=body,
+                            vendor_email=builder_email or submitter_email,
+                            company_id=current_user.company_id,
+                            email_connection_id=email_conn.id,
+                            builder_name=builder_name,
+                            builder_email=builder_email,
+                            submitter_email=submitter_email,
+                            submitted_by_id=submitted_by_id,
+                            gmail_thread_id=thread_id,
+                            gmail_message_id=message_id,
+                        )
+                        if result.get("created"):
+                            total_new_epos += 1
+                    except Exception as e:
+                        errors.append(f"new {message_id}: {e}")
+
+            except Exception as e:
+                logger.error(f"sync-recent error for {email_conn.email_address}: {e}", exc_info=True)
+                errors.append(f"{email_conn.email_address}: {e}")
+
+        await session.commit()
+
+        return {
+            "success": True,
+            "days": days,
+            "total_fetched": total_fetched,
+            "new_epos_created": total_new_epos,
+            "replies_processed": total_replies,
+            "skipped_already_ingested": total_skipped_existing,
+            "errors": errors[:20],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"sync-recent fatal: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
