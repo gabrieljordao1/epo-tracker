@@ -76,7 +76,7 @@ class TestPasswordReset:
         reset_code = generate_secure_random_token(24)
         reset_token = PasswordResetToken(
             user_id=test_admin.id,
-            token_hash=get_password_hash(reset_code),
+            token_hash=reset_code,
             expires_at=datetime.utcnow() + timedelta(hours=1),
             used=False,
         )
@@ -107,7 +107,7 @@ class TestPasswordReset:
         reset_code = generate_secure_random_token(24)
         reset_token = PasswordResetToken(
             user_id=test_admin.id,
-            token_hash=get_password_hash(reset_code),
+            token_hash=reset_code,
             expires_at=datetime.utcnow() - timedelta(hours=1),  # Expired
             used=False,
         )
@@ -132,7 +132,7 @@ class TestPasswordReset:
         reset_code = generate_secure_random_token(24)
         reset_token = PasswordResetToken(
             user_id=test_admin.id,
-            token_hash=get_password_hash(reset_code),
+            token_hash=reset_code,
             expires_at=datetime.utcnow() + timedelta(hours=1),
             used=False,
         )
@@ -158,7 +158,7 @@ class TestPasswordReset:
         reset_code = generate_secure_random_token(24)
         reset_token = PasswordResetToken(
             user_id=test_admin.id,
-            token_hash=get_password_hash(reset_code),
+            token_hash=reset_code,
             expires_at=datetime.utcnow() + timedelta(hours=1),
             used=False,
         )
@@ -198,7 +198,7 @@ class TestPasswordReset:
         reset_code = generate_secure_random_token(24)
         reset_token = PasswordResetToken(
             user_id=test_admin.id,
-            token_hash=get_password_hash(reset_code),
+            token_hash=reset_code,
             expires_at=datetime.utcnow() + timedelta(hours=1),
             used=False,
         )
