@@ -99,6 +99,31 @@ async def _run_safe_migrations():
               SELECT 1 FROM users WHERE email = 'gabriel.jordao0217@gmail.com'
           );
         """,
+        # Create sub_payments table for profit tracking
+        """
+        CREATE TABLE IF NOT EXISTS sub_payments (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            epo_id INTEGER NOT NULL REFERENCES epos(id) ON DELETE CASCADE,
+            created_by_id INTEGER REFERENCES users(id),
+            sub_name VARCHAR(255) NOT NULL,
+            sub_trade VARCHAR(100) NOT NULL,
+            amount DOUBLE PRECISION NOT NULL,
+            paid_date TIMESTAMP WITH TIME ZONE,
+            notes TEXT,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS ix_sub_payments_company_id ON sub_payments (company_id);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS ix_sub_payments_epo_id ON sub_payments (epo_id);
+        """,
+        """
+        CREATE INDEX IF NOT EXISTS ix_sub_payments_created_at ON sub_payments (created_at);
+        """,
     ]
 
     async with engine.begin() as conn:

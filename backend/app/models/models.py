@@ -205,6 +205,7 @@ class EPO(Base):
     followups = relationship("EPOFollowup", back_populates="epo", cascade="all, delete-orphan")
     attachments = relationship("EPOAttachment", back_populates="epo", cascade="all, delete-orphan")
     approvals = relationship("EPOApproval", back_populates="epo", cascade="all, delete-orphan")
+    sub_payments = relationship("SubPayment", back_populates="epo", cascade="all, delete-orphan")
 
 
 class EPOFollowup(Base):
@@ -634,3 +635,30 @@ class WorkOrder(Base):
     created_by = relationship("User", foreign_keys=[created_by_id])
     assigned_to = relationship("User", foreign_keys=[assigned_to_id])
     epo = relationship("EPO")
+
+
+# ─── Sub Payments / Profit Tracking ──────────────────────────────────
+class SubPayment(Base):
+    """Tracks payments made to subcontractors (drywaller, painter, etc.)
+    against an EPO. Used to calculate net profit per EPO.
+    """
+    __tablename__ = "sub_payments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    sub_name = Column(String(255), nullable=False)
+    sub_trade = Column(String(100), nullable=False)  # drywaller, painter, etc.
+    amount = Column(Float, nullable=False)
+    paid_date = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    company = relationship("Company")
+    epo = relationship("EPO", back_populates="sub_payments")
+    created_by = relationship("User", foreign_keys=[created_by_id])

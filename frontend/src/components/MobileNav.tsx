@@ -6,13 +6,9 @@ import {
   LayoutDashboard,
   FileText,
   TrendingUp,
-  Users,
   Settings,
   LogOut,
-  ClipboardList,
-  Hammer,
-  Target,
-  Wrench,
+  DollarSign,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -28,9 +24,8 @@ export function MobileNav() {
   const navItems = [
     { href: "/", label: "Home", icon: LayoutDashboard },
     { href: "/epos", label: "EPOs", icon: FileText },
+    { href: "/profit", label: "Profit", icon: DollarSign },
     { href: "/analytics", label: "Stats", icon: TrendingUp },
-    { href: "/work-orders", label: "Tasks", icon: Wrench },
-    { href: "/budgets", label: "Budget", icon: Target },
     { href: "/settings", label: "More", icon: Settings },
   ];
 

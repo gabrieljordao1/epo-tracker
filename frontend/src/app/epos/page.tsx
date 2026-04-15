@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getEPOs, getStats, sendFollowup, downloadCSV, batchFollowup, updateEPO } from "@/lib/api";
+import { getEPOs, getStats, sendFollowup, downloadCSV, batchFollowup, updateEPO, backfillEPOAmounts } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
 import {
   AlertCircle,
@@ -16,6 +16,7 @@ import {
   Flame,
   Clock,
   Filter,
+  DollarSign,
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { AddEPOModal } from "@/components/AddEPOModal";
@@ -50,6 +51,26 @@ export default function EPOsPage() {
   const [communityFilter, setCommunityFilter] = useState<string>("all");
   const [sortField, setSortField] = useState<"date" | "amount" | "age">("date");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillResult, setBackfillResult] = useState<string | null>(null);
+
+  const handleBackfillAmounts = async () => {
+    if (!confirm("Re-scan all EPOs with missing amounts? This reads stored emails + re-fetches from Gmail. Takes 1-3 minutes.")) return;
+    setBackfilling(true);
+    setBackfillResult(null);
+    try {
+      const result = await backfillEPOAmounts();
+      setBackfillResult(
+        `Recovered ${result.updated_total} of ${result.total_checked} EPOs ` +
+        `(regex: ${result.updated_regex}, AI: ${result.updated_ai}, Gmail refetch: ${result.updated_gmail_refetch})`
+      );
+      await loadData();
+    } catch (err: any) {
+      setBackfillResult(`Error: ${err.message || "Failed"}`);
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -262,6 +283,15 @@ export default function EPOsPage() {
         </div>
         <div className="flex gap-2 sm:gap-3">
           <button
+            onClick={handleBackfillAmounts}
+            disabled={backfilling}
+            className="btn-secondary flex items-center gap-2 text-sm"
+            title="Re-scan stored emails to recover missing EPO amounts"
+          >
+            <DollarSign size={16} />
+            <span className="hidden sm:inline">{backfilling ? "Scanning..." : "Recover Amounts"}</span>
+          </button>
+          <button
             onClick={handleExport}
             disabled={exporting}
             className="btn-secondary flex items-center gap-2 text-sm"
@@ -278,6 +308,12 @@ export default function EPOsPage() {
           </button>
         </div>
       </div>
+
+      {backfillResult && (
+        <div className="rounded-lg border border-green-bdr bg-green-dim p-3 text-sm text-green">
+          {backfillResult}
+        </div>
+      )}
 
       {/* Filter Tabs */}
       <div className="flex gap-2 md:gap-4 border-b border-card-border pb-4 overflow-x-auto">

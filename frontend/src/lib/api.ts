@@ -384,6 +384,127 @@ export async function createEPO(epo: Partial<EPO>): Promise<EPO> {
   return res.json();
 }
 
+export async function backfillEPOAmounts(): Promise<{
+  total_checked: number;
+  updated_total: number;
+  updated_regex: number;
+  updated_ai: number;
+  updated_gmail_refetch: number;
+  skipped: number;
+  errors: string[];
+  details: string[];
+}> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/backfill-amounts`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Backfill failed: ${err}`);
+  }
+  return res.json();
+}
+
+// ─── Sub Payments / Profit Tracker ─────────────
+export interface SubPayment {
+  id: number;
+  epo_id: number;
+  sub_name: string;
+  sub_trade: string;
+  amount: number;
+  paid_date: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface EPOProfitSummary {
+  epo_id: number;
+  vendor_name: string;
+  community: string;
+  lot_number: string;
+  description: string;
+  epo_amount: number;
+  total_paid_subs: number;
+  net_profit: number;
+  profit_margin: number;
+  payments: SubPayment[];
+  status: string;
+  created_at: string;
+}
+
+export interface ProfitOverview {
+  total_revenue: number;
+  total_paid_subs: number;
+  total_net_profit: number;
+  avg_profit_margin: number;
+  epo_count: number;
+  payment_count: number;
+}
+
+export async function getSubPayments(epoId?: number): Promise<SubPayment[]> {
+  await ensureTokenValid();
+  const url = epoId
+    ? `${API_BASE}/api/sub-payments?epo_id=${epoId}`
+    : `${API_BASE}/api/sub-payments`;
+  const res = await fetch(url, { headers: authHeaders() });
+  if (!res.ok) throw new Error("Failed to load sub payments");
+  return res.json();
+}
+
+export async function createSubPayment(payment: {
+  epo_id: number;
+  sub_name: string;
+  sub_trade: string;
+  amount: number;
+  paid_date?: string | null;
+  notes?: string | null;
+}): Promise<SubPayment> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/sub-payments`, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payment),
+  });
+  if (!res.ok) throw new Error("Failed to create sub payment");
+  return res.json();
+}
+
+export async function updateSubPayment(
+  id: number,
+  updates: Partial<SubPayment>
+): Promise<SubPayment> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/sub-payments/${id}`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update sub payment");
+  return res.json();
+}
+
+export async function deleteSubPayment(id: number): Promise<void> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/sub-payments/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete sub payment");
+}
+
+export async function getProfitSummary(): Promise<{
+  overview: ProfitOverview;
+  epos: EPOProfitSummary[];
+}> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/sub-payments/profit-summary`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to load profit summary");
+  return res.json();
+}
+
 // ─── Demo API (no auth) ─────────────────────────
 export async function simulateEmail(subject: string, body: string): Promise<any> {
   try {

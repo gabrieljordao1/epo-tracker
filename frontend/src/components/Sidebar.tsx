@@ -15,9 +15,7 @@ import {
   ChevronUp,
   Activity,
   ClipboardList,
-  Hammer,
-  Target,
-  Wrench,
+  DollarSign,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -48,12 +46,10 @@ export function Sidebar() {
   const navItems = [
     { href: "/", label: "Dashboard", icon: LayoutDashboard },
     { href: "/epos", label: "EPOs", icon: FileText },
+    { href: "/profit", label: "Profit Tracker", icon: DollarSign },
     { href: "/analytics", label: "Analytics", icon: TrendingUp },
     { href: "/activity", label: "Activity", icon: Activity },
     { href: "/daily-reports", label: "Daily Reports", icon: ClipboardList },
-    { href: "/punch-list", label: "Punch List", icon: Hammer },
-    { href: "/budgets", label: "Budgets", icon: Target },
-    { href: "/work-orders", label: "Work Orders", icon: Wrench },
     { href: "/team", label: "Team", icon: Users },
   ];
 
