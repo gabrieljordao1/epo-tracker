@@ -45,6 +45,7 @@ def _decrypt_conn_tokens(conn) -> tuple[str, str]:
         refresh = conn.refresh_token or ""
     return access, refresh
 
+
 router = APIRouter(prefix="/api/webhook", tags=["webhooks"])
 
 # In-memory deduplication cache for recent historyIds (bounded with LRU eviction)
