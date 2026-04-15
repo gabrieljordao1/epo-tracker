@@ -379,7 +379,7 @@ async def backfill_epo_amounts(
     3. For EPOs with empty body but a gmail_message_id: re-fetch from Gmail,
        extract body (now with HTML support), then AI parse
     """
-    if current_user.role not in (UserRole.ADMIN, UserRole.OWNER):
+    if current_user.role not in (UserRole.ADMIN, UserRole.MANAGER):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
