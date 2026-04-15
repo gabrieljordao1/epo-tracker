@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import JSONResponse
@@ -616,10 +617,19 @@ async def reparse_all_epos(
 
             changes: Dict[str, Any] = {}
 
-            # Builder
+            # Builder — only adopt a value that looks like a company, not a person
+            from ..services.email_parser import _looks_like_person_name
             new_builder = parsed.get("builder_name") or parsed.get("vendor_name")
+            if new_builder and _looks_like_person_name(new_builder):
+                new_builder = None
+            # Wipe any existing person-name builder (legacy bad data)
+            if epo.vendor_name and _looks_like_person_name(epo.vendor_name):
+                epo.vendor_name = "Unknown Builder"
+                changes["vendor_name_cleared"] = True
+                builder_fixed += 1
             if new_builder and new_builder != epo.vendor_name:
-                if epo.vendor_name in (None, "", "Unknown Builder") or not epo.vendor_name.strip():
+                current = (epo.vendor_name or "").strip()
+                if current in ("", "Unknown Builder"):
                     changes["vendor_name"] = new_builder
                     epo.vendor_name = new_builder
                     builder_fixed += 1
@@ -630,11 +640,19 @@ async def reparse_all_epos(
                 changes["community"] = new_comm
                 epo.community = new_comm
 
-            # Lot
+            # Lot — if Gemini returned "2b and 2c" or "25,26,27" pick the first concrete lot
             new_lot = parsed.get("lot_number")
+            if isinstance(new_lot, str):
+                # Split on commas, " and ", or whitespace — take first non-empty token
+                parts = re.split(r"[,;]| and |\s+", new_lot.strip())
+                parts = [p for p in (pp.strip() for pp in parts) if p and p.lower() not in ("and", "or")]
+                if parts and len(parts[0]) <= 10:
+                    new_lot = parts[0]
             if new_lot and new_lot != epo.lot_number:
-                changes["lot_number"] = new_lot
-                epo.lot_number = new_lot
+                # Reject garbage single-letter lots
+                if not (len(new_lot) == 1 and new_lot.isalpha()):
+                    changes["lot_number"] = new_lot
+                    epo.lot_number = new_lot
 
             # Description — replace if new one is clearly better (longer, not truncated)
             new_desc = parsed.get("description")

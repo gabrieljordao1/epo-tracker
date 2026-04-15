@@ -11,6 +11,85 @@ settings = get_settings()
 logger = logging.getLogger(__name__)
 
 
+# Obvious non-EPO subject patterns — bypass LLM entirely and reject as is_epo=false
+_NON_EPO_SUBJECT_PATTERNS = [
+    r"2[-\s]?step\s+verification",
+    r"security\s+alert",
+    r"app\s+password",
+    r"new\s+sign[-\s]?in",
+    r"suspicious\s+sign[-\s]?in",
+    r"verify\s+your\s+account",
+    r"verify\s+your\s+email",
+    r"password\s+(?:reset|changed|updated)",
+    r"your\s+receipt",
+    r"your\s+invoice",
+    r"your\s+order",
+    r"account\s+(?:activity|activated|created)",
+    r"^out\s+of\s+office",
+    r"^automatic\s+reply",
+    r"calendar\s+invite",
+    r"meeting\s+(?:invite|invitation|request)",
+    r"^undeliverable",
+    r"^delivery\s+(?:status|failure)",
+    r"mail\s+delivery\s+subsystem",
+    r"unsubscribe",
+    r"newsletter",
+    r"^fwd:\s*(?:fwd:|re:)*\s*(?:welcome|thank\s+you)",
+]
+_NON_EPO_SUBJECT_RE = re.compile("|".join(_NON_EPO_SUBJECT_PATTERNS), re.IGNORECASE)
+
+
+_PERSON_NAME_RE = re.compile(
+    r"^[A-Z][a-z]+(?:\s+[A-Z]\.?)?\s+[A-Z][a-z]+(?:[-'][A-Z][a-z]+)?$"
+)
+_COMPANY_TOKENS = re.compile(
+    r"\b(homes?|builders?|construction|development|group|company|inc|llc|corp|ltd|co\.?|communities)\b",
+    re.IGNORECASE,
+)
+_KNOWN_BUILDER_TOKENS = {
+    "pulte", "summit", "drb", "hovnanian", "ryan", "meritage", "toll",
+    "lennar", "kb home", "nvr", "mi homes", "m/i", "taylor morrison",
+    "dream finders", "stanley martin", "mungo", "true homes", "eastwood",
+    "beazer", "dr horton", "d.r. horton", "shea", "century", "pulte homes",
+}
+
+
+def _looks_like_person_name(s: str) -> bool:
+    """Returns True if the string looks like 'First Last' — i.e., a person
+    rather than a builder/company name. Used to filter out Gemini's occasional
+    habit of returning the email signer as builder_name.
+    """
+    s = (s or "").strip()
+    if not s or len(s) > 60:
+        return False
+    # Contains explicit company tokens → it's a company
+    if _COMPANY_TOKENS.search(s):
+        return False
+    # Known builder brand (even one word) → company
+    low = s.lower()
+    for tok in _KNOWN_BUILDER_TOKENS:
+        if tok in low:
+            return False
+    # Two-word capitalized form matches person-name pattern
+    return bool(_PERSON_NAME_RE.match(s))
+
+
+def _is_obvious_non_epo(subject: str, body: str) -> bool:
+    """Fast reject for emails that are clearly not EPO requests.
+    Catches Google/Microsoft security alerts, auto-replies, newsletters, etc.
+    """
+    s = (subject or "").strip()
+    if not s:
+        return False
+    if _NON_EPO_SUBJECT_RE.search(s):
+        return True
+    # Google security emails often have "Google" or "noreply" sender and no lot context
+    low = s.lower()
+    if "google" in low and ("security" in low or "account" in low or "sign-in" in low or "sign in" in low):
+        return True
+    return False
+
+
 class EmailParserService:
     """
     Multi-tier email parser for EPO extraction:
@@ -69,6 +148,16 @@ class EmailParserService:
         # Sanitize inputs first to prevent XSS/injection
         email_subject = sanitize_text_field(email_subject, max_length=500)
         email_body = sanitize_email_body(email_body)
+
+        # Hard pre-filter: obvious non-EPO subjects get rejected without calling any LLM
+        if _is_obvious_non_epo(email_subject, email_body):
+            logger.info(f"Pre-filter: non-EPO subject '{email_subject[:60]}' — skipping")
+            return {
+                "is_epo": False,
+                "confidence_score": 0.0,
+                "needs_review": False,
+                "parse_model": "prefilter",
+            }
 
         # Tier 1: Try Gemini Flash (preferred — handles informal emails well)
         if settings.GOOGLE_AI_API_KEY and gemini_breaker.can_execute():
@@ -398,7 +487,12 @@ STEP 2 — IF it IS an EPO, extract one object per lot. Multi-lot rule: "lot 2b 
 EXTRACTION RULES:
 - community: Subdivision name, properly capitalized. Fix obvious typos ("plott"→"Plott", "gallway"→"Galloway", "mallrd park"→"Mallard Park"). NEVER use garbage like "View", "1-20", "21,", words lifted from mid-sentence. If you cannot identify a real community, set null.
 - lot_number: Just the lot identifier like "12", "2B", "A-5". NEVER a single letter like "s" or "a" pulled from mid-word. If you cannot find a clear lot, set null.
-- builder_name: The HOMEBUILDER company (Pulte, Summit, DRB, Hovnanian, Ryan Homes, Meritage, Toll Brothers, Lennar, KB Home, NVR, M/I Homes, Taylor Morrison, Dream Finders, Stanley Martin, Mungo, True Homes, Eastwood, etc.) — NOT the paint/drywall company. Look in subject, body, signature, and email domain. If truly not derivable, set null (the system will backfill from email domain).
+- builder_name: The HOMEBUILDER COMPANY (Pulte, Summit, DRB, Hovnanian, Ryan Homes, Meritage, Toll Brothers, Lennar, KB Home, NVR, M/I Homes, Taylor Morrison, Dream Finders, Stanley Martin, Mungo, True Homes, Eastwood, etc.). CRITICAL RULES:
+  * NEVER return a person's name (first+last like "Gabriel Jordao", "Sue Bennett", "John Smith"). Builders are COMPANIES, not people.
+  * NEVER return the paint/drywall subcontractor's name — they are the sender, not the builder.
+  * If the only thing you can see is a person's signature with no company, set builder_name to null.
+  * If you see "Pulte", "DRB Homes", etc. in the email domain or body, use that.
+  * If you can't identify a real homebuilder company, set null — do NOT guess a person's name.
 - description: ONE SHORT SENTENCE describing the actual work. Strip "please submit an epo of $X to" prefixes. Good: "Patch and paint holes in master bedroom after cabinet install". Bad: "Please submit an epo of 350 to patch and". NEVER truncate mid-word — always end at a sentence boundary. If the email literally gives no work description, write "Extra paint/drywall work" and set needs_review=true.
 - amount: Dollar amount as float. Patterns: "$350", "350", "350.00", "350 each", "epo of 700", "$1,200", "12 hundred". If a total is given for multiple lots, divide. If truly no amount in the text, set null.
 - confirmation_number: PO/confirmation number if present, else null.
@@ -473,6 +567,12 @@ Example (Google security alert):
                 item["is_epo"] = True
                 item.setdefault("confidence_score", 0.6)
                 item.setdefault("needs_review", item.get("confidence_score", 0.5) < 0.8)
+                # Safety net: drop person-name builder_names — Gemini sometimes
+                # returns "John Smith" when only a signature exists.
+                b = item.get("builder_name")
+                if b and _looks_like_person_name(b):
+                    logger.info(f"Dropping person-name builder '{b}' — not a company")
+                    item["builder_name"] = None
                 results.append(item)
 
             if results:
