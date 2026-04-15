@@ -480,6 +480,9 @@ async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, A
                         if not msg.get("success"):
                             err = str(msg.get("error") or "unknown")[:200]
                             errors.append(f"EPO #{epo.id} [mid={epo.gmail_message_id[:12]}]: {err}")
+                            # If Google returned 401, flag connection for reconnect
+                            if '"code": 401' in err or "invalid authentication" in err.lower():
+                                conn.is_active = False
                             no_text += 1
                             continue
 
