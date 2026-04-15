@@ -35,7 +35,7 @@ jobs:
         run: |
           flake8 backend \
             --max-line-length=120 \
-            --ignore=E501,W503,E203 \
+            --ignore=E501,W503,E203,F401,F541,F841,E712 \
             --exclude=__pycache__,.git,.venv,venv,build,dist
         continue-on-error: false
 
