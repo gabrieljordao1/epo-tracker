@@ -51,6 +51,13 @@ _KNOWN_BUILDER_TOKENS = {
     "lennar", "kb home", "nvr", "mi homes", "m/i", "taylor morrison",
     "dream finders", "stanley martin", "mungo", "true homes", "eastwood",
     "beazer", "dr horton", "d.r. horton", "shea", "century", "pulte homes",
+    "tripointe", "tri pointe", "tri-pointe", "red cedar", "redcedar",
+}
+
+# Common email providers — NEVER a builder name
+_EMAIL_PROVIDER_NAMES = {
+    "hotmail", "gmail", "yahoo", "outlook", "aol", "icloud", "mail",
+    "protonmail", "msn", "live", "comcast", "verizon", "att", "me",
 }
 
 
@@ -72,6 +79,41 @@ def _looks_like_person_name(s: str) -> bool:
             return False
     # Two-word capitalized form matches person-name pattern
     return bool(_PERSON_NAME_RE.match(s))
+
+
+def _is_bad_builder_name(s: str) -> bool:
+    """Returns True if the builder name is clearly not a real builder:
+    - Person's name (handled by _looks_like_person_name)
+    - Email provider (hotmail, gmail, yahoo, etc.)
+    - Empty or garbage
+    """
+    s = (s or "").strip()
+    if not s:
+        return True
+    low = s.lower().replace(".com", "").replace(".net", "").strip()
+    # Reject if it's just an email provider
+    if low in _EMAIL_PROVIDER_NAMES:
+        return True
+    # Reject if matches person pattern
+    if _looks_like_person_name(s):
+        return True
+    return False
+
+
+def _looks_like_bad_lot(s) -> bool:
+    """True if the lot_number is clearly garbage: single letter, empty, etc."""
+    if not s:
+        return False
+    t = str(s).strip()
+    if not t:
+        return False
+    # Single non-digit character like "s" or "a"
+    if len(t) == 1 and t.isalpha():
+        return True
+    # Just a comma or punctuation
+    if t in (",", ".", "-"):
+        return True
+    return False
 
 
 def _is_obvious_non_epo(subject: str, body: str) -> bool:

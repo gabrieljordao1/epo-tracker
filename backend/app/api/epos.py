@@ -617,13 +617,13 @@ async def reparse_all_epos(
 
             changes: Dict[str, Any] = {}
 
-            # Builder — only adopt a value that looks like a company, not a person
-            from ..services.email_parser import _looks_like_person_name
+            # Builder — only adopt a value that's a real company, not a person or email provider
+            from ..services.email_parser import _is_bad_builder_name, _looks_like_bad_lot
             new_builder = parsed.get("builder_name") or parsed.get("vendor_name")
-            if new_builder and _looks_like_person_name(new_builder):
+            if new_builder and _is_bad_builder_name(new_builder):
                 new_builder = None
-            # Wipe any existing person-name builder (legacy bad data)
-            if epo.vendor_name and _looks_like_person_name(epo.vendor_name):
+            # Wipe any existing bad builder (person's name, email provider, etc.)
+            if epo.vendor_name and _is_bad_builder_name(epo.vendor_name):
                 epo.vendor_name = "Unknown Builder"
                 changes["vendor_name_cleared"] = True
                 builder_fixed += 1
@@ -650,9 +650,13 @@ async def reparse_all_epos(
                     new_lot = parts[0]
             if new_lot and new_lot != epo.lot_number:
                 # Reject garbage single-letter lots
-                if not (len(new_lot) == 1 and new_lot.isalpha()):
+                if not _looks_like_bad_lot(new_lot):
                     changes["lot_number"] = new_lot
                     epo.lot_number = new_lot
+            # Actively clear existing bad lot values (e.g., "s", "a")
+            if epo.lot_number and _looks_like_bad_lot(epo.lot_number):
+                epo.lot_number = None
+                changes["lot_number_cleared"] = True
 
             # Description — replace if new one is clearly better (longer, not truncated)
             new_desc = parsed.get("description")
