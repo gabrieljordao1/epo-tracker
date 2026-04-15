@@ -12,10 +12,13 @@ from sqlalchemy import select, and_
 
 from ..core.database import async_session_maker
 from ..core.config import get_settings
+from sqlalchemy import or_
+
 from ..models.models import (
     EPO, EPOFollowup, EmailConnection, Company,
     EPOStatus, FollowupStatus,
 )
+from .email_parser import EmailParserService
 from .email_sender import EmailSenderService
 
 logger = logging.getLogger(__name__)
@@ -262,6 +265,101 @@ async def run_weekly_digest():
         logger.error(f"Weekly digest job failed: {e}")
 
 
+async def run_amount_backfill():
+    """Self-healing: automatically re-parse amounts for EPOs with missing
+    or zero amounts across ALL companies.
+
+    Runs regex-only pass (no network) every hour. This means any time the
+    parser patterns improve, old rows heal themselves without user action.
+
+    Also flags EmailConnections as needing reconnection when Gmail refresh
+    fails — the UI banner reads this flag.
+    """
+    logger.info("Running amount backfill (auto-healing)...")
+    parser = EmailParserService()
+
+    async with async_session_maker() as session:
+        query = select(EPO).where(or_(EPO.amount.is_(None), EPO.amount == 0))
+        result = await session.execute(query)
+        epos = result.scalars().all()
+
+        updated = 0
+        for epo in epos:
+            try:
+                subject = epo.raw_email_subject or ""
+                body = epo.raw_email_body or ""
+                text = f"{subject}\n{body}".strip()
+                if not text:
+                    continue
+                amount, _ = parser._extract_amount(text)
+                if amount and amount > 0:
+                    epo.amount = float(amount)
+                    updated += 1
+            except Exception as e:
+                logger.error(f"Auto-backfill EPO #{epo.id} failed: {e}")
+                continue
+
+        await session.commit()
+        logger.info(f"Auto-backfill complete: {updated}/{len(epos)} EPOs healed")
+
+
+async def check_gmail_connection_health():
+    """Ping Gmail API for each active connection. If auth fails, mark
+    the connection as inactive so the UI can prompt reconnection.
+    """
+    from .gmail_api import GmailAPIService
+
+    logger.info("Checking Gmail connection health...")
+    gmail_api = GmailAPIService(
+        client_id=settings.GOOGLE_CLIENT_ID,
+        client_secret=settings.GOOGLE_CLIENT_SECRET,
+    )
+
+    async with async_session_maker() as session:
+        query = select(EmailConnection).where(
+            (EmailConnection.provider == "gmail")
+            & (EmailConnection.is_active.is_(True))
+        )
+        result = await session.execute(query)
+        conns = result.scalars().all()
+
+        unhealthy = 0
+        for conn in conns:
+            try:
+                # Cheap probe: list 1 message
+                msgs = await gmail_api.get_messages_since(
+                    access_token=conn.access_token,
+                    refresh_token=conn.refresh_token or "",
+                    token_expires_at=conn.token_expires_at,
+                    since_date=datetime.utcnow() - timedelta(days=1),
+                    max_results=1,
+                )
+                # If empty list due to auth, treat as unhealthy; otherwise healthy
+                # (get_messages_since logs 401 internally and returns [])
+                import httpx
+                # Re-test with an authenticated endpoint that returns a clear code
+                url = "https://www.googleapis.com/gmail/v1/users/me/profile"
+                async with httpx.AsyncClient() as client:
+                    r = await client.get(
+                        url,
+                        headers={"Authorization": f"Bearer {conn.access_token}"},
+                        timeout=8.0,
+                    )
+                if r.status_code == 401:
+                    conn.is_active = False
+                    unhealthy += 1
+                    logger.warning(
+                        f"Gmail connection {conn.email_address} marked inactive "
+                        f"(401 from Google — token revoked or expired)"
+                    )
+            except Exception as e:
+                logger.error(f"Health check for {conn.email_address} errored: {e}")
+                continue
+
+        await session.commit()
+        logger.info(f"Gmail health check: {unhealthy}/{len(conns)} marked inactive")
+
+
 async def run_all_scheduled_tasks():
     """Run all scheduled tasks. Called by the scheduler or manually."""
     await update_days_open()
@@ -317,6 +415,22 @@ def start_scheduler():
             run_weekly_digest,
             CronTrigger(day_of_week="0", hour=8, minute=0),  # Monday 8:00 AM
             id="weekly_digest",
+            replace_existing=True,
+        )
+
+        # Auto-backfill EPO amounts every hour (self-healing)
+        scheduler.add_job(
+            run_amount_backfill,
+            CronTrigger(minute=15),  # Every hour at :15
+            id="amount_backfill",
+            replace_existing=True,
+        )
+
+        # Gmail connection health check every 30 min
+        scheduler.add_job(
+            check_gmail_connection_health,
+            CronTrigger(minute="*/30"),
+            id="gmail_health_check",
             replace_existing=True,
         )
 

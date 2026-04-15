@@ -100,9 +100,13 @@ async def get_email_status(
         result = await session.execute(query)
         connections = result.scalars().all()
 
+        total = len(connections)
+        active = sum(1 for c in connections if c.is_active)
+        needs_reconnect = total > 0 and active == 0
         return {
-            "total_connections": len(connections),
-            "active_connections": sum(1 for c in connections if c.is_active),
+            "total_connections": total,
+            "active_connections": active,
+            "needs_reconnect": needs_reconnect,
             "connections": [
                 {
                     "id": c.id,

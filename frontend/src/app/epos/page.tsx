@@ -43,6 +43,7 @@ export default function EPOsPage() {
   const [batchResult, setBatchResult] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [hasGmailConnected, setHasGmailConnected] = useState<boolean | null>(null);
+  const [needsReconnect, setNeedsReconnect] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
   const [selectedEPO, setSelectedEPO] = useState<EPO | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -116,6 +117,7 @@ export default function EPOsPage() {
         if (resp.ok) {
           const data = await resp.json();
           setHasGmailConnected(data.active_connections > 0);
+          setNeedsReconnect(!!data.needs_reconnect);
         }
       } catch {
         setHasGmailConnected(null);
@@ -369,7 +371,18 @@ export default function EPOsPage() {
       </div>
 
       {/* Sync Status Banner — shows company-level Gmail connection */}
-      {hasGmailConnected === false ? (
+      {needsReconnect ? (
+        <div className="card p-4 bg-red-dim border-red-bdr flex items-center gap-3">
+          <AlertCircle size={18} className="text-red flex-shrink-0" />
+          <span className="text-sm text-text1">
+            Your Gmail connection has expired and can't read new emails.{" "}
+            <button onClick={() => router.push("/integrations")} className="text-emerald-400 underline font-semibold">
+              Reconnect Gmail
+            </button>{" "}
+            to resume automatic EPO ingestion and backfill.
+          </span>
+        </div>
+      ) : hasGmailConnected === false ? (
         <div className="card p-4 bg-amber-dim border-amber-bdr flex items-center gap-3">
           <Mail size={18} className="text-amber flex-shrink-0" />
           <span className="text-sm text-text1">
