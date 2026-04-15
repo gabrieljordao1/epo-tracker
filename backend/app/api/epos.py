@@ -550,3 +550,143 @@ async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, A
         "errors": errors[:20],
         "details": details[:100],
     }
+
+
+@router.post("/reparse-all", response_model=Dict[str, Any])
+async def reparse_all_epos(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> Dict[str, Any]:
+    """
+    Full re-extraction pass over every EPO in the company:
+    - Runs v6 Gemini classifier+extractor on stored raw_email_subject+body
+    - Updates vendor_name (builder), community, lot_number, description, amount
+    - If classifier returns is_epo=false, marks row archived=True (non-destructive)
+    - Never creates new rows, never deletes rows
+    """
+    if current_user.role not in (UserRole.ADMIN, UserRole.MANAGER):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin/Manager access required",
+        )
+
+    try:
+        parser = EmailParserService()
+        query = select(EPO).where(EPO.company_id == current_user.company_id)
+        result = await session.execute(query)
+        epos = list(result.scalars().all())
+
+        reparsed = 0
+        builder_fixed = 0
+        amount_fixed = 0
+        desc_fixed = 0
+        archived_not_epo = 0
+        skipped_no_text = 0
+        errors: List[str] = []
+        details: List[Dict[str, Any]] = []
+
+        for epo in epos:
+            subject = epo.raw_email_subject or ""
+            body = epo.raw_email_body or ""
+            if not (subject or body):
+                skipped_no_text += 1
+                continue
+            try:
+                parsed = await parser.parse_email(
+                    email_subject=subject,
+                    email_body=body,
+                    vendor_email=epo.vendor_email or "",
+                )
+            except Exception as e:
+                errors.append(f"EPO #{epo.id}: {type(e).__name__}: {str(e)[:120]}")
+                continue
+
+            if not parsed:
+                continue
+
+            # Not an EPO per new classifier — archive, don't delete
+            if parsed.get("is_epo") is False:
+                if hasattr(epo, "archived"):
+                    epo.archived = True
+                # Also mark via status/needs_review as a safety net
+                epo.needs_review = True
+                archived_not_epo += 1
+                details.append({"id": epo.id, "action": "archived_not_epo"})
+                continue
+
+            changes: Dict[str, Any] = {}
+
+            # Builder
+            new_builder = parsed.get("builder_name") or parsed.get("vendor_name")
+            if new_builder and new_builder != epo.vendor_name:
+                if epo.vendor_name in (None, "", "Unknown Builder") or not epo.vendor_name.strip():
+                    changes["vendor_name"] = new_builder
+                    epo.vendor_name = new_builder
+                    builder_fixed += 1
+
+            # Community
+            new_comm = parsed.get("community")
+            if new_comm and new_comm != epo.community:
+                changes["community"] = new_comm
+                epo.community = new_comm
+
+            # Lot
+            new_lot = parsed.get("lot_number")
+            if new_lot and new_lot != epo.lot_number:
+                changes["lot_number"] = new_lot
+                epo.lot_number = new_lot
+
+            # Description — replace if new one is clearly better (longer, not truncated)
+            new_desc = parsed.get("description")
+            if new_desc and new_desc != epo.description:
+                old = (epo.description or "").strip()
+                # Prefer new if old is blank, truncated (ends mid-word), or clearly shorter
+                old_looks_truncated = (
+                    not old
+                    or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
+                    or len(old) < 20
+                )
+                if old_looks_truncated or len(new_desc) > len(old) + 10:
+                    changes["description"] = new_desc[:500]
+                    epo.description = new_desc[:500]
+                    desc_fixed += 1
+
+            # Amount
+            new_amt = parsed.get("amount")
+            try:
+                new_amt_f = float(new_amt) if new_amt is not None else None
+            except (TypeError, ValueError):
+                new_amt_f = None
+            if new_amt_f and new_amt_f > 0:
+                if epo.amount in (None, 0) or abs((epo.amount or 0) - new_amt_f) > 0.01:
+                    changes["amount"] = new_amt_f
+                    epo.amount = new_amt_f
+                    amount_fixed += 1
+
+            if changes:
+                reparsed += 1
+                details.append({"id": epo.id, "changes": changes})
+
+        await session.commit()
+
+        return {
+            "total_checked": len(epos),
+            "reparsed": reparsed,
+            "builder_fixed": builder_fixed,
+            "amount_fixed": amount_fixed,
+            "description_fixed": desc_fixed,
+            "archived_not_epo": archived_not_epo,
+            "skipped_no_text": skipped_no_text,
+            "errors": errors[:20],
+            "details": details[:50],
+        }
+    except Exception as e:
+        tb = traceback.format_exc()
+        logger.error(f"Reparse fatal error: {e}\n{tb}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": f"{type(e).__name__}: {str(e)[:300]}",
+                "traceback": tb.split("\n")[-8:],
+            },
+        )

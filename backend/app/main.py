@@ -389,7 +389,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "classifier-gate-v6-2026-04-15",
+            "build_marker": "reparse-v7-2026-04-15",
         }
 
     @app.get("/")
