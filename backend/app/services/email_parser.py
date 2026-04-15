@@ -41,6 +41,9 @@ class EmailParserService:
         r"(?:Amount|Total|Price|Cost|Charge)[\s:]*\$?\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?)",
         # Keyword + plain number: Amount: 1234.56  or  Amount: $350
         r"(?:Amount|Total|Price|Cost|Charge)[\s:]*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)",
+        # Informal phrasing: "epo of 700" / "epo for 650" / "submit an epo of $1,200"
+        r"(?:EPO|epo)\s*(?:of|for)\s*\$?\s*([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]{1,2})?)",
+        r"(?:EPO|epo)\s*(?:of|for)\s*\$?\s*([0-9]+(?:\.[0-9]{1,2})?)",
     ]
 
     CONFIRMATION_PATTERNS = [
