@@ -255,20 +255,20 @@ export default function ProfitTrackerPage() {
         )}
 
         {filteredEpos.map((epo) => {
-          const expanded = expandedId === epo.id;
-          const isAdding = addingTo === epo.id;
+          const expanded = expandedId === epo.epo_id;
+          const isAdding = addingTo === epo.epo_id;
           const profit = epo.net_profit;
           const profitColor =
             profit > 0 ? "text-green" : profit < 0 ? "text-red" : "text-text2";
 
           return (
             <div
-              key={epo.id}
+              key={epo.epo_id}
               className="bg-[#111] border border-[#222] rounded-lg overflow-hidden"
             >
               {/* Header row */}
               <button
-                onClick={() => setExpandedId(expanded ? null : epo.id)}
+                onClick={() => setExpandedId(expanded ? null : epo.epo_id)}
                 className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface transition-colors text-left"
               >
                 {expanded ? (
@@ -409,7 +409,7 @@ export default function ProfitTrackerPage() {
                       </div>
                       <div className="flex gap-2">
                         <button
-                          onClick={() => handleAddPayment(epo.id)}
+                          onClick={() => handleAddPayment(epo.epo_id)}
                           disabled={saving}
                           className="btn-primary flex items-center gap-2 text-sm"
                         >
@@ -433,7 +433,7 @@ export default function ProfitTrackerPage() {
                     </div>
                   ) : (
                     <button
-                      onClick={() => setAddingTo(epo.id)}
+                      onClick={() => setAddingTo(epo.epo_id)}
                       className="flex items-center gap-2 text-sm text-green hover:text-text1 transition-colors"
                     >
                       <Plus size={16} />

@@ -5,19 +5,19 @@ Tracks payments to subcontractors (drywaller, painter, etc.) against each EPO
 so field managers can see net profit per EPO and across all EPOs.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional
 from datetime import datetime
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
-from ..models.models import EPO, SubPayment, User, EPOStatus
+from ..models.models import EPO, SubPayment, User
 
 logger = logging.getLogger(__name__)
 
