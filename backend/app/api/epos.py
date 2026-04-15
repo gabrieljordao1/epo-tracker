@@ -2,6 +2,8 @@ from typing import List, Optional, Dict, Any
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import JSONResponse
+import traceback
 from sqlalchemy import select, func, and_, case, or_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -386,10 +388,16 @@ async def backfill_epo_amounts(
     try:
         return await _do_backfill(session, current_user)
     except Exception as e:
-        logger.error(f"Backfill fatal error: {e}", exc_info=True)
-        raise HTTPException(
+        tb = traceback.format_exc()
+        logger.error(f"Backfill fatal error: {e}\n{tb}")
+        # Return JSONResponse directly to bypass global exception handler
+        # which would otherwise hide the real error message
+        return JSONResponse(
             status_code=500,
-            detail=f"Backfill error: {type(e).__name__}: {str(e)[:200]}",
+            content={
+                "detail": f"{type(e).__name__}: {str(e)[:300]}",
+                "traceback": tb.split("\n")[-8:],
+            },
         )
 
 
