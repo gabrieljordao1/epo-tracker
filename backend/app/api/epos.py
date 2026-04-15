@@ -478,7 +478,8 @@ async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, A
                             message_id=epo.gmail_message_id,
                         )
                         if not msg.get("success"):
-                            errors.append(f"EPO #{epo.id}: gmail fetch failed")
+                            err = str(msg.get("error") or "unknown")[:200]
+                            errors.append(f"EPO #{epo.id} [mid={epo.gmail_message_id[:12]}]: {err}")
                             no_text += 1
                             continue
 
