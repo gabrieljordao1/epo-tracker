@@ -338,7 +338,7 @@ export default function EPOsPage() {
       </div>
 
       {backfillResult && (
-        <div className="rounded-lg border border-green-bdr bg-green-dim p-3 text-sm text-green">
+        <div className="rounded-lg border border-green-bdr bg-green-dim p-3 text-sm text-green whitespace-pre-wrap break-all font-mono max-h-60 overflow-y-auto">
           {backfillResult}
         </div>
       )}
