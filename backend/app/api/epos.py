@@ -403,13 +403,14 @@ async def backfill_epo_amounts(
 
 async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, Any]:
     """
-    Minimal, bulletproof backfill: pure regex on stored text, no network.
-    The broken regex patterns (zero-or-more comma groups) were the root cause
-    of missing amounts, so fixing the patterns + re-running regex on stored
-    text recovers the vast majority of affected EPOs without needing AI or
-    Gmail credentials.
+    Two-pass backfill:
+    1. Regex on stored raw_email_subject + raw_email_body (fast, no network)
+    2. For EPOs still missing amounts AND having a gmail_message_id, re-fetch
+       the email from Gmail (recovers rows that stored empty body due to
+       HTML-only messages synced before the HTML-fallback fix landed).
     """
     parser = EmailParserService()
+    settings = get_settings()
 
     # Find all EPOs with missing or zero amounts for this company
     query = select(EPO).where(
@@ -419,45 +420,114 @@ async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, A
         )
     )
     result = await session.execute(query)
-    epos = result.scalars().all()
+    epos = list(result.scalars().all())
 
-    updated = 0
+    updated_regex = 0
+    updated_refetch = 0
     no_text = 0
     no_match = 0
     errors: List[str] = []
     details: List[str] = []
+    still_missing: List[EPO] = []
 
+    # ─── Pass 1: regex on stored text ──────────────
     for epo in epos:
         try:
             subject = epo.raw_email_subject or ""
             body = epo.raw_email_body or ""
             text = f"{subject}\n{body}".strip()
             if not text:
-                no_text += 1
+                still_missing.append(epo)
                 continue
 
             amount, _confidence = parser._extract_amount(text)
             if amount and amount > 0:
                 epo.amount = float(amount)
-                updated += 1
-                details.append(f"EPO #{epo.id}: ${amount:,.2f}")
+                updated_regex += 1
+                details.append(f"EPO #{epo.id} [regex]: ${amount:,.2f}")
             else:
-                no_match += 1
+                # Subject-only sometimes contains phrasing — try subject alone too
+                still_missing.append(epo)
         except Exception as e:
             errors.append(f"EPO #{epo.id}: {type(e).__name__}: {str(e)[:100]}")
 
+    # ─── Pass 2: re-fetch from Gmail for still-missing EPOs ──────────────
+    refetch_candidates = [e for e in still_missing if e.gmail_message_id]
+    refetch_no_id = len(still_missing) - len(refetch_candidates)
+
+    if refetch_candidates and settings.GOOGLE_CLIENT_ID and settings.GOOGLE_CLIENT_SECRET:
+        try:
+            conn_query = select(EmailConnection).where(
+                EmailConnection.company_id == current_user.company_id,
+                EmailConnection.provider == "gmail",
+            )
+            conn_result = await session.execute(conn_query)
+            conn = conn_result.scalars().first()
+
+            if conn and conn.access_token:
+                gmail_api = GmailAPIService(
+                    client_id=settings.GOOGLE_CLIENT_ID,
+                    client_secret=settings.GOOGLE_CLIENT_SECRET,
+                )
+                for epo in refetch_candidates:
+                    try:
+                        msg = await gmail_api.get_message(
+                            access_token=conn.access_token,
+                            refresh_token=conn.refresh_token or "",
+                            token_expires_at=conn.token_expires_at,
+                            message_id=epo.gmail_message_id,
+                        )
+                        if not msg.get("success"):
+                            errors.append(f"EPO #{epo.id}: gmail fetch failed")
+                            no_text += 1
+                            continue
+
+                        fetched_subj = msg.get("subject") or ""
+                        fetched_body = msg.get("body") or ""
+                        # Persist recovered text so we never need to re-fetch again
+                        if fetched_subj and not epo.raw_email_subject:
+                            epo.raw_email_subject = fetched_subj[:500]
+                        if fetched_body and not epo.raw_email_body:
+                            epo.raw_email_body = fetched_body
+
+                        combined = f"{fetched_subj}\n{fetched_body}".strip()
+                        if not combined:
+                            no_text += 1
+                            continue
+
+                        amount, _c = parser._extract_amount(combined)
+                        if amount and amount > 0:
+                            epo.amount = float(amount)
+                            updated_refetch += 1
+                            details.append(f"EPO #{epo.id} [gmail]: ${amount:,.2f}")
+                        else:
+                            no_match += 1
+                    except Exception as e:
+                        errors.append(f"EPO #{epo.id} refetch: {type(e).__name__}: {str(e)[:100]}")
+            else:
+                errors.append("No Gmail connection with access_token — skipping refetch pass")
+                no_text += len(refetch_candidates)
+        except Exception as e:
+            errors.append(f"Refetch pass failed: {type(e).__name__}: {str(e)[:150]}")
+            no_text += len(refetch_candidates)
+    else:
+        no_text += len(refetch_candidates)
+
+    no_text += refetch_no_id
+    updated = updated_regex + updated_refetch
     await session.commit()
 
     logger.info(
-        f"Backfill complete: checked={len(epos)}, updated={updated}, "
+        f"Backfill complete: checked={len(epos)}, updated={updated} "
+        f"(regex={updated_regex}, refetch={updated_refetch}), "
         f"no_text={no_text}, no_match={no_match}, errors={len(errors)}"
     )
     return {
         "total_checked": len(epos),
         "updated_total": updated,
-        "updated_regex": updated,
+        "updated_regex": updated_regex,
         "updated_ai": 0,
-        "updated_gmail_refetch": 0,
+        "updated_gmail_refetch": updated_refetch,
         "skipped": no_text + no_match,
         "no_stored_text": no_text,
         "no_amount_match": no_match,
