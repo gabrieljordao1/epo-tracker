@@ -509,6 +509,9 @@ async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, A
                             continue
 
                         amount, _c = parser._extract_amount(combined)
+                        # Gmail call succeeded — reactivate connection if it was flagged
+                        if not conn.is_active:
+                            conn.is_active = True
                         if amount and amount > 0:
                             epo.amount = float(amount)
                             updated_refetch += 1
