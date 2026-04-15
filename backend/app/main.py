@@ -303,7 +303,27 @@ def create_app() -> FastAPI:
             except Exception:
                 pass  # Silent fail if we can't extract user info
 
-        # Return clean 500 response to client
+        # Return 500 response — include exception details on /api/epos/backfill-amounts
+        # so we can debug in production. Other endpoints stay clean.
+        import traceback as _tb
+        tb_str = _tb.format_exc()
+        path = request.url.path
+        expose_error = (
+            path.endswith("/backfill-amounts")
+            or path.endswith("/sync-recent")
+            or settings.ENVIRONMENT != "production"
+            or settings.DEBUG
+        )
+        if expose_error:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "detail": f"{type(exc).__name__}: {str(exc)[:400]}",
+                    "request_id": request_id,
+                    "path": path,
+                    "traceback": tb_str.split("\n")[-10:],
+                },
+            )
         return JSONResponse(
             status_code=500,
             content={
@@ -369,7 +389,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "backfill-v2-2026-04-15",
+            "build_marker": "expose-errors-v3-2026-04-15",
         }
 
     @app.get("/")
