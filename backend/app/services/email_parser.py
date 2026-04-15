@@ -382,33 +382,43 @@ class EmailParserService:
             if vendor_email:
                 vendor_hint = f"\nSender/recipient email: {vendor_email}"
 
-            prompt = f"""You are an expert at reading construction emails from field managers at paint & drywall companies. Extract EPO (Extra Purchase Order / Extra Paint Order) data from this email.
+            prompt = f"""You read emails for a paint & drywall subcontractor's field manager and extract Extra Purchase Order (EPO) requests. EPOs are requests for extra paint/drywall work on a specific lot at a builder's community.
 
-CRITICAL RULES:
-1. Emails are often INFORMAL — short texts, missing punctuation, abbreviations, typos. This is normal. Extract what you can.
-2. An email may contain MULTIPLE lots. If you see "lot 2b and 2c" or "lots 5, 6, 7" — create a SEPARATE entry for EACH individual lot. Never combine multiple lots into one entry. "lot 2b and 2c" = TWO entries, one for 2B and one for 2C. Each entry gets the SAME description and amount (split evenly if total given).
-3. Community/subdivision names may be misspelled (e.g. "plott" = "Plott", "gallway" = "Galloway", "mallrd park" = "Mallard Park", "sugar crk" = "Sugar Creek"). Fix obvious typos.
-4. The builder_name is the HOMEBUILDER COMPANY — NOT the paint/drywall company sending the email. Common builders: Pulte, Summit, DRB, Hovnanian, Ryan Homes, Meritage, Toll Brothers, Lennar, KB Home, NVR, M/I Homes, Taylor Morrison, Dream Finders, Stanley Martin. The builder name might appear in the subject, body, email signature, or email domain. If the email is addressed TO a builder (like "Hi Pulte team"), that's the builder.
-5. DESCRIPTION — this is the most important field. Describe WHAT WORK the EPO is for. Examples of GOOD descriptions: "Extra paint for garage ceiling", "Drywall repair in master bedroom", "Touch-up paint after cabinet install", "Additional texture coat on hallway walls". Examples of BAD descriptions (DO NOT DO THIS): "EPO for lot 12", "Extra purchase order", "Paint order". The description should explain the actual work, not just restate that it's an EPO.
-6. AMOUNT — look carefully for dollar values. They may appear as "$350", "350.00", "350 each", "$1,200", or even "twelve hundred". If a total is given for multiple lots, divide evenly (e.g. "$700 for lots 2b and 2c" = $350 each). If no amount at all, set null.
-7. If the email just says "epo for lot X at Y" with no details, still extract what you have — set amount to null, description to best guess from context, and confidence lower.
+STEP 1 — CLASSIFY: First, decide if this email is actually an EPO request from a field manager to submit/approve extra work. Return is_epo=false for ALL of these (and return an empty array []):
+- Google/Gmail/Microsoft security alerts ("2-Step Verification", "App password created", "New sign-in", "Security alert")
+- Newsletters, marketing, receipts, invoices from non-construction companies
+- Calendar invites, meeting notes, out-of-office replies
+- Generic replies without any lot/community/amount context ("ok thanks", "got it", "sounds good")
+- Personal emails (family, scheduling, non-work)
+- Spam or phishing
+An EPO email normally contains SOME of: the word "EPO" or "extra paint" or "extra work", a lot number, a community/subdivision, a dollar amount, or describes paint/drywall work to perform.
+
+STEP 2 — IF it IS an EPO, extract one object per lot. Multi-lot rule: "lot 2b and 2c" or "lots 5, 6, 7" → one entry per lot, each with the SAME description and amount split evenly if total given. "$700 for lots 2b and 2c" = $350 each. "epo of 400 per lot for lots 1-9" = nine entries, $400 each.
+
+EXTRACTION RULES:
+- community: Subdivision name, properly capitalized. Fix obvious typos ("plott"→"Plott", "gallway"→"Galloway", "mallrd park"→"Mallard Park"). NEVER use garbage like "View", "1-20", "21,", words lifted from mid-sentence. If you cannot identify a real community, set null.
+- lot_number: Just the lot identifier like "12", "2B", "A-5". NEVER a single letter like "s" or "a" pulled from mid-word. If you cannot find a clear lot, set null.
+- builder_name: The HOMEBUILDER company (Pulte, Summit, DRB, Hovnanian, Ryan Homes, Meritage, Toll Brothers, Lennar, KB Home, NVR, M/I Homes, Taylor Morrison, Dream Finders, Stanley Martin, Mungo, True Homes, Eastwood, etc.) — NOT the paint/drywall company. Look in subject, body, signature, and email domain. If truly not derivable, set null (the system will backfill from email domain).
+- description: ONE SHORT SENTENCE describing the actual work. Strip "please submit an epo of $X to" prefixes. Good: "Patch and paint holes in master bedroom after cabinet install". Bad: "Please submit an epo of 350 to patch and". NEVER truncate mid-word — always end at a sentence boundary. If the email literally gives no work description, write "Extra paint/drywall work" and set needs_review=true.
+- amount: Dollar amount as float. Patterns: "$350", "350", "350.00", "350 each", "epo of 700", "$1,200", "12 hundred". If a total is given for multiple lots, divide. If truly no amount in the text, set null.
+- confirmation_number: PO/confirmation number if present, else null.
+- confidence_score: 0.85+ if all of community+lot+builder+amount are clean; 0.7+ if one is missing; 0.5+ if two are missing; below 0.5 if it's barely recognizable as an EPO.
+- needs_review: true if ANY of community/lot/amount is null, OR confidence < 0.8.
 
 Email Subject: {email_subject}
 Email Body:
 {email_body}{vendor_hint}
 
-For EACH EPO/lot found, extract:
-- community: Subdivision/community name, properly capitalized (string, fix typos)
-- lot_number: Lot identifier (string, e.g. "2B", "12", "A-5")
-- builder_name: Builder/homebuilder company name (string). This is NOT the paint company — it's the homebuilder like Pulte, Summit, DRB, etc.
-- description: What specific WORK is being done. Describe the actual paint/drywall work, not just "EPO for lot X". (string, NEVER blank)
-- amount: Dollar amount as float, or null if not mentioned. If total given for multiple lots, divide evenly.
-- confirmation_number: PO/confirmation number if present, or null
-- confidence_score: 0-1 (0.8+ if you got all fields, 0.7+ if community+lot+builder, 0.5+ if missing some)
-- needs_review: true if missing critical fields (community, lot, or amount)
+OUTPUT FORMAT (JSON only, no markdown, no commentary):
+{{"is_epo": true|false, "epos": [ {{...entry per lot...}} ]}}
 
-Return ONLY a valid JSON array (one object per lot):
-[{{"community": "Plott", "lot_number": "2B", "builder_name": "Pulte", "description": "Extra paint for garage ceiling and touch-up in master bath", "amount": 350.0, "confirmation_number": null, "confidence_score": 0.85, "needs_review": false}}]"""
+If is_epo=false, return {{"is_epo": false, "epos": []}}.
+
+Example (valid EPO):
+{{"is_epo": true, "epos": [{{"community": "Plott", "lot_number": "2B", "builder_name": "Pulte", "description": "Patch and paint touch-ups after cabinet install in master bath", "amount": 350.0, "confirmation_number": null, "confidence_score": 0.9, "needs_review": false}}]}}
+
+Example (Google security alert):
+{{"is_epo": false, "epos": []}}"""
 
             # Retry wrapper for Gemini API calls (handles transient 429/500 errors)
             @retry(
@@ -434,32 +444,43 @@ Return ONLY a valid JSON array (one object per lot):
                 lines = [line for line in lines if not line.strip().startswith("```")]
                 response_text = "\n".join(lines).strip()
 
-            # Handle both array and single-object responses
+            # Handle new envelope {is_epo, epos:[...]}, legacy array, or single object
             parsed = json.loads(response_text)
             gemini_breaker.record_success()
 
-            if isinstance(parsed, list):
-                # Multi-EPO response — return first item, store the rest for the pipeline
-                results = []
-                for item in parsed:
-                    item["parse_model"] = "gemini"
-                    item.setdefault("confidence_score", 0.6)
-                    item.setdefault("needs_review", item.get("confidence_score", 0.5) < 0.7)
-                    results.append(item)
-                # Return first result with _additional_epos attached
-                if results:
-                    result = results[0]
-                    if len(results) > 1:
-                        result["_additional_epos"] = results[1:]
-                    return result
-                return None
+            # Unwrap envelope
+            if isinstance(parsed, dict) and "is_epo" in parsed:
+                if not parsed.get("is_epo"):
+                    # Gate: not an EPO email — return signal to skip
+                    logger.info(f"Gemini classifier: is_epo=false for subject '{email_subject[:80]}'")
+                    return {
+                        "is_epo": False,
+                        "confidence_score": 0.0,
+                        "needs_review": False,
+                        "parse_model": "gemini",
+                    }
+                items = parsed.get("epos") or []
+            elif isinstance(parsed, list):
+                items = parsed
             else:
-                # Single object response (backwards compatible)
-                result = parsed
-                result["parse_model"] = "gemini"
-                result.setdefault("confidence_score", 0.6)
-                result.setdefault("needs_review", result.get("confidence_score", 0.5) < 0.7)
+                items = [parsed]
+
+            results = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item["parse_model"] = "gemini"
+                item["is_epo"] = True
+                item.setdefault("confidence_score", 0.6)
+                item.setdefault("needs_review", item.get("confidence_score", 0.5) < 0.8)
+                results.append(item)
+
+            if results:
+                result = results[0]
+                if len(results) > 1:
+                    result["_additional_epos"] = results[1:]
                 return result
+            return None
 
         except Exception as e:
             gemini_breaker.record_failure()

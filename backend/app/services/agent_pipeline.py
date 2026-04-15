@@ -86,6 +86,12 @@ class AgentPipelineService:
                 result["error"] = "Failed to parse email"
                 return result
 
+            # Gate: if classifier said this isn't an EPO, skip creating anything
+            if parsed.get("is_epo") is False:
+                logger.info("Skipping email — classifier said is_epo=false")
+                result["skipped_not_epo"] = True
+                return result
+
             # Extract parsed data
             # Use builder_name from webhook (derived from TO email domain) if provided,
             # then try parser's builder_name or vendor_name, finally fallback
