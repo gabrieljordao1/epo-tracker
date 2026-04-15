@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
-from ..core.security import sanitize_html, validate_email, audit_log
+from ..core.security import sanitize_html, validate_email, audit_log, decrypt_token
 from ..models.models import EPO, EPOFollowup, EmailConnection, User, EPOStatus, UserRole
 from ..services.email_parser import EmailParserService
 from ..services.gmail_api import GmailAPIService
@@ -469,11 +469,20 @@ async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, A
                     client_id=settings.GOOGLE_CLIENT_ID,
                     client_secret=settings.GOOGLE_CLIENT_SECRET,
                 )
+                # Decrypt tokens — they are stored encrypted in the DB
+                try:
+                    access_token = decrypt_token(conn.access_token, settings.SECRET_KEY)
+                    refresh_token = decrypt_token(conn.refresh_token or "", settings.SECRET_KEY) if conn.refresh_token else ""
+                except Exception as e:
+                    errors.append(f"Token decryption failed: {type(e).__name__}: {str(e)[:100]}")
+                    access_token = ""
+                    refresh_token = ""
+
                 for epo in refetch_candidates:
                     try:
                         msg = await gmail_api.get_message(
-                            access_token=conn.access_token,
-                            refresh_token=conn.refresh_token or "",
+                            access_token=access_token,
+                            refresh_token=refresh_token,
                             token_expires_at=conn.token_expires_at,
                             message_id=epo.gmail_message_id,
                         )

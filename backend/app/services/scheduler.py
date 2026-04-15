@@ -323,26 +323,25 @@ async def check_gmail_connection_health():
         result = await session.execute(query)
         conns = result.scalars().all()
 
+        from ..core.security import decrypt_token
+        import httpx
         unhealthy = 0
         for conn in conns:
             try:
-                # Cheap probe: list 1 message
-                msgs = await gmail_api.get_messages_since(
-                    access_token=conn.access_token,
-                    refresh_token=conn.refresh_token or "",
-                    token_expires_at=conn.token_expires_at,
-                    since_date=datetime.utcnow() - timedelta(days=1),
-                    max_results=1,
-                )
-                # If empty list due to auth, treat as unhealthy; otherwise healthy
-                # (get_messages_since logs 401 internally and returns [])
-                import httpx
-                # Re-test with an authenticated endpoint that returns a clear code
+                # Decrypt stored token
+                try:
+                    access_token = decrypt_token(conn.access_token, settings.SECRET_KEY)
+                except Exception:
+                    conn.is_active = False
+                    unhealthy += 1
+                    continue
+
+                # Probe Gmail profile endpoint
                 url = "https://www.googleapis.com/gmail/v1/users/me/profile"
                 async with httpx.AsyncClient() as client:
                     r = await client.get(
                         url,
-                        headers={"Authorization": f"Bearer {conn.access_token}"},
+                        headers={"Authorization": f"Bearer {access_token}"},
                         timeout=8.0,
                     )
                 if r.status_code == 401:
