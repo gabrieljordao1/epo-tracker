@@ -383,6 +383,17 @@ async def backfill_epo_amounts(
             detail="Admin access required",
         )
 
+    try:
+        return await _do_backfill(session, current_user)
+    except Exception as e:
+        logger.error(f"Backfill fatal error: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Backfill error: {type(e).__name__}: {str(e)[:200]}",
+        )
+
+
+async def _do_backfill(session: AsyncSession, current_user: User) -> Dict[str, Any]:
     settings = get_settings()
     parser = EmailParserService()
 
@@ -541,9 +552,14 @@ async def backfill_epo_amounts(
             errors.append(f"EPO #{epo.id} Gmail: {str(e)}")
             logger.error(f"Backfill Gmail error EPO #{epo.id}: {e}")
 
-    await session.flush()
+    await session.commit()
 
     total_updated = updated_regex + updated_ai + updated_refetch
+    logger.info(
+        f"Backfill complete: checked={len(epos)}, updated={total_updated}, "
+        f"regex={updated_regex}, ai={updated_ai}, refetch={updated_refetch}, "
+        f"skipped={skipped}, errors={len(errors)}"
+    )
     return {
         "total_checked": len(epos),
         "updated_total": total_updated,
@@ -551,6 +567,6 @@ async def backfill_epo_amounts(
         "updated_ai": updated_ai,
         "updated_gmail_refetch": updated_refetch,
         "skipped": skipped,
-        "errors": errors,
-        "details": details,
+        "errors": errors[:20],
+        "details": details[:50],
     }
