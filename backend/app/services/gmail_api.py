@@ -382,21 +382,24 @@ class GmailAPIService:
 
             url = f"{self.GMAIL_API_BASE}/users/me/messages"
             headers = {"Authorization": f"Bearer {access_token}"}
-            date_str = since_date.strftime("%Y/%m/%d")
+            # Use newer_than: which is more reliable than after: for recent emails
+            days_delta = max(1, (datetime.utcnow() - since_date).days)
             params = {
-                "q": f"after:{date_str}",
+                "q": f"newer_than:{days_delta}d in:inbox",
                 "maxResults": max_results,
             }
+            logger.info(f"Gmail list query: q='{params['q']}', max={max_results}")
 
             async with httpx.AsyncClient() as client:
-                response = await client.get(url, headers=headers, params=params, timeout=10.0)
+                response = await client.get(url, headers=headers, params=params, timeout=15.0)
 
             if response.status_code != 200:
-                logger.error(f"List messages failed: {response.text}")
+                logger.error(f"List messages failed ({response.status_code}): {response.text}")
                 return []
 
             data = response.json()
             message_ids = [m["id"] for m in data.get("messages", [])]
+            logger.info(f"Gmail listed {len(message_ids)} message IDs")
 
             # Fetch full message details for each ID
             messages = []

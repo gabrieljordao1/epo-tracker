@@ -384,9 +384,7 @@ async def backfill_epo_amounts(
         )
 
     settings = get_settings()
-    parser = EmailParserService(
-        anthropic_api_key=settings.ANTHROPIC_API_KEY,
-    )
+    parser = EmailParserService()
 
     # Find ALL EPOs with missing or zero amounts
     query = select(EPO).where(
@@ -454,7 +452,10 @@ async def backfill_epo_amounts(
 
     # ── PASS 3: Re-fetch from Gmail for EPOs with empty body ────────
     # Group EPOs by email_connection_id to minimize credential lookups
-    gmail_api = GmailAPIService()
+    gmail_api = GmailAPIService(
+        client_id=settings.GOOGLE_CLIENT_ID,
+        client_secret=settings.GOOGLE_CLIENT_SECRET,
+    )
     conn_cache: Dict[int, Any] = {}
 
     for epo in still_missing_after_ai:
