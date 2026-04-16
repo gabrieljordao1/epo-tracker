@@ -100,6 +100,205 @@ def _is_bad_builder_name(s: str) -> bool:
     return False
 
 
+# Canonical builder map: normalized lowercase key → display form
+_BUILDER_CANONICAL = {
+    "dr horton": "DR Horton",
+    "drhorton": "DR Horton",
+    "d.r. horton": "DR Horton",
+    "d r horton": "DR Horton",
+    "pulte": "Pulte",
+    "pulte homes": "Pulte",
+    "tripointe": "TriPointe Homes",
+    "tri pointe": "TriPointe Homes",
+    "tri-pointe": "TriPointe Homes",
+    "tripointehomes": "TriPointe Homes",
+    "red cedar": "Red Cedar",
+    "redcedar": "Red Cedar",
+    "red cedar co": "Red Cedar",
+    "redcedarco": "Red Cedar",
+    "red ceader": "Red Cedar",
+    "madison simmons": "Madison Simmons Homes",
+    "madison simmons homes": "Madison Simmons Homes",
+    "summit": "Summit Homes",
+    "mungo": "Mungo Homes",
+    "true homes": "True Homes",
+    "eastwood": "Eastwood Homes",
+}
+
+
+def _normalize_builder(s: str) -> Optional[str]:
+    """Canonicalize a builder string. Returns None if input is empty/bad."""
+    if not s:
+        return None
+    s = s.strip()
+    if _is_bad_builder_name(s):
+        return None
+    low = s.lower().strip(" .,:;")
+    low = re.sub(r"\s+", " ", low)
+    if low in _BUILDER_CANONICAL:
+        return _BUILDER_CANONICAL[low]
+    # Try longest matching token
+    for key in sorted(_BUILDER_CANONICAL.keys(), key=len, reverse=True):
+        if key in low:
+            return _BUILDER_CANONICAL[key]
+    # Title-case fallback for unknowns
+    return " ".join(w.capitalize() for w in s.split())
+
+
+# Known communities — used to validate/normalize community names
+_KNOWN_COMMUNITIES = {
+    "olmsted", "galloway", "context", "mallard park", "plott", "sugar creek",
+    "byrnes", "anderson townhomes", "anderson",
+}
+
+# Things that should NEVER be a community
+_BAD_COMMUNITY_TOKENS = {
+    "every level", "level", "pending", "unknown", "n/a", "none",
+}
+
+
+def _is_bad_community(s: str) -> bool:
+    if not s:
+        return True
+    low = s.lower().strip()
+    if low in _BAD_COMMUNITY_TOKENS:
+        return True
+    # Looks like a lot range, e.g. "1-20", "25,26,27"
+    if re.match(r"^[\d,\s\-]+$", low):
+        return True
+    return False
+
+
+def _normalize_community(s: str) -> Optional[str]:
+    if not s:
+        return None
+    s = s.strip().strip(",;.")
+    if _is_bad_community(s):
+        return None
+    low = s.lower()
+    for k in _KNOWN_COMMUNITIES:
+        if k == low or k in low:
+            return " ".join(w.capitalize() for w in k.split())
+    return " ".join(w.capitalize() for w in s.split())
+
+
+# Subject parser: "[Re:] [Fwd:] Epo for lot(s) <LOTS> <community> [builder]"
+_SUBJECT_RE = re.compile(
+    r"^\s*(?:(?:re|fwd|fw)\s*:\s*)*"
+    r"epo\s+for\s+lots?\s+(?P<lots>[0-9a-z,\s\-]+?)\s+"
+    r"(?P<rest>[a-z][a-z\s]*?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _parse_epo_subject(subject: str) -> Dict[str, Any]:
+    """Parse 'Epo for lot X community builder' subject → {lot, community, builder}.
+    Returns {} if it doesn't match the expected shape.
+    """
+    if not subject:
+        return {}
+    s = subject.strip()
+    # Strip leading Re:/Fwd: chain
+    s = re.sub(r"^\s*((re|fwd|fw)\s*:\s*)+", "", s, flags=re.IGNORECASE).strip()
+    m = re.match(
+        r"^epo\s+for\s+lots?\s+(?P<lots>[0-9a-zA-Z,\s\-]+?)\s+(?P<rest>[A-Za-z][A-Za-z\s]+)$",
+        s,
+        re.IGNORECASE,
+    )
+    if not m:
+        return {}
+    lots_str = m.group("lots").strip()
+    rest = m.group("rest").strip()
+
+    # First concrete lot from "1-20" / "25,26,27 and 28" / "21, 22 and 23" / "2b and 2c"
+    first_lot = None
+    tokens = re.split(r"[,\s]+|-| and ", lots_str)
+    for t in tokens:
+        t = t.strip()
+        if t and re.match(r"^[0-9]+[a-zA-Z]?$", t):
+            first_lot = t
+            break
+    if not first_lot and lots_str:
+        # Fall back to first piece of first comma token
+        first_lot = lots_str.split(",")[0].split()[0] if lots_str.split(",")[0].split() else None
+
+    # Split "rest" into community + optional trailing builder
+    rest_low = rest.lower()
+    builder = None
+    community = rest
+    for key in sorted(_BUILDER_CANONICAL.keys(), key=len, reverse=True):
+        if rest_low.endswith(" " + key) or rest_low == key:
+            builder = _BUILDER_CANONICAL[key]
+            community = rest[: len(rest) - len(key)].strip()
+            break
+    community = _normalize_community(community)
+
+    out: Dict[str, Any] = {}
+    if first_lot and not _looks_like_bad_lot(first_lot):
+        out["lot_number"] = first_lot
+    if community:
+        out["community"] = community
+    if builder:
+        out["builder_name"] = builder
+    return out
+
+
+def _extract_total_amount(body: str) -> Optional[float]:
+    """Prefer 'Total: $X' over partial per-segment amounts."""
+    if not body:
+        return None
+    # Strip HTML
+    clean = re.sub(r"<[^>]+>", " ", body)
+    clean = re.sub(r"&nbsp;", " ", clean)
+    clean = re.sub(r"\s+", " ", clean)
+    # Look for "Total: $X,XXX.XX" pattern (case-insensitive)
+    m = re.search(r"total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
+    if m:
+        try:
+            return float(m.group(1).replace(",", ""))
+        except ValueError:
+            pass
+    return None
+
+
+def _strip_reply_chain(body: str) -> str:
+    """Return only the top (original) portion of an email, stripping reply quotes."""
+    if not body:
+        return body
+    # Common reply delimiters
+    patterns = [
+        r"\n\s*On .{5,80} wrote:",
+        r"\n\s*From:\s+[^\n]+\n",
+        r"\n\s*-{3,}\s*Original Message\s*-{3,}",
+        r"\n\s*_{3,}\s*\n",
+        r"\n\s*>\s",
+    ]
+    earliest = len(body)
+    for p in patterns:
+        m = re.search(p, body, re.IGNORECASE)
+        if m and m.start() < earliest:
+            earliest = m.start()
+    return body[:earliest].strip()
+
+
+def _extract_original_epo_description(body: str) -> Optional[str]:
+    """Find the 'Please submit an epo...' sentence from the email, skipping reply chatter."""
+    if not body:
+        return None
+    clean = re.sub(r"<[^>]+>", " ", body)
+    clean = re.sub(r"&nbsp;", " ", clean)
+    clean = re.sub(r"\s+", " ", clean).strip()
+    # Prefer sentence starting with "please submit" / "submit an epo"
+    m = re.search(
+        r"((?:please\s+)?submit\s+an?\s+epo[^.]*?(?:=\s*\$[\d,\.]+|\$[\d,\.]+|\.)\s*)",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        return m.group(1).strip().rstrip(".,;:")
+    return None
+
+
 def _looks_like_bad_lot(s) -> bool:
     """True if the lot_number is clearly garbage: single letter, empty, etc."""
     if not s:

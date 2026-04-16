@@ -613,17 +613,32 @@ async def reparse_all_epos(
                 continue
 
             changes: Dict[str, Any] = {}
+            from ..services.email_parser import (
+                _is_bad_builder_name, _looks_like_bad_lot, _is_bad_community,
+                _normalize_builder, _normalize_community, _parse_epo_subject,
+                _extract_total_amount, _extract_original_epo_description,
+            )
 
-            # Builder — only adopt a value that's a real company, not a person or email provider
-            from ..services.email_parser import _is_bad_builder_name, _looks_like_bad_lot
-            new_builder = parsed.get("builder_name") or parsed.get("vendor_name")
-            if new_builder and _is_bad_builder_name(new_builder):
-                new_builder = None
-            # Wipe any existing bad builder (person's name, email provider, etc.)
-            if epo.vendor_name and _is_bad_builder_name(epo.vendor_name):
-                epo.vendor_name = "Unknown Builder"
-                changes["vendor_name_cleared"] = True
-                builder_fixed += 1
+            # Subject-based extraction is MOST reliable — do it first
+            subj_parsed = _parse_epo_subject(subject)
+
+            # Builder — prefer subject, then Gemini, then normalize
+            new_builder = (
+                subj_parsed.get("builder_name")
+                or _normalize_builder(parsed.get("builder_name") or parsed.get("vendor_name") or "")
+            )
+            if epo.vendor_name:
+                if _is_bad_builder_name(epo.vendor_name):
+                    epo.vendor_name = "Unknown Builder"
+                    changes["vendor_name_cleared"] = True
+                    builder_fixed += 1
+                else:
+                    # Normalize existing (e.g., "Drhorton" → "DR Horton")
+                    norm_existing = _normalize_builder(epo.vendor_name)
+                    if norm_existing and norm_existing != epo.vendor_name:
+                        epo.vendor_name = norm_existing
+                        changes["vendor_name_normalized"] = norm_existing
+                        builder_fixed += 1
             if new_builder and new_builder != epo.vendor_name:
                 current = (epo.vendor_name or "").strip()
                 if current in ("", "Unknown Builder"):
@@ -631,47 +646,55 @@ async def reparse_all_epos(
                     epo.vendor_name = new_builder
                     builder_fixed += 1
 
-            # Community
-            new_comm = parsed.get("community")
+            # Community — prefer subject, then Gemini; always normalize; clear bad
+            new_comm = subj_parsed.get("community") or _normalize_community(parsed.get("community") or "")
+            if epo.community and _is_bad_community(epo.community):
+                epo.community = None
+                changes["community_cleared"] = True
             if new_comm and new_comm != epo.community:
                 changes["community"] = new_comm
                 epo.community = new_comm
 
-            # Lot — if Gemini returned "2b and 2c" or "25,26,27" pick the first concrete lot
-            new_lot = parsed.get("lot_number")
+            # Lot — prefer subject (which handles "21, 22 and 23" → "21")
+            new_lot = subj_parsed.get("lot_number") or parsed.get("lot_number")
             if isinstance(new_lot, str):
-                # Split on commas, " and ", or whitespace — take first non-empty token
                 parts = re.split(r"[,;]| and |\s+", new_lot.strip())
                 parts = [p for p in (pp.strip() for pp in parts) if p and p.lower() not in ("and", "or")]
                 if parts and len(parts[0]) <= 10:
-                    new_lot = parts[0]
-            if new_lot and new_lot != epo.lot_number:
-                # Reject garbage single-letter lots
-                if not _looks_like_bad_lot(new_lot):
-                    changes["lot_number"] = new_lot
-                    epo.lot_number = new_lot
-            # Actively clear existing bad lot values (e.g., "s", "a")
+                    new_lot = parts[0].strip(",;. ")
+            if new_lot and not _looks_like_bad_lot(new_lot) and new_lot != epo.lot_number:
+                changes["lot_number"] = new_lot
+                epo.lot_number = new_lot
             if epo.lot_number and _looks_like_bad_lot(epo.lot_number):
                 epo.lot_number = None
                 changes["lot_number_cleared"] = True
+            # Strip trailing commas/periods from existing lot ("21," → "21")
+            if epo.lot_number and isinstance(epo.lot_number, str):
+                stripped = epo.lot_number.strip(",;. ")
+                if stripped and stripped != epo.lot_number:
+                    epo.lot_number = stripped
+                    changes["lot_number_trimmed"] = stripped
 
-            # Description — replace if new one is clearly better (longer, not truncated)
-            new_desc = parsed.get("description")
+            # Description — prefer a clean "Please submit an epo..." sentence
+            new_desc = _extract_original_epo_description(body) or parsed.get("description")
             if new_desc and new_desc != epo.description:
                 old = (epo.description or "").strip()
-                # Prefer new if old is blank, truncated (ends mid-word), or clearly shorter
-                old_looks_truncated = (
+                # Replace if old is short, empty, looks like a reply, or contains cid:
+                old_is_bad = (
                     not old
+                    or len(old) < 25
+                    or old.lower().startswith(("re:", "any chance", "got returned", "were these", "no i do not", "yes", "no "))
+                    or "[cid:" in old
                     or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
-                    or len(old) < 20
                 )
-                if old_looks_truncated or len(new_desc) > len(old) + 10:
+                if old_is_bad or (len(new_desc) > len(old) + 10 and "submit an epo" in new_desc.lower()):
                     changes["description"] = new_desc[:500]
                     epo.description = new_desc[:500]
                     desc_fixed += 1
 
-            # Amount
-            new_amt = parsed.get("amount")
+            # Amount — prefer "Total: $X" in body if present (multi-tier EPOs)
+            total_amt = _extract_total_amount(body)
+            new_amt = total_amt if total_amt else parsed.get("amount")
             try:
                 new_amt_f = float(new_amt) if new_amt is not None else None
             except (TypeError, ValueError):
@@ -686,6 +709,31 @@ async def reparse_all_epos(
                 reparsed += 1
                 details.append({"id": epo.id, "changes": changes})
 
+        # Flush so subsequent dedup query sees updates
+        await session.flush()
+
+        # Dedupe: for each (vendor_name, community, lot_number, amount) keep lowest-id
+        dedup_query = select(EPO).where(EPO.company_id == current_user.company_id)
+        all_epos = (await session.execute(dedup_query)).scalars().all()
+        seen: Dict[tuple, int] = {}
+        duped = 0
+        for e in sorted(all_epos, key=lambda x: x.id):
+            key = (
+                (e.vendor_name or "").strip().lower(),
+                (e.community or "").strip().lower(),
+                (e.lot_number or "").strip().lower() if e.lot_number else "",
+                round(float(e.amount or 0), 2),
+            )
+            # Only dedupe when all 4 fields are meaningfully set
+            if not key[0] or not key[1] or not key[2] or key[3] <= 0:
+                continue
+            if key in seen:
+                details.append({"id": e.id, "action": "deleted_duplicate_of", "kept": seen[key]})
+                await session.delete(e)
+                duped += 1
+            else:
+                seen[key] = e.id
+
         await session.commit()
 
         return {
@@ -695,9 +743,10 @@ async def reparse_all_epos(
             "amount_fixed": amount_fixed,
             "description_fixed": desc_fixed,
             "archived_not_epo": archived_not_epo,
+            "duplicates_deleted": duped,
             "skipped_no_text": skipped_no_text,
             "errors": errors[:20],
-            "details": details[:50],
+            "details": details[:80],
         }
     except Exception as e:
         tb = traceback.format_exc()
