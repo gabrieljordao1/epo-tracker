@@ -135,7 +135,9 @@ class GmailSyncService:
             # Connect to Gmail IMAP
             imap = imaplib.IMAP4_SSL("imap.gmail.com")
             imap.authenticate("XOAUTH2", lambda _: auth_string.encode())
-            imap.select("INBOX")
+            # Search ALL mail (inbox + sent + everything) so we catch
+            # outbound EPO requests the field manager sends to builders.
+            imap.select('"[Gmail]/All Mail"')
 
             # Search for recent emails with construction EPO-related keywords
             # Covers: EPO, extra paint/work orders, change orders, purchase orders,
