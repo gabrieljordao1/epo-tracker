@@ -131,6 +131,50 @@ async def _run_safe_migrations():
         """
         CREATE INDEX IF NOT EXISTS ix_sub_payments_created_at ON sub_payments (created_at);
         """,
+        # ── Cleanup: delete duplicate EPOs (same gmail_message_id + lot_number, keep lowest ID) ──
+        """
+        DELETE FROM epos WHERE id IN (
+            SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                    PARTITION BY gmail_message_id, LOWER(TRIM(lot_number))
+                    ORDER BY id ASC
+                ) AS rn
+                FROM epos
+                WHERE gmail_message_id IS NOT NULL
+            ) ranked
+            WHERE rn > 1
+        );
+        """,
+        # ── Cleanup: delete exact (vendor, community, lot, round(amount)) duplicates, keep lowest ID ──
+        """
+        DELETE FROM epos WHERE id IN (
+            SELECT id FROM (
+                SELECT id, ROW_NUMBER() OVER (
+                    PARTITION BY company_id,
+                        LOWER(TRIM(vendor_name)),
+                        LOWER(TRIM(community)),
+                        LOWER(TRIM(lot_number)),
+                        ROUND(CAST(COALESCE(amount, 0) AS NUMERIC), 0)
+                    ORDER BY id ASC
+                ) AS rn
+                FROM epos
+                WHERE vendor_name IS NOT NULL
+                  AND community IS NOT NULL
+                  AND lot_number IS NOT NULL
+                  AND amount IS NOT NULL
+                  AND amount > 0
+            ) ranked
+            WHERE rn > 1
+        );
+        """,
+        # ── Cleanup: fix 'Hotmail', 'Gmail', etc. vendor names → 'Unknown Builder' ──
+        """
+        UPDATE epos SET vendor_name = 'Unknown Builder'
+        WHERE LOWER(TRIM(REPLACE(vendor_name, '.com', ''))) IN (
+            'hotmail', 'gmail', 'yahoo', 'outlook', 'aol', 'icloud',
+            'mail', 'protonmail', 'msn', 'live', 'comcast'
+        );
+        """,
     ]
 
     async with engine.begin() as conn:

@@ -819,9 +819,22 @@ async def reparse_all_epos(
                     changes["description_per_lot"] = sanitized_lot_desc[:100]
 
                 # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
-                # Note: previous-reparse dupes already cleaned in pre-pass above
+                # ONLY if an EPO for that lot doesn't already exist
                 import secrets
                 for extra_lot in all_lots[1:]:
+                    # Check if an EPO already exists for this lot + gmail_message_id
+                    existing_lot_q = await session.execute(
+                        select(EPO.id).where(
+                            and_(
+                                EPO.company_id == current_user.company_id,
+                                EPO.gmail_message_id == epo.gmail_message_id,
+                                func.lower(func.trim(EPO.lot_number)) == extra_lot.strip().lower(),
+                            )
+                        )
+                    ) if epo.gmail_message_id else None
+                    if existing_lot_q and existing_lot_q.scalar() is not None:
+                        continue  # Already exists, skip
+
                     extra_amt = tiered_map.get(extra_lot) if tiered_map else per_lot_amt
                     # Use per-lot description if available, else fall back to parent's
                     extra_desc = lot_desc_map.get(extra_lot, epo.description)

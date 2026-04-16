@@ -392,7 +392,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "multilot-fix-v29-2026-04-16",
+            "build_marker": "dedup-cleanup-v30-2026-04-16",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
@@ -420,13 +420,50 @@ def create_app() -> FastAPI:
             from fastapi import HTTPException as HE
             raise HE(status_code=403, detail="Invalid key")
         # Import and run the reparse logic inline (bypass user auth)
-        from .services.email_parser import EmailParserService, sanitize_vendor_name, sanitize_description
+        from .services.email_parser import (
+            EmailParserService, sanitize_vendor_name, sanitize_description,
+            _is_bad_builder_name,
+        )
         from .models.models import EPO, Company
         from sqlalchemy import select
         import json as _json
 
         async with async_session_maker() as session:
-            # Get company_id=1 (primary company)
+            # ── Step 0: Deduplicate by gmail_message_id + lot_number ──
+            # Keep lowest-ID per group, delete the rest
+            dedup_q = await session.execute(select(EPO).order_by(EPO.id))
+            all_epos_for_dedup = dedup_q.scalars().all()
+            seen_keys: dict = {}
+            deduped_count = 0
+            deleted_ids: set = set()
+            for epo in all_epos_for_dedup:
+                if epo.gmail_message_id:
+                    key = (epo.gmail_message_id, (epo.lot_number or "").strip().lower())
+                    if key in seen_keys:
+                        deleted_ids.add(epo.id)
+                        await session.delete(epo)
+                        deduped_count += 1
+                    else:
+                        seen_keys[key] = epo.id
+            # Also deduplicate by (vendor, community, lot, amount) with $1 tolerance
+            for epo in all_epos_for_dedup:
+                if epo.id in deleted_ids:
+                    continue
+                v = (epo.vendor_name or "").strip().lower()
+                c = (epo.community or "").strip().lower()
+                l = (epo.lot_number or "").strip().lower()
+                a = round(float(epo.amount or 0), 0)
+                if v and c and l and a > 0:
+                    key = (v, c, l, a)
+                    if key in seen_keys and seen_keys[key] != epo.id:
+                        deleted_ids.add(epo.id)
+                        await session.delete(epo)
+                        deduped_count += 1
+                    elif key not in seen_keys:
+                        seen_keys[key] = epo.id
+            await session.flush()
+
+            # ── Step 1: Reparse remaining EPOs ──
             epos_q = await session.execute(select(EPO).order_by(EPO.id))
             all_epos = epos_q.scalars().all()
             parser = EmailParserService()
@@ -434,6 +471,8 @@ def create_app() -> FastAPI:
             errors = []
             changes = []
             for epo in all_epos:
+                if epo.id in deleted_ids:
+                    continue
                 try:
                     if not epo.raw_email_subject and not epo.raw_email_body:
                         continue
@@ -451,6 +490,12 @@ def create_app() -> FastAPI:
                         "desc": (epo.description or "")[:60],
                         "amount": epo.amount,
                     }
+
+                    # ── Force-clear bad vendor names (Hotmail, Gmail, etc.) ──
+                    existing_vendor_is_bad = _is_bad_builder_name(epo.vendor_name or "")
+                    if existing_vendor_is_bad:
+                        epo.vendor_name = "Unknown Builder"
+
                     # Update vendor
                     new_vendor = sanitize_vendor_name(
                         parsed.get("builder_name") or parsed.get("vendor_name"),
@@ -458,7 +503,7 @@ def create_app() -> FastAPI:
                     )
                     if new_vendor and new_vendor != "Unknown Builder":
                         epo.vendor_name = new_vendor
-                    elif epo.vendor_name and epo.vendor_name != "Unknown Builder":
+                    elif not existing_vendor_is_bad and epo.vendor_name and epo.vendor_name != "Unknown Builder":
                         pass  # keep existing good vendor
                     else:
                         epo.vendor_name = new_vendor
@@ -501,6 +546,7 @@ def create_app() -> FastAPI:
             await session.commit()
         return {
             "total": len(all_epos),
+            "duplicates_removed": deduped_count,
             "updated": updated,
             "errors": errors[:10],
             "changes": changes,

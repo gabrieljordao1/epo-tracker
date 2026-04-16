@@ -74,6 +74,21 @@ class AgentPipelineService:
         }
 
         try:
+            # Step 0: Dedup guard — if we already have an EPO with this gmail_message_id, skip
+            if gmail_message_id:
+                existing_q = await session.execute(
+                    select(EPO.id).where(
+                        and_(
+                            EPO.company_id == company_id,
+                            EPO.gmail_message_id == gmail_message_id,
+                        )
+                    )
+                )
+                if existing_q.scalar() is not None:
+                    logger.info(f"Dedup: EPO already exists for gmail_message_id={gmail_message_id}, skipping")
+                    result["skipped_duplicate"] = True
+                    return result
+
             # Step 1: Parse the email
             logger.info(f"Parsing email from {vendor_email} for company {company_id}")
             parsed = await self.parser.parse_email(
