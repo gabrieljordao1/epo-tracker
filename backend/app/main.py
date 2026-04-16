@@ -451,10 +451,10 @@ def create_app() -> FastAPI:
                     continue
                 v = (epo.vendor_name or "").strip().lower()
                 c = (epo.community or "").strip().lower()
-                l = (epo.lot_number or "").strip().lower()
+                lot = (epo.lot_number or "").strip().lower()
                 a = round(float(epo.amount or 0), 0)
-                if v and c and l and a > 0:
-                    key = (v, c, l, a)
+                if v and c and lot and a > 0:
+                    key = (v, c, lot, a)
                     if key in seen_keys and seen_keys[key] != epo.id:
                         deleted_ids.add(epo.id)
                         await session.delete(epo)
