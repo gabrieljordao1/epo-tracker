@@ -100,13 +100,9 @@ async def get_email_status(
         result = await session.execute(query)
         connections = result.scalars().all()
 
-        total = len(connections)
-        active = sum(1 for c in connections if c.is_active)
-        needs_reconnect = total > 0 and active == 0
         return {
-            "total_connections": total,
-            "active_connections": active,
-            "needs_reconnect": needs_reconnect,
+            "total_connections": len(connections),
+            "active_connections": sum(1 for c in connections if c.is_active),
             "connections": [
                 {
                     "id": c.id,
@@ -376,11 +372,115 @@ async def trigger_email_sync(
         total_created = 0
         errors = []
 
+        from ..core.security import decrypt_token
+        from ..services.agent_pipeline import AgentPipelineService
+
+        pipeline = AgentPipelineService()
+
         for conn in connections:
             try:
+                if conn.provider != "gmail":
+                    logger.info(f"Skipping non-gmail connection: {conn.email_address}")
+                    continue
+
+                # Decrypt stored tokens
+                try:
+                    access_token = decrypt_token(conn.access_token, settings.SECRET_KEY)
+                    refresh_token_val = decrypt_token(conn.refresh_token, settings.SECRET_KEY) if conn.refresh_token else None
+                except Exception as e:
+                    errors.append({"connection": conn.email_address, "error": f"Token decryption failed: {e}"})
+                    logger.error(f"Token decryption failed for {conn.email_address}: {e}")
+                    continue
+
+                # Check if token is expired and refresh if needed
+                if conn.token_expires_at and conn.token_expires_at.replace(tzinfo=None) < datetime.utcnow():
+                    if refresh_token_val:
+                        gmail = _get_gmail_service()
+                        refresh_result = await gmail.refresh_access_token(refresh_token_val)
+                        if refresh_result.get("success"):
+                            access_token = refresh_result["access_token"]
+                            # Re-encrypt and store the new token
+                            from ..core.security import encrypt_token as enc_token
+                            conn.access_token = enc_token(access_token, settings.SECRET_KEY)
+                            from datetime import timedelta
+                            conn.token_expires_at = datetime.utcnow() + timedelta(seconds=3600)
+                            logger.info(f"Refreshed token for {conn.email_address}")
+                        else:
+                            errors.append({"connection": conn.email_address, "error": f"Token refresh failed: {refresh_result.get('error')}"})
+                            continue
+                    else:
+                        errors.append({"connection": conn.email_address, "error": "Token expired and no refresh token"})
+                        continue
+
+                # Fetch EPO emails from Gmail via IMAP
+                gmail = _get_gmail_service()
+                since_date = conn.last_sync_at or (datetime.utcnow() - __import__('datetime').timedelta(days=7))
+                fetched_emails = await gmail.fetch_epo_emails(
+                    access_token=access_token,
+                    email_address=conn.email_address,
+                    since_date=since_date,
+                    max_results=50,
+                )
+                logger.info(f"Fetched {len(fetched_emails)} emails from {conn.email_address}")
+
+                # Check which emails we already processed (by message_id)
+                for email_data in fetched_emails:
+                    msg_id = email_data.get("message_id", "")
+                    subject = email_data.get("subject", "")
+                    body = email_data.get("body", "")
+                    from_addr = email_data.get("from", "")
+
+                    # Skip if we already have an EPO with this gmail_message_id
+                    existing = await session.execute(
+                        select(EPO).where(
+                            and_(
+                                EPO.company_id == current_user.company_id,
+                                EPO.gmail_message_id == msg_id,
+                            )
+                        )
+                    )
+                    if existing.scalars().first():
+                        logger.debug(f"Skipping already-processed email: {msg_id}")
+                        continue
+
+                    # Process through the agent pipeline
+                    try:
+                        pipeline_result = await pipeline.process_new_email(
+                            session=session,
+                            email_subject=subject,
+                            email_body=body,
+                            vendor_email=from_addr,
+                            company_id=current_user.company_id,
+                            email_connection_id=conn.id,
+                            submitted_by_id=current_user.id,
+                            gmail_message_id=msg_id,
+                        )
+                        if pipeline_result.get("created"):
+                            total_created += 1
+                            additional = len(pipeline_result.get("additional_epo_ids", []))
+                            total_created += additional
+                            logger.info(
+                                f"Created EPO #{pipeline_result.get('epo_id')} from email "
+                                f"(+{additional} additional), model={pipeline_result.get('parse_model')}"
+                            )
+                        elif pipeline_result.get("error"):
+                            errors.append({
+                                "connection": conn.email_address,
+                                "subject": subject[:80],
+                                "error": pipeline_result["error"],
+                            })
+                    except Exception as e:
+                        errors.append({
+                            "connection": conn.email_address,
+                            "subject": subject[:80],
+                            "error": str(e),
+                        })
+                        logger.error(f"Pipeline error for email '{subject[:50]}': {e}")
+
                 # Update last sync timestamp
                 conn.last_sync_at = datetime.utcnow()
-                logger.info(f"Sync triggered for {conn.email_address} ({conn.provider})")
+                logger.info(f"Sync completed for {conn.email_address}")
+
             except Exception as e:
                 errors.append({"connection": conn.email_address, "error": str(e)})
                 logger.error(f"Sync error for {conn.email_address}: {e}")

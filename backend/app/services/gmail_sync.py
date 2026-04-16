@@ -137,9 +137,24 @@ class GmailSyncService:
             imap.authenticate("XOAUTH2", lambda _: auth_string.encode())
             imap.select("INBOX")
 
-            # Search for recent emails with EPO-related keywords
+            # Search for recent emails with construction EPO-related keywords
+            # Covers: EPO, extra paint/work orders, change orders, purchase orders,
+            # touch-up, drywall, paint, and common lot/community references
             date_str = since_date.strftime("%d-%b-%Y")
-            search_criteria = f'(SINCE {date_str} OR SUBJECT "EPO" OR SUBJECT "extra" OR SUBJECT "change order" OR SUBJECT "work order" OR SUBJECT "purchase order")'
+            search_criteria = (
+                f'(SINCE {date_str} OR '
+                f'SUBJECT "EPO" OR SUBJECT "epo" OR '
+                f'SUBJECT "extra" OR SUBJECT "change order" OR '
+                f'SUBJECT "work order" OR SUBJECT "purchase order" OR '
+                f'SUBJECT "paint" OR SUBJECT "drywall" OR '
+                f'SUBJECT "touch up" OR SUBJECT "touch-up" OR '
+                f'SUBJECT "lot" OR SUBJECT "Lot" OR '
+                f'SUBJECT "PO" OR '
+                f'BODY "EPO" OR BODY "epo" OR '
+                f'BODY "extra paint" OR BODY "extra work" OR '
+                f'BODY "change order" OR BODY "work order" OR '
+                f'BODY "purchase order")'
+            )
 
             _, message_ids = imap.search(None, search_criteria)
 
