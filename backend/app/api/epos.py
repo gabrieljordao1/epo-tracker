@@ -585,8 +585,27 @@ async def reparse_all_epos(
         skipped_no_text = 0
         errors: List[str] = []
         details: List[Dict[str, Any]] = []
+        deleted_ids: set = set()  # track EPOs removed during iteration
+
+        # ── Pre-pass: delete multi-lot duplicates from previous reparse runs ──
+        # Keep only the lowest-ID EPO per gmail_message_id
+        by_gmail: Dict[str, List[EPO]] = {}
+        for epo in epos:
+            if epo.gmail_message_id:
+                by_gmail.setdefault(epo.gmail_message_id, []).append(epo)
+        for gmail_id, group in by_gmail.items():
+            if len(group) > 1:
+                group_sorted = sorted(group, key=lambda e: e.id)
+                # Keep the lowest-ID one, delete the rest (will be re-created with correct amounts)
+                for dup in group_sorted[1:]:
+                    details.append({"id": dup.id, "action": "pre_cleanup_multi_lot_dup", "lot": dup.lot_number, "gmail_id": gmail_id})
+                    deleted_ids.add(dup.id)
+                    await session.delete(dup)
+        await session.flush()
 
         for epo in epos:
+            if epo.id in deleted_ids:
+                continue
             subject = epo.raw_email_subject or ""
             body = epo.raw_email_body or ""
             if not (subject or body):
@@ -754,23 +773,8 @@ async def reparse_all_epos(
                         epo.amount = per_lot_amt
                         changes["amount_per_lot"] = per_lot_amt
 
-                # Delete previous reparse duplicates for this email before re-creating
-                if epo.gmail_message_id:
-                    prev_dups = await session.execute(
-                        select(EPO).where(
-                            and_(
-                                EPO.company_id == current_user.company_id,
-                                EPO.gmail_message_id == epo.gmail_message_id,
-                                EPO.id != epo.id,
-                            )
-                        )
-                    )
-                    for dup in prev_dups.scalars().all():
-                        details.append({"id": dup.id, "action": "deleted_prev_reparse_dup", "lot": dup.lot_number})
-                        await session.delete(dup)
-                    await session.flush()
-
                 # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
+                # Note: previous-reparse dupes already cleaned in pre-pass above
                 import secrets
                 for extra_lot in all_lots[1:]:
                     extra_epo = EPO(
