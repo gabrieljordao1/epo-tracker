@@ -702,8 +702,8 @@ async def reparse_all_epos(
                 changes["description_cleared"] = True
                 desc_fixed += 1
 
-            # Amount — prefer "Total: $X" in body if present (multi-tier EPOs)
-            total_amt = _extract_total_amount(body)
+            # Amount — prefer "Total: $X" in body; multiply per-lot × count; sum tiers
+            total_amt = _extract_total_amount(body, subject)
             new_amt = total_amt if total_amt else parsed.get("amount")
             try:
                 new_amt_f = float(new_amt) if new_amt is not None else None

@@ -233,31 +233,142 @@ def _parse_epo_subject(subject: str) -> Dict[str, Any]:
             break
     community = _normalize_community(community)
 
+    # Also compute lot range/count for multi-lot subjects
+    first_from_expand, count, range_str = _extract_lots_from_subject(subject)
+    if range_str and count > 1:
+        # Use range form (e.g. "1-20", "25-28") for lot_number when multi-lot
+        lot_out = range_str
+        if first_from_expand:
+            first_lot = first_from_expand
+    else:
+        lot_out = first_lot
+
     out: Dict[str, Any] = {}
-    if first_lot and not _looks_like_bad_lot(first_lot):
-        out["lot_number"] = first_lot
+    if lot_out and not _looks_like_bad_lot(lot_out):
+        out["lot_number"] = lot_out
     if community:
         out["community"] = community
     if builder:
         out["builder_name"] = builder
+    if count > 1:
+        out["lot_count"] = count
     return out
 
 
-def _extract_total_amount(body: str) -> Optional[float]:
-    """Prefer 'Total: $X' over partial per-segment amounts."""
+def _expand_lot_list(lots_str: str) -> list:
+    """'1-9' → [1..9], '25, 26, 27 and 28' → [25,26,27,28], '2b and 2c' → ['2b','2c'].
+    Returns list of lot identifiers (strings).
+    """
+    if not lots_str:
+        return []
+    s = lots_str.strip().lower()
+    # Normalize " and " / "&" / ";" → commas
+    s = re.sub(r"\s+and\s+|\s*&\s*|\s*;\s*", ",", s)
+    lots = []
+    for part in s.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        # Range like "1-9" or "10-20"
+        m = re.match(r"^(\d+)\s*-\s*(\d+)$", part)
+        if m:
+            a, b = int(m.group(1)), int(m.group(2))
+            if 1 <= a <= b <= 200:
+                lots.extend(str(i) for i in range(a, b + 1))
+            continue
+        # Plain number/alphanumeric lot (1, 2a, etc.)
+        if re.match(r"^\d+[a-z]?$", part):
+            lots.append(part)
+    return lots
+
+
+def _extract_lots_from_subject(subject: str) -> tuple:
+    """Returns (first_lot, lot_count, lot_range_str).
+    'Epo for lots 1-20 Anderson townhomes DR horton' → ('1', 20, '1-20')
+    'Epo for lots 25,26,27 and 28 Galloway' → ('25', 4, '25-28')
+    """
+    if not subject:
+        return (None, 0, None)
+    s = re.sub(r"^\s*((re|fwd|fw)\s*:\s*)+", "", subject, flags=re.IGNORECASE).strip()
+    # Greedy lot section: consume numbers, ranges, commas, AND "and <number>" chains
+    m = re.match(
+        r"^epo\s+for\s+lots?\s+(?P<lots>\d+[\w,\s\-]*?(?:(?:\s*,\s*|\s+and\s+|\s+&\s+)\d+[\w]*)*)\s+(?P<rest>[A-Za-z][A-Za-z\s]+)$",
+        s,
+        re.IGNORECASE,
+    )
+    if not m:
+        return (None, 0, None)
+    lots_str = m.group("lots").strip()
+    expanded = _expand_lot_list(lots_str)
+    if not expanded:
+        return (None, 0, None)
+    first = expanded[0]
+    count = len(expanded)
+    # Build a range display
+    try:
+        nums = sorted(int(re.match(r"^(\d+)", x).group(1)) for x in expanded if re.match(r"^(\d+)", x))
+        if nums and nums[-1] - nums[0] == len(nums) - 1 and len(nums) > 1:
+            range_str = f"{nums[0]}-{nums[-1]}"
+        elif len(expanded) <= 4:
+            range_str = ",".join(expanded)
+        else:
+            range_str = f"{expanded[0]}-{expanded[-1]}"
+    except Exception:
+        range_str = expanded[0]
+    return (first, count, range_str)
+
+
+def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
+    """Compute total EPO amount from body.
+    Priority:
+      1. Explicit 'Total: $X' line
+      2. Sum of per-segment '= $X' totals in multi-tier requests
+      3. 'per lot' × lot_count from subject
+      4. Single-amount fallback
+    """
     if not body:
         return None
-    # Strip HTML
     clean = re.sub(r"<[^>]+>", " ", body)
     clean = re.sub(r"&nbsp;", " ", clean)
     clean = re.sub(r"\s+", " ", clean)
-    # Look for "Total: $X,XXX.XX" pattern (case-insensitive)
+
+    # 1. Explicit total line
     m = re.search(r"total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
     if m:
         try:
-            return float(m.group(1).replace(",", ""))
+            total = float(m.group(1).replace(",", ""))
+            if total > 0:
+                return total
         except ValueError:
             pass
+
+    # 2. Sum all "= $XXXX" segment totals (multi-tier EPO)
+    seg_totals = re.findall(r"=\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", clean)
+    if len(seg_totals) >= 2:
+        try:
+            vals = [float(x.replace(",", "")) for x in seg_totals]
+            summed = sum(v for v in vals if v > 0)
+            if summed > 0:
+                return summed
+        except ValueError:
+            pass
+
+    # 3. per lot × count from subject
+    if re.search(r"per\s+lot", clean, re.IGNORECASE):
+        # Extract the per-lot amount
+        per_m = re.search(
+            r"epo\s+of\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+lot)?",
+            clean,
+            re.IGNORECASE,
+        )
+        if per_m:
+            try:
+                per_lot = float(per_m.group(1).replace(",", ""))
+                _first, count, _range = _extract_lots_from_subject(subject)
+                if per_lot > 0 and count > 1:
+                    return per_lot * count
+            except ValueError:
+                pass
     return None
 
 
