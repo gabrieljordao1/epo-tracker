@@ -250,8 +250,15 @@ def _is_bad_community(s: str) -> bool:
     low = s.lower().strip()
     if low in _BAD_COMMUNITY_TOKENS:
         return True
-    # Looks like a lot range, e.g. "1-20", "25,26,27"
+    # Looks like a lot range, e.g. "1-20", "25,26,27", "21,"
     if re.match(r"^[\d,\s\-]+$", low):
+        return True
+    # Starts with digits — likely a lot range that leaked into community
+    # e.g. "1-20 anderson" should NOT be accepted as community (strip the numbers first)
+    if re.match(r"^\d", low):
+        return True
+    # Single character
+    if len(low) <= 1:
         return True
     return False
 
@@ -820,6 +827,9 @@ def _looks_like_bad_lot(s) -> bool:
     # Just a comma or punctuation
     if t in (",", ".", "-"):
         return True
+    # Pure letters with no digits — not a lot number (e.g., "s", "and", "galloway")
+    if t.isalpha() and len(t) <= 3:
+        return True
     return False
 
 
@@ -848,10 +858,13 @@ class EmailParserService:
     """
 
     # Regex patterns for common EPO fields
+    # CRITICAL: Use "lots?" to consume plural "s", then require \s or #/: before capture
+    # to avoid capturing "s" from "lots" as the lot number
     LOT_PATTERNS = [
-        r"(?:Lot|LOT|lot)\s*#?:?\s*([A-Za-z0-9\-]+)",
+        r"(?:Lots?)\s+#?:?\s*(\d+[A-Za-z]?(?:\s*[-,&]\s*\d+[A-Za-z]?)*)",
         r"L-(\d+)",
-        r"Lot\s+(\d+)",
+        r"(?:LOT|Lot|lot)\s*#\s*(\d+[A-Za-z]?)",
+        r"(?:LOT|Lot|lot)\s+(\d+[A-Za-z]?)",
     ]
 
     COMMUNITY_PATTERNS = [
@@ -935,9 +948,10 @@ class EmailParserService:
     )
 
     # Informal subject pattern: "Epo for lot 6 byrnes madison simmons"
-    # After "lot <number(s)>", remaining words split into community + builder
+    # After "lot(s) <number(s)>", remaining words split into community + builder
+    # CRITICAL: "lots?" consumes the plural "s" so it doesn't leak into the lot capture
     INFORMAL_SUBJECT_PATTERN = re.compile(
-        r"epo\s+(?:for\s+)?lot\s*#?\s*([\w]+(?:\s+and\s+[\w]+)?)\s+(.+)",
+        r"epo\s+(?:for\s+)?lots?\s*#?\s*([\d][\w,\s\-]*?(?:(?:\s+and\s+|\s*&\s*)[\d][\w]*)?)\s+([A-Za-z].+)",
         re.IGNORECASE,
     )
 
