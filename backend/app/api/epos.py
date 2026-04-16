@@ -13,7 +13,7 @@ from ..core.database import get_db
 from ..core.auth import get_current_user
 from ..core.security import sanitize_html, validate_email, audit_log, decrypt_token
 from ..models.models import EPO, EPOFollowup, EmailConnection, User, EPOStatus, UserRole
-from ..services.email_parser import EmailParserService
+from ..services.email_parser import EmailParserService, sanitize_vendor_name, sanitize_description
 from ..services.gmail_api import GmailAPIService
 from ..core.config import get_settings
 from ..models.schemas import (
@@ -655,8 +655,8 @@ async def reparse_all_epos(
                     # Normalize existing (e.g., "Drhorton" → "DR Horton")
                     norm_existing = _normalize_builder(epo.vendor_name)
                     if norm_existing and norm_existing != epo.vendor_name:
-                        epo.vendor_name = norm_existing
-                        changes["vendor_name_normalized"] = norm_existing
+                        epo.vendor_name = sanitize_vendor_name(norm_existing)
+                        changes["vendor_name_normalized"] = epo.vendor_name
                         builder_fixed += 1
             # Also try extracting builder from email body text (TO header, signature, etc.)
             if not new_builder:
@@ -684,8 +684,8 @@ async def reparse_all_epos(
             if new_builder and new_builder != epo.vendor_name:
                 current = (epo.vendor_name or "").strip()
                 if current in ("", "Unknown Builder"):
-                    changes["vendor_name"] = new_builder
-                    epo.vendor_name = new_builder
+                    changes["vendor_name"] = sanitize_vendor_name(new_builder)
+                    epo.vendor_name = changes["vendor_name"]
                     builder_fixed += 1
 
             # Community — prefer subject, then Gemini; always normalize; clear bad
@@ -727,8 +727,9 @@ async def reparse_all_epos(
             )
             if new_desc and new_desc != epo.description and old_is_boilerplate_or_bad:
                 if "gabriel jordao" not in new_desc.lower() and "field manager" not in new_desc.lower():
-                    changes["description"] = new_desc[:500]
-                    epo.description = new_desc[:500]
+                    sanitized_desc = sanitize_description(new_desc)[:500]
+                    changes["description"] = sanitized_desc
+                    epo.description = sanitized_desc
                     desc_fixed += 1
             elif old_is_boilerplate_or_bad:
                 epo.description = None
@@ -813,8 +814,9 @@ async def reparse_all_epos(
                 # Apply per-lot description to parent if available
                 first_lot_desc = lot_desc_map.get(first)
                 if first_lot_desc and len(first_lot_desc) > 10:
-                    epo.description = first_lot_desc[:500]
-                    changes["description_per_lot"] = first_lot_desc[:100]
+                    sanitized_lot_desc = sanitize_description(first_lot_desc)[:500]
+                    epo.description = sanitized_lot_desc
+                    changes["description_per_lot"] = sanitized_lot_desc[:100]
 
                 # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
                 # Note: previous-reparse dupes already cleaned in pre-pass above
@@ -894,7 +896,39 @@ async def reparse_all_epos(
         # Flush so subsequent dedup query sees updates
         await session.flush()
 
+        # ── Dedupe Pass 0: cross-connection duplicates by gmail_message_id + lot_number ──
+        # If multiple EPOs have the same non-null gmail_message_id AND the same lot_number,
+        # keep only the newest one (highest id) and delete the rest.
+        gmail_lot_groups: Dict[tuple, List[EPO]] = {}
+        pass0_query = select(EPO).where(EPO.company_id == current_user.company_id)
+        all_epos_p0 = (await session.execute(pass0_query)).scalars().all()
+        for e in all_epos_p0:
+            if e.gmail_message_id and e.lot_number:
+                k = (e.gmail_message_id, e.lot_number.strip().lower())
+                gmail_lot_groups.setdefault(k, []).append(e)
+
+        pass0_duped = 0
+        for k, group in gmail_lot_groups.items():
+            if len(group) <= 1:
+                continue
+            # Sort by id descending, keep the highest (newest)
+            group.sort(key=lambda x: x.id, reverse=True)
+            keeper = group[0]
+            for dup in group[1:]:
+                details.append({
+                    "id": dup.id,
+                    "action": "deleted_gmail_lot_duplicate",
+                    "kept": keeper.id,
+                    "gmail_message_id": k[0],
+                    "lot_number": k[1],
+                })
+                await session.delete(dup)
+                pass0_duped += 1
+
+        await session.flush()
+
         # ── Dedupe Pass 1: exact (vendor, community, lot, amount) match → keep lowest id ──
+        # Amount matching allows $1 tolerance (rounded to nearest dollar)
         dedup_query = select(EPO).where(EPO.company_id == current_user.company_id)
         all_epos = (await session.execute(dedup_query)).scalars().all()
         seen: Dict[tuple, int] = {}
@@ -904,7 +938,7 @@ async def reparse_all_epos(
                 (e.vendor_name or "").strip().lower(),
                 (e.community or "").strip().lower(),
                 (e.lot_number or "").strip().lower() if e.lot_number else "",
-                round(float(e.amount or 0), 2),
+                round(float(e.amount or 0), 0),  # Round to nearest dollar for tolerance
             )
             # Only dedupe when all 4 fields are meaningfully set
             if not key[0] or not key[1] or not key[2] or key[3] <= 0:
@@ -1005,6 +1039,34 @@ async def reparse_all_epos(
                 continue
             real = [g for g in group if g.vendor_name and g.vendor_name.strip().lower() not in UNKNOWN]
             unk = [g for g in group if not g.vendor_name or g.vendor_name.strip().lower() in UNKNOWN]
+
+            # If all rows are unknown and there are multiple, keep the one with most data
+            if not real and len(unk) > 1:
+                # Score each unknown row by data completeness
+                def data_score(e: EPO) -> tuple:
+                    score = 0
+                    if e.amount and e.amount > 0:
+                        score += 3
+                    if e.description and len((e.description or "").strip()) > 10:
+                        score += 2
+                    if e.confirmation_number:
+                        score += 1
+                    return (score, e.id)  # Use id as tiebreaker (prefer lower id)
+
+                unk.sort(key=data_score, reverse=True)
+                keeper = unk[0]
+                for g in unk[1:]:
+                    details.append({
+                        "id": g.id,
+                        "action": "merged_unknown_builder_all_unknown",
+                        "kept": keeper.id,
+                        "lot": g.lot_number,
+                        "community": g.community,
+                    })
+                    await session.delete(g)
+                    unknown_merged += 1
+                continue
+
             if not real or not unk:
                 continue
             real.sort(key=lambda x: x.id)
@@ -1044,6 +1106,7 @@ async def reparse_all_epos(
             "amount_fixed": amount_fixed,
             "description_fixed": desc_fixed,
             "archived_not_epo": archived_not_epo,
+            "gmail_lot_dups_deleted": pass0_duped,
             "duplicates_deleted": duped,
             "same_lot_dups_deleted": lot_duped,
             "amount_conflicts_flagged": conflict_flagged,

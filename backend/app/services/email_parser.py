@@ -1,5 +1,6 @@
 import json
 import re
+import html
 import logging
 from typing import Dict, Any, Optional, Tuple
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -143,6 +144,92 @@ def _normalize_builder(s: str) -> Optional[str]:
             return _BUILDER_CANONICAL[key]
     # Title-case fallback for unknowns
     return " ".join(w.capitalize() for w in s.split())
+
+
+# Email domain → builder mapping for common builder domains
+_DOMAIN_TO_BUILDER = {
+    "pulte.com": "Pulte",
+    "pultehomes.com": "Pulte",
+    "dfrh.com": "Dream Finders",
+    "dreamfindershomes.com": "Dream Finders",
+    "stanleymartin.com": "Stanley Martin",
+    "drhorton.com": "DR Horton",
+    "nvrinc.com": "NVR",
+    "rfrealtor.com": "Ryan Homes",
+    "ryanhomes.com": "Ryan Homes",
+    "meritage.com": "Meritage Homes",
+    "meritagehomes.com": "Meritage Homes",
+    "tollbrothers.com": "Toll Brothers",
+    "hovnanian.com": "K. Hovnanian",
+    "khov.com": "K. Hovnanian",
+    "lennar.com": "Lennar",
+    "kbhome.com": "KB Home",
+    "mihomes.com": "M/I Homes",
+    "taylormorrison.com": "Taylor Morrison",
+    "mungohomes.com": "Mungo Homes",
+    "truehomesusa.com": "True Homes",
+    "eastwoodhomes.com": "Eastwood Homes",
+    "beazer.com": "Beazer Homes",
+    "sheahomes.com": "Shea Homes",
+    "tripointehomes.com": "TriPointe Homes",
+    "redcedarco.com": "Red Cedar",
+    "madisonsimmons.com": "Madison Simmons Homes",
+    "summithomesinc.com": "Summit Homes",
+}
+
+
+def sanitize_vendor_name(raw_name: str, vendor_email: str = None) -> str:
+    """Validate and clean a vendor/builder name.
+    Falls back to email domain inference, then 'Unknown Builder'.
+    Should be called on ALL parsed vendor names before storing."""
+    # Try normalizing the raw name first
+    clean = _normalize_builder(raw_name) if raw_name else None
+    if clean:
+        return clean
+
+    # Try email domain inference
+    if vendor_email:
+        domain = vendor_email.lower().split("@")[-1] if "@" in vendor_email else ""
+        if domain in _DOMAIN_TO_BUILDER:
+            return _DOMAIN_TO_BUILDER[domain]
+        # Try partial domain matching (e.g., "john@pulte.com" → "Pulte")
+        domain_base = domain.split(".")[0] if domain else ""
+        for key in _BUILDER_CANONICAL:
+            if domain_base and key.replace(" ", "") == domain_base:
+                return _BUILDER_CANONICAL[key]
+
+    return "Unknown Builder"
+
+
+_BAD_DESCRIPTIONS = {
+    "yes", "no", "ok", "okay", "thanks", "thank you", "got it", "sounds good",
+    "will do", "confirmed", "approved", "received", "noted",
+}
+
+
+def sanitize_description(desc: str) -> Optional[str]:
+    """Validate a description. Returns None if it's garbage."""
+    if not desc:
+        return None
+    desc = desc.strip()
+    # Reject very short or single-word replies
+    if len(desc) < 5:
+        return None
+    if desc.lower().strip(".,!? ") in _BAD_DESCRIPTIONS:
+        return None
+    # Reject if it's just an email artifact
+    if desc.startswith("[cid:") or desc.startswith("[image"):
+        return None
+    # Reject "Hotmail test data" or similar garbage
+    if re.match(r'^(?:hotmail|gmail|yahoo|outlook)\b', desc, re.IGNORECASE):
+        return None
+    # Reject if mostly underscores/dashes
+    if len(re.sub(r'[_\-\s]', '', desc)) < 5:
+        return None
+    # Strip trailing "please submit" boilerplate if that's the whole thing
+    if re.match(r'^please\s+submit\s+an?\s+(?:epo|estimate)', desc, re.IGNORECASE) and len(desc) < 40:
+        return None
+    return desc
 
 
 # Known communities — used to validate/normalize community names
@@ -329,7 +416,8 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
     if not body:
         return None
     clean = re.sub(r"<[^>]+>", " ", body)
-    clean = re.sub(r"&nbsp;", " ", clean)
+    # Comprehensive HTML entity decoding
+    clean = html.unescape(clean)
     clean = re.sub(r"\s+", " ", clean)
 
     # 1. Explicit total — prefer "Grand total" over bare "total" (individual
@@ -396,7 +484,8 @@ def _extract_tiered_per_lot_amounts(body: str) -> Dict[str, float]:
     if not body:
         return {}
     clean = re.sub(r"<[^>]+>", " ", body)
-    clean = re.sub(r"&nbsp;", " ", clean)
+    # Comprehensive HTML entity decoding
+    clean = html.unescape(clean)
     clean = re.sub(r"\s+", " ", clean)
 
     out: Dict[str, float] = {}
@@ -436,7 +525,8 @@ def _extract_individual_lot_amounts(body: str) -> Dict[str, float]:
     if not body:
         return {}
     clean = re.sub(r"<[^>]+>", " ", body)
-    clean = re.sub(r"&nbsp;", " ", clean)
+    # Comprehensive HTML entity decoding
+    clean = html.unescape(clean)
     clean = re.sub(r"\s+", " ", clean)
 
     out: Dict[str, float] = {}
@@ -468,7 +558,8 @@ def _extract_individual_lot_descriptions(body: str) -> Dict[str, str]:
     if not body:
         return {}
     clean = re.sub(r"<[^>]+>", " ", body)
-    clean = re.sub(r"&nbsp;", " ", clean)
+    # Comprehensive HTML entity decoding
+    clean = html.unescape(clean)
     clean = re.sub(r"\s+", " ", clean)
 
     out: Dict[str, str] = {}
@@ -519,6 +610,9 @@ def _strip_reply_chain(body: str) -> str:
         r"\n\s*-{3,}\s*Original Message\s*-{3,}",
         r"\n\s*_{3,}\s*\n",
         r"\n\s*>\s",
+        r"\n\s*-{5,}\s*Forwarded message\s*-{5,}",
+        r"\n\s*Sent from\s+(?:my\s+)?(?:iPhone|iPad|Galaxy|Outlook|Mail)",
+        r"\n\s*Get Outlook for",
     ]
     earliest = len(body)
     for p in patterns:
@@ -547,7 +641,19 @@ def _extract_work_description(body: str, subject: str = "") -> Optional[str]:
     def _clean_text(text: str) -> str:
         """Strip HTML, normalize whitespace, truncate at signature."""
         c = re.sub(r"<[^>]+>", " ", text)
-        c = re.sub(r"&nbsp;", " ", c)
+        # Comprehensive HTML entity decoding
+        c = html.unescape(c)
+        # Strip email artifacts
+        c = re.sub(r'\[cid:[^\]]*\]', '', c)
+        c = re.sub(r'\[image[^\]]*\]', '', c)
+        c = re.sub(r'[_]{3,}', '', c)
+        c = re.sub(r'[-]{5,}', '', c)
+        # Strip "Sent from Outlook" / "Get Outlook" markers
+        c = re.sub(r'Sent from Outlook.*', '', c, flags=re.IGNORECASE | re.DOTALL)
+        c = re.sub(r'Get Outlook for.*', '', c, flags=re.IGNORECASE | re.DOTALL)
+        # Strip forwarded message headers
+        c = re.sub(r'---------- Forwarded message ---------.*', '', c, flags=re.IGNORECASE | re.DOTALL)
+        # Normalize whitespace
         c = re.sub(r"\s+", " ", c).strip()
         # Stop at signature markers
         for marker in [
@@ -894,7 +1000,10 @@ class EmailParserService:
         subject_parsed = self._parse_subject_format(email_subject)
 
         # Try to extract vendor/builder name
-        vendor_name = subject_parsed.get("builder_name") or self._extract_vendor_name(email_subject, email_body)
+        vendor_name = sanitize_vendor_name(
+            subject_parsed.get("builder_name") or self._extract_vendor_name(email_subject, email_body),
+            vendor_email
+        )
         vendor_email = vendor_email or self._extract_email(email_body)
 
         # Try to extract amount
@@ -945,12 +1054,15 @@ class EmailParserService:
 
         needs_review = confidence_score < 0.7 or not (has_builder and has_amount)
 
+        raw_desc = self._extract_description(email_body, subject=email_subject) or email_subject
+        description = sanitize_description(raw_desc) or raw_desc
+
         return {
             "vendor_name": vendor_name,
             "vendor_email": vendor_email,
             "community": community,
             "lot_number": lot_number,
-            "description": self._extract_description(email_body, subject=email_subject) or email_subject,
+            "description": description,
             "amount": amount,
             "confirmation_number": confirmation,
             "confidence_score": confidence_score,
@@ -1194,8 +1306,8 @@ Example (Google security alert):
                 # Safety net: drop person-name builder_names — Gemini sometimes
                 # returns "John Smith" when only a signature exists.
                 b = item.get("builder_name")
-                if b and _looks_like_person_name(b):
-                    logger.info(f"Dropping person-name builder '{b}' — not a company")
+                if b and (_looks_like_person_name(b) or _is_bad_builder_name(b)):
+                    logger.info(f"Dropping bad builder '{b}'")
                     item["builder_name"] = None
                 results.append(item)
 

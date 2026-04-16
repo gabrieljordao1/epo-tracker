@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import get_settings
 from ..models.models import EPO, Company, EPOStatus, EPOFollowup, FollowupStatus
-from .email_parser import EmailParserService
+from .email_parser import EmailParserService, sanitize_vendor_name, sanitize_description
 from .email_sender import EmailSenderService
 
 logger = logging.getLogger(__name__)
@@ -95,15 +95,16 @@ class AgentPipelineService:
             # Extract parsed data
             # Use builder_name from webhook (derived from TO email domain) if provided,
             # then try parser's builder_name or vendor_name, finally fallback
-            vendor_name = (
+            # Validate vendor name — reject email providers, person names, etc.
+            raw_vendor = (
                 builder_name
                 or parsed.get("builder_name")
                 or parsed.get("vendor_name")
-                or "Unknown Builder"
             )
+            vendor_name = sanitize_vendor_name(raw_vendor, vendor_email=vendor_email)
             community = parsed.get("community")
             lot_number = parsed.get("lot_number")
-            description = parsed.get("description")
+            description = sanitize_description(parsed.get("description"))
             amount = parsed.get("amount")
             confirmation_number = parsed.get("confirmation_number")
             confidence_score = parsed.get("confidence_score", 0.0)
@@ -167,16 +168,14 @@ class AgentPipelineService:
                         company_id=company_id,
                         email_connection_id=email_connection_id,
                         created_by_id=submitted_by_id,
-                        vendor_name=(
-                            builder_name
-                            or extra.get("builder_name")
-                            or extra.get("vendor_name")
-                            or vendor_name
-                        ),
+                        vendor_name=sanitize_vendor_name(
+                            builder_name or extra.get("builder_name") or extra.get("vendor_name"),
+                            vendor_email=vendor_email,
+                        ) if (builder_name or extra.get("builder_name") or extra.get("vendor_name")) else vendor_name,
                         vendor_email=builder_email or vendor_email,
                         community=extra.get("community") or community,
                         lot_number=extra.get("lot_number"),
-                        description=extra.get("description"),
+                        description=sanitize_description(extra.get("description")) or description,
                         amount=extra.get("amount"),
                         confirmation_number=extra.get("confirmation_number"),
                         status=EPOStatus.PENDING,
