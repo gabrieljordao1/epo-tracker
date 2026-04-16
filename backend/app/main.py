@@ -392,7 +392,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "parsing-overhaul-v26-2026-04-16",
+            "build_marker": "reparse-admin-v27-2026-04-16",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
@@ -405,6 +405,103 @@ def create_app() -> FastAPI:
             "service": settings.APP_NAME,
             "version": "1.0.0",
             "docs": "/docs" if settings.ENVIRONMENT != "production" else None,
+        }
+
+    # ─── Admin reparse endpoint (key-protected) ───
+    from fastapi import Query as QueryParam
+    from .core.database import async_session_maker
+
+    @app.post("/api/admin/reparse")
+    async def admin_reparse(key: str = QueryParam(...)):
+        """Trigger a full reparse. Requires SECRET_KEY as query param."""
+        if not settings.SECRET_KEY or key != settings.SECRET_KEY:
+            from fastapi import HTTPException as HE
+            raise HE(status_code=403, detail="Invalid key")
+        # Import and run the reparse logic inline (bypass user auth)
+        from .services.email_parser import EmailParserService, sanitize_vendor_name, sanitize_description
+        from .models.models import EPO, Company
+        from sqlalchemy import select
+        import json as _json
+
+        async with async_session_maker() as session:
+            # Get company_id=1 (primary company)
+            epos_q = await session.execute(select(EPO).order_by(EPO.id))
+            all_epos = epos_q.scalars().all()
+            parser = EmailParserService()
+            updated = 0
+            errors = []
+            changes = []
+            for epo in all_epos:
+                try:
+                    if not epo.raw_email_subject and not epo.raw_email_body:
+                        continue
+                    parsed = await parser.parse_email(
+                        email_subject=epo.raw_email_subject or "",
+                        email_body=epo.raw_email_body or "",
+                        vendor_email=epo.vendor_email,
+                    )
+                    if not parsed:
+                        continue
+                    old = {
+                        "vendor": epo.vendor_name,
+                        "community": epo.community,
+                        "lot": epo.lot_number,
+                        "desc": (epo.description or "")[:60],
+                        "amount": epo.amount,
+                    }
+                    # Update vendor
+                    new_vendor = sanitize_vendor_name(
+                        parsed.get("builder_name") or parsed.get("vendor_name"),
+                        epo.vendor_email,
+                    )
+                    if new_vendor and new_vendor != "Unknown Builder":
+                        epo.vendor_name = new_vendor
+                    elif epo.vendor_name and epo.vendor_name != "Unknown Builder":
+                        pass  # keep existing good vendor
+                    else:
+                        epo.vendor_name = new_vendor
+
+                    # Update community
+                    new_comm = parsed.get("community")
+                    if new_comm:
+                        epo.community = new_comm
+
+                    # Update lot
+                    new_lot = parsed.get("lot_number")
+                    if new_lot:
+                        epo.lot_number = new_lot
+
+                    # Update description
+                    new_desc = sanitize_description(parsed.get("description"))
+                    if new_desc:
+                        epo.description = new_desc
+
+                    # Update amount
+                    new_amount = parsed.get("amount")
+                    if new_amount and new_amount > 0:
+                        epo.amount = new_amount
+
+                    # Update parse model
+                    epo.parse_model = parsed.get("parse_model", epo.parse_model)
+
+                    new = {
+                        "vendor": epo.vendor_name,
+                        "community": epo.community,
+                        "lot": epo.lot_number,
+                        "desc": (epo.description or "")[:60],
+                        "amount": epo.amount,
+                    }
+                    if old != new:
+                        changes.append({"id": epo.id, "old": old, "new": new})
+                        updated += 1
+                except Exception as e:
+                    errors.append({"id": epo.id, "error": str(e)})
+            await session.commit()
+        return {
+            "total": len(all_epos),
+            "updated": updated,
+            "errors": errors[:10],
+            "changes": changes,
         }
 
     return app
