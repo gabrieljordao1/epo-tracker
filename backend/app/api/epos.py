@@ -655,16 +655,100 @@ async def reparse_all_epos(
                 changes["community"] = new_comm
                 epo.community = new_comm
 
-            # Lot — prefer subject (which handles "21, 22 and 23" → "21")
+            # Lot — expand multi-lot emails into separate EPOs
+            from ..services.email_parser import _expand_lot_list, _extract_lots_from_subject
+            first_lot_subj, lot_count, lot_range_str = _extract_lots_from_subject(subject)
             new_lot = subj_parsed.get("lot_number") or parsed.get("lot_number")
-            if isinstance(new_lot, str):
-                parts = re.split(r"[,;]| and |\s+", new_lot.strip())
-                parts = [p for p in (pp.strip() for pp in parts) if p and p.lower() not in ("and", "or")]
-                if parts and len(parts[0]) <= 10:
-                    new_lot = parts[0].strip(",;. ")
-            if new_lot and not _looks_like_bad_lot(new_lot) and new_lot != epo.lot_number:
-                changes["lot_number"] = new_lot
-                epo.lot_number = new_lot
+
+            # If subject has multiple lots, expand them
+            all_lots = []
+            if first_lot_subj and lot_count > 1:
+                # Subject-based multi-lot: "lots 25, 26, 27 and 28" or "lots 21-23"
+                raw_lots_str = re.search(
+                    r"lots?\s+([\d][\w,\s\-&]*?(?:(?:\s*,\s*|\s+and\s+|\s+&\s+)\d+[\w]*)*)\s+[A-Za-z]",
+                    re.sub(r"^\s*((re|fwd|fw)\s*:\s*)+", "", subject, flags=re.IGNORECASE),
+                    re.IGNORECASE,
+                )
+                if raw_lots_str:
+                    all_lots = _expand_lot_list(raw_lots_str.group(1))
+                if not all_lots:
+                    all_lots = _expand_lot_list(lot_range_str or "")
+            elif isinstance(new_lot, str):
+                # Try expanding lot field itself (e.g., "21, 22, 23")
+                expanded = _expand_lot_list(new_lot)
+                if len(expanded) > 1:
+                    all_lots = expanded
+                else:
+                    parts = re.split(r"[,;]| and |\s+", new_lot.strip())
+                    parts = [p for p in (pp.strip() for pp in parts) if p and p.lower() not in ("and", "or")]
+                    if parts and len(parts[0]) <= 10:
+                        new_lot = parts[0].strip(",;. ")
+
+            if all_lots and len(all_lots) > 1:
+                # Assign FIRST lot to this EPO
+                first = all_lots[0]
+                if first != epo.lot_number:
+                    changes["lot_number"] = first
+                    epo.lot_number = first
+
+                # Calculate per-lot amount
+                per_lot_amt = None
+                if epo.amount and epo.amount > 0:
+                    per_lot_amt = round(epo.amount / len(all_lots), 2)
+                    if abs(epo.amount - per_lot_amt) > 0.01:
+                        epo.amount = per_lot_amt
+                        changes["amount_per_lot"] = per_lot_amt
+
+                # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
+                for extra_lot in all_lots[1:]:
+                    # Check if this lot already exists for same community+builder
+                    dup_check = await session.execute(
+                        select(EPO).where(
+                            and_(
+                                EPO.company_id == current_user.company_id,
+                                EPO.community == epo.community,
+                                EPO.lot_number == extra_lot,
+                                EPO.vendor_name == epo.vendor_name,
+                            )
+                        )
+                    )
+                    if dup_check.scalars().first():
+                        continue  # Already exists, skip
+
+                    import secrets
+                    extra_epo = EPO(
+                        company_id=current_user.company_id,
+                        created_by_id=epo.created_by_id,
+                        email_connection_id=epo.email_connection_id,
+                        vendor_name=epo.vendor_name,
+                        vendor_email=epo.vendor_email,
+                        community=epo.community,
+                        lot_number=extra_lot,
+                        description=epo.description,
+                        amount=per_lot_amt,
+                        status=epo.status,
+                        confirmation_number=epo.confirmation_number,
+                        confidence_score=epo.confidence_score,
+                        parse_model=epo.parse_model,
+                        raw_email_subject=epo.raw_email_subject,
+                        raw_email_body=epo.raw_email_body,
+                        synced_from_email=True,
+                        vendor_token=secrets.token_urlsafe(32),
+                        needs_review=epo.needs_review,
+                        gmail_thread_id=epo.gmail_thread_id,
+                        gmail_message_id=epo.gmail_message_id,
+                    )
+                    session.add(extra_epo)
+                    details.append({"id": f"new_lot_{extra_lot}", "parent_epo": epo.id, "lot": extra_lot, "action": "created_from_multi_lot"})
+                changes["multi_lot_expanded"] = all_lots
+            else:
+                # Single lot handling
+                if isinstance(new_lot, str):
+                    new_lot = new_lot.strip(",;. ")
+                if new_lot and not _looks_like_bad_lot(new_lot) and new_lot != epo.lot_number:
+                    changes["lot_number"] = new_lot
+                    epo.lot_number = new_lot
+
             if epo.lot_number and _looks_like_bad_lot(epo.lot_number):
                 epo.lot_number = None
                 changes["lot_number_cleared"] = True
