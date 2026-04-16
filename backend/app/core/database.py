@@ -1,7 +1,7 @@
 import logging
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import StaticPool, NullPool
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -18,12 +18,12 @@ if "sqlite" in settings.DATABASE_URL:
     engine_kwargs["poolclass"] = StaticPool
     logger.info("Using SQLite database (development mode)")
 else:
-    engine_kwargs["pool_pre_ping"] = True
-    engine_kwargs["pool_size"] = settings.DB_POOL_SIZE
-    engine_kwargs["max_overflow"] = settings.DB_MAX_OVERFLOW
-    engine_kwargs["pool_timeout"] = settings.DB_POOL_TIMEOUT
-    engine_kwargs["pool_recycle"] = 3600  # Recycle connections after 1 hour
-    logger.info("Using PostgreSQL database (production mode)")
+    # Use NullPool to avoid connection hoarding on Railway/Neon Postgres.
+    # Neon's session-mode pooler has a very low connection limit;
+    # NullPool creates a fresh connection per request and releases immediately,
+    # so we never hit "MaxClientsInSessionMode" during deploys.
+    engine_kwargs["poolclass"] = NullPool
+    logger.info("Using PostgreSQL database (production mode, NullPool)")
 
 engine = create_async_engine(settings.DATABASE_URL, **engine_kwargs)
 
