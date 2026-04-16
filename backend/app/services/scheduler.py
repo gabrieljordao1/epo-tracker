@@ -370,6 +370,154 @@ async def check_gmail_connection_health():
         logger.info(f"Gmail health check: {unhealthy}/{len(conns)} marked inactive")
 
 
+async def run_periodic_email_sync():
+    """Automatically sync new emails from ALL active Gmail connections.
+
+    This is the CORE auto-sync job that makes the app autonomous.
+    Runs every 5 minutes. For each active email connection across all companies:
+      1. Refreshes OAuth token if expired
+      2. Fetches new emails via IMAP since last sync
+      3. Processes through the parser pipeline → creates EPO records
+      4. Updates last_sync_at timestamp
+    """
+    logger.info("Running periodic email sync...")
+
+    from ..core.security import decrypt_token, encrypt_token
+    from .gmail_sync import GmailSyncService
+    from .agent_pipeline import AgentPipelineService
+
+    async with async_session_maker() as session:
+        # Get ALL active Gmail connections across ALL companies
+        query = select(EmailConnection).where(
+            (EmailConnection.provider == "gmail")
+            & (EmailConnection.is_active.is_(True))
+        )
+        result = await session.execute(query)
+        connections = result.scalars().all()
+
+        if not connections:
+            logger.info("No active email connections — nothing to sync")
+            return
+
+        gmail = GmailSyncService(
+            client_id=settings.GOOGLE_CLIENT_ID,
+            client_secret=settings.GOOGLE_CLIENT_SECRET,
+        )
+        pipeline = AgentPipelineService()
+        total_created = 0
+        total_errors = 0
+
+        for conn in connections:
+            try:
+                # Decrypt stored tokens
+                try:
+                    access_token = decrypt_token(conn.access_token, settings.SECRET_KEY)
+                    refresh_token_val = decrypt_token(conn.refresh_token, settings.SECRET_KEY) if conn.refresh_token else None
+                except Exception as e:
+                    logger.error(f"[auto-sync] Token decryption failed for {conn.email_address}: {e}")
+                    continue
+
+                # Refresh token if expired
+                from datetime import timedelta as td
+                if conn.token_expires_at and conn.token_expires_at.replace(tzinfo=None) < datetime.utcnow():
+                    if refresh_token_val:
+                        refresh_result = await gmail.refresh_access_token(refresh_token_val)
+                        if refresh_result.get("success"):
+                            access_token = refresh_result["access_token"]
+                            conn.access_token = encrypt_token(access_token, settings.SECRET_KEY)
+                            conn.token_expires_at = datetime.utcnow() + td(seconds=3600)
+                            logger.info(f"[auto-sync] Refreshed token for {conn.email_address}")
+                        else:
+                            logger.warning(
+                                f"[auto-sync] Token refresh failed for {conn.email_address}: "
+                                f"{refresh_result.get('error')} — marking inactive"
+                            )
+                            conn.is_active = False
+                            await session.commit()
+                            continue
+                    else:
+                        logger.warning(f"[auto-sync] Token expired, no refresh token for {conn.email_address}")
+                        conn.is_active = False
+                        await session.commit()
+                        continue
+
+                # Fetch emails since last sync (or last 2 days for first run)
+                since_date = conn.last_sync_at or (datetime.utcnow() - timedelta(days=2))
+                # Don't go further back than 14 days to avoid re-processing old stuff
+                min_date = datetime.utcnow() - timedelta(days=14)
+                if since_date < min_date:
+                    since_date = min_date
+
+                fetched_emails = await gmail.fetch_epo_emails(
+                    access_token=access_token,
+                    email_address=conn.email_address,
+                    since_date=since_date,
+                    max_results=50,
+                )
+                logger.info(f"[auto-sync] Fetched {len(fetched_emails)} emails from {conn.email_address}")
+
+                # Process each email
+                created_this_conn = 0
+                for email_data in fetched_emails:
+                    msg_id = email_data.get("message_id", "")
+                    subject_text = email_data.get("subject", "")
+                    body_text = email_data.get("body", "")
+                    from_addr = email_data.get("from", "")
+
+                    if not msg_id:
+                        continue
+
+                    # Skip if already processed
+                    existing = await session.execute(
+                        select(EPO).where(
+                            and_(
+                                EPO.company_id == conn.company_id,
+                                EPO.gmail_message_id == msg_id,
+                            )
+                        )
+                    )
+                    if existing.scalars().first():
+                        continue
+
+                    # Process through the agent pipeline
+                    try:
+                        pipeline_result = await pipeline.process_new_email(
+                            session=session,
+                            email_subject=subject_text,
+                            email_body=body_text,
+                            vendor_email=from_addr,
+                            company_id=conn.company_id,
+                            email_connection_id=conn.id,
+                            submitted_by_id=None,  # system-initiated sync
+                            gmail_message_id=msg_id,
+                        )
+                        if pipeline_result.get("created"):
+                            created_this_conn += 1
+                            additional = len(pipeline_result.get("additional_epo_ids", []))
+                            created_this_conn += additional
+                    except Exception as e:
+                        logger.error(f"[auto-sync] Pipeline error for '{subject_text[:60]}': {e}")
+                        total_errors += 1
+
+                # Update last_sync_at
+                conn.last_sync_at = datetime.utcnow()
+                total_created += created_this_conn
+
+                if created_this_conn > 0:
+                    logger.info(f"[auto-sync] Created {created_this_conn} new EPOs from {conn.email_address}")
+
+            except Exception as e:
+                logger.error(f"[auto-sync] Error syncing {conn.email_address}: {e}")
+                total_errors += 1
+                continue
+
+        await session.commit()
+        logger.info(
+            f"Periodic email sync complete: {total_created} EPOs created, "
+            f"{total_errors} errors, {len(connections)} connections checked"
+        )
+
+
 async def run_all_scheduled_tasks():
     """Run all scheduled tasks. Called by the scheduler or manually."""
     await update_days_open()
@@ -444,9 +592,20 @@ def start_scheduler():
             replace_existing=True,
         )
 
+        # ★ CORE: Automatic email sync every 5 minutes
+        # This is the main job that makes the app autonomous —
+        # fetches new emails from Gmail and creates EPO records
+        from apscheduler.triggers.interval import IntervalTrigger
+        scheduler.add_job(
+            run_periodic_email_sync,
+            IntervalTrigger(minutes=5),
+            id="periodic_email_sync",
+            replace_existing=True,
+        )
+
         scheduler.start()
         _scheduler_running = True
-        logger.info("Background scheduler started (APScheduler)")
+        logger.info("Background scheduler started (APScheduler) — email sync every 5 min")
 
     except ImportError:
         logger.warning(
