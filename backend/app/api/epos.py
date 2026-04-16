@@ -678,21 +678,29 @@ async def reparse_all_epos(
             # Description — extract just the WORK, not the "Please submit an EPO" request boilerplate
             from ..services.email_parser import _extract_work_description
             new_desc = _extract_work_description(body)
-            if new_desc and new_desc != epo.description:
-                old = (epo.description or "").strip()
-                old_low = old.lower()
-                # Always replace if old starts with "please submit" or is a reply/garbage
-                old_is_boilerplate_or_bad = (
-                    not old
-                    or len(old) < 25
-                    or old_low.startswith(("please submit", "submit an", "re:", "any chance", "got returned", "were these", "no i do not", "yes", "no ", "extra paint"))
-                    or "[cid:" in old
-                    or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
-                )
-                if old_is_boilerplate_or_bad:
+            old = (epo.description or "").strip()
+            old_low = old.lower()
+            old_is_boilerplate_or_bad = (
+                not old
+                or len(old) < 25
+                or old_low.startswith(("please submit", "submit an", "re:", "any chance", "got returned", "were these", "no i do not", "yes", "no ", "extra paint", "hello sir", "hi ", "afternoon", "morning"))
+                or "[cid:" in old
+                or "gabriel jordao" in old_low
+                or "field manager" in old_low
+                or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
+            )
+            if new_desc and new_desc != epo.description and old_is_boilerplate_or_bad:
+                # Also reject the new description if it contains signature boilerplate
+                if "gabriel jordao" not in new_desc.lower() and "field manager" not in new_desc.lower():
                     changes["description"] = new_desc[:500]
                     epo.description = new_desc[:500]
                     desc_fixed += 1
+            elif old_is_boilerplate_or_bad:
+                # Couldn't extract work info and existing desc is junk — clear it, flag for review
+                epo.description = None
+                epo.needs_review = True
+                changes["description_cleared"] = True
+                desc_fixed += 1
 
             # Amount — prefer "Total: $X" in body if present (multi-tier EPOs)
             total_amt = _extract_total_amount(body)
