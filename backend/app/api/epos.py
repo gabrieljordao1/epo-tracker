@@ -675,19 +675,21 @@ async def reparse_all_epos(
                     epo.lot_number = stripped
                     changes["lot_number_trimmed"] = stripped
 
-            # Description — prefer a clean "Please submit an epo..." sentence
-            new_desc = _extract_original_epo_description(body) or parsed.get("description")
+            # Description — extract just the WORK, not the "Please submit an EPO" request boilerplate
+            from ..services.email_parser import _extract_work_description
+            new_desc = _extract_work_description(body)
             if new_desc and new_desc != epo.description:
                 old = (epo.description or "").strip()
-                # Replace if old is short, empty, looks like a reply, or contains cid:
-                old_is_bad = (
+                old_low = old.lower()
+                # Always replace if old starts with "please submit" or is a reply/garbage
+                old_is_boilerplate_or_bad = (
                     not old
                     or len(old) < 25
-                    or old.lower().startswith(("re:", "any chance", "got returned", "were these", "no i do not", "yes", "no "))
+                    or old_low.startswith(("please submit", "submit an", "re:", "any chance", "got returned", "were these", "no i do not", "yes", "no ", "extra paint"))
                     or "[cid:" in old
                     or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
                 )
-                if old_is_bad or (len(new_desc) > len(old) + 10 and "submit an epo" in new_desc.lower()):
+                if old_is_boilerplate_or_bad:
                     changes["description"] = new_desc[:500]
                     epo.description = new_desc[:500]
                     desc_fixed += 1

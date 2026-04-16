@@ -281,14 +281,43 @@ def _strip_reply_chain(body: str) -> str:
     return body[:earliest].strip()
 
 
-def _extract_original_epo_description(body: str) -> Optional[str]:
-    """Find the 'Please submit an epo...' sentence from the email, skipping reply chatter."""
+def _extract_work_description(body: str) -> Optional[str]:
+    """Return the ACTUAL WORK description, stripping 'Please submit an EPO of $X to/for' prefix.
+    e.g. 'Please submit an epo of 350 to patch and paint hole in the ceiling'
+         → 'Patch and paint hole in the ceiling'
+    Also strips email signature lines.
+    """
     if not body:
         return None
     clean = re.sub(r"<[^>]+>", " ", body)
     clean = re.sub(r"&nbsp;", " ", clean)
     clean = re.sub(r"\s+", " ", clean).strip()
-    # Prefer sentence starting with "please submit" / "submit an epo"
+
+    # Stop at signature markers
+    for marker in [
+        "Gabriel Jordao", "Field Manager", "Stancil Services", "Stancil Painting",
+        "[Stancil", "gabriel.jordao@", "www.stancil", "Thank you", "Thanks,",
+        "Regards,", "Best,", "Sent from", "-- ",
+    ]:
+        idx = clean.find(marker)
+        if idx > 0:
+            clean = clean[:idx].strip()
+
+    # Find the "submit an epo" sentence and extract everything AFTER "to"/"for"
+    m = re.search(
+        r"(?:please\s+)?submit\s+(?:an?\s+)?epo\s+(?:of\s+)?\$?[\d,\.]*(?:\s+per\s+lot)?\s+(?:to\s+(?:get\s+)?|for\s+)(?P<work>[^.!?]+?)(?:\s*\.|\s*$|=\s*\$)",
+        clean,
+        re.IGNORECASE,
+    )
+    if m:
+        work = m.group("work").strip().rstrip(".,;:")
+        # Capitalize first letter
+        if work:
+            work = work[0].upper() + work[1:]
+            # Cap at reasonable length
+            return work[:300]
+
+    # Fallback: a "submit an epo" sentence without extractable work → return the whole thing
     m = re.search(
         r"((?:please\s+)?submit\s+an?\s+epo[^.]*?(?:=\s*\$[\d,\.]+|\$[\d,\.]+|\.)\s*)",
         clean,
@@ -297,6 +326,10 @@ def _extract_original_epo_description(body: str) -> Optional[str]:
     if m:
         return m.group(1).strip().rstrip(".,;:")
     return None
+
+
+# Backward compat alias
+_extract_original_epo_description = _extract_work_description
 
 
 def _looks_like_bad_lot(s) -> bool:
