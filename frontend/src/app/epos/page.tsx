@@ -50,8 +50,8 @@ export default function EPOsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [bulkUpdating, setBulkUpdating] = useState(false);
   const [communityFilter, setCommunityFilter] = useState<string>("all");
-  const [sortField, setSortField] = useState<"date" | "amount" | "age">("date");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [sortField, setSortField] = useState<"date" | "amount" | "age" | "community">("community");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
@@ -243,7 +243,18 @@ export default function EPOsPage() {
       const dir = sortDir === "asc" ? 1 : -1;
       if (sortField === "amount") return ((a.amount || 0) - (b.amount || 0)) * dir;
       if (sortField === "age") return ((a.days_open || 0) - (b.days_open || 0)) * dir;
-      // date (default)
+      if (sortField === "community") {
+        // Primary: community alpha, Secondary: lot number numeric
+        const ca = (a.community || "zzz").toLowerCase();
+        const cb = (b.community || "zzz").toLowerCase();
+        if (ca !== cb) return ca.localeCompare(cb) * dir;
+        const la = parseInt(a.lot_number || "999") || 999;
+        const lb = parseInt(b.lot_number || "999") || 999;
+        if (la !== lb) return (la - lb) * dir;
+        // Same numeric prefix — compare full string for "2b" vs "2c"
+        return (a.lot_number || "").localeCompare(b.lot_number || "") * dir;
+      }
+      // date
       return (new Date(a.created_at).getTime() - new Date(b.created_at).getTime()) * dir;
     });
 
@@ -421,6 +432,20 @@ export default function EPOsPage() {
           </select>
           <Filter size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text3 pointer-events-none" />
         </div>
+        <select
+          value={sortField}
+          onChange={(e) => {
+            const v = e.target.value as typeof sortField;
+            setSortField(v);
+            setSortDir(v === "community" ? "asc" : "desc");
+          }}
+          className="appearance-none px-4 py-2 pr-8 bg-surface border border-card-border rounded-lg text-text2 text-sm focus:outline-none focus:border-border-lt cursor-pointer"
+        >
+          <option value="community">Sort: Community &amp; Lot</option>
+          <option value="date">Sort: Newest First</option>
+          <option value="amount">Sort: Amount</option>
+          <option value="age">Sort: Days Open</option>
+        </select>
       </div>
 
       {/* Bulk Action Bar */}
