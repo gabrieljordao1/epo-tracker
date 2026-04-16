@@ -748,8 +748,11 @@ async def reparse_all_epos(
                 # ── Per-lot amount resolution ──
                 # Priority: (1) tiered "$X per lot for lots Y-Z = $total" segments,
                 #           (2) single "$X per lot" flat, (3) divide stored total by count.
-                from ..services.email_parser import _extract_tiered_per_lot_amounts
+                from ..services.email_parser import _extract_tiered_per_lot_amounts, _extract_individual_lot_amounts
                 tiered_map = _extract_tiered_per_lot_amounts(epo.raw_email_body or "")
+                # Fallback: individual "Lot N- ... total= $X" breakdowns
+                if not tiered_map:
+                    tiered_map = _extract_individual_lot_amounts(epo.raw_email_body or "")
 
                 body_clean = re.sub(r"<[^>]+>", " ", epo.raw_email_body or "")
                 body_clean = re.sub(r"&nbsp;", " ", body_clean)

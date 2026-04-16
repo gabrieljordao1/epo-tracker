@@ -332,11 +332,22 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
     clean = re.sub(r"&nbsp;", " ", clean)
     clean = re.sub(r"\s+", " ", clean)
 
-    # 1. Explicit total line
-    m = re.search(r"total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
-    if m:
+    # 1. Explicit total — prefer "Grand total" over bare "total" (individual
+    #    lot lines often have their own "total=" which is NOT the overall amount)
+    grand_m = re.search(r"grand\s+total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
+    if grand_m:
         try:
-            total = float(m.group(1).replace(",", ""))
+            total = float(grand_m.group(1).replace(",", ""))
+            if total > 0:
+                return total
+        except ValueError:
+            pass
+    # Fallback: bare "Total:" but only if there's just ONE such match
+    # (avoids grabbing Lot 1's total when there are per-lot totals)
+    total_matches = re.findall(r"(?<!grand\s)total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
+    if len(total_matches) == 1:
+        try:
+            total = float(total_matches[0].replace(",", ""))
             if total > 0:
                 return total
         except ValueError:
@@ -409,6 +420,39 @@ def _extract_tiered_per_lot_amounts(body: str) -> Dict[str, float]:
             # First match wins (email order) — don't let later tiers overwrite
             if lot not in out:
                 out[lot] = amt
+    return out
+
+
+def _extract_individual_lot_amounts(body: str) -> Dict[str, float]:
+    """Parse per-lot breakdowns with individual totals.
+
+    Handles patterns like:
+      Lot 1- please submit an epo of 800 ... total= $1,150
+      Lot 2- ... total= $900
+      Lot 3- ... total= $1350
+
+    Returns: {'1': 1150.0, '2': 900.0, '3': 1350.0}
+    """
+    if not body:
+        return {}
+    clean = re.sub(r"<[^>]+>", " ", body)
+    clean = re.sub(r"&nbsp;", " ", clean)
+    clean = re.sub(r"\s+", " ", clean)
+
+    out: Dict[str, float] = {}
+    # Match: "Lot <id>" followed eventually by "total= $<amt>"
+    pattern = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—]\s*.*?total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)",
+        re.IGNORECASE,
+    )
+    for m in pattern.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        try:
+            amt = float(m.group(2).replace(",", ""))
+        except ValueError:
+            continue
+        if amt > 0 and lot_id not in out:
+            out[lot_id] = amt
     return out
 
 

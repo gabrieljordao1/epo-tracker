@@ -389,7 +389,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "allmail-v18-2026-04-16",
+            "build_marker": "individual-lots-v19-2026-04-16",
         }
 
     @app.get("/")
