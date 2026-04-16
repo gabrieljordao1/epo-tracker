@@ -934,6 +934,57 @@ async def reparse_all_epos(
                     await session.delete(g)
                     lot_duped += 1
 
+        await session.flush()
+
+        # ── Dedupe Pass 3: merge "Unknown Builder" rows into real-builder rows ──
+        # by (community, lot_number). Same EPO that came in before the builder
+        # was resolved shouldn't shadow the properly-attributed row.
+        UNKNOWN = {"", "unknown builder", "unknown", "none"}
+        dup_query3 = select(EPO).where(EPO.company_id == current_user.company_id)
+        all_epos3 = (await session.execute(dup_query3)).scalars().all()
+        cl_groups: Dict[tuple, List[EPO]] = {}
+        for e in all_epos3:
+            if not (e.community and e.lot_number):
+                continue
+            k = (e.community.strip().lower(), e.lot_number.strip().lower())
+            cl_groups.setdefault(k, []).append(e)
+
+        unknown_merged = 0
+        for k, group in cl_groups.items():
+            if len(group) <= 1:
+                continue
+            real = [g for g in group if g.vendor_name and g.vendor_name.strip().lower() not in UNKNOWN]
+            unk = [g for g in group if not g.vendor_name or g.vendor_name.strip().lower() in UNKNOWN]
+            if not real or not unk:
+                continue
+            real.sort(key=lambda x: x.id)
+            keeper = real[0]
+            keep_amt = float(keeper.amount or 0)
+            for g in unk:
+                g_amt = float(g.amount or 0)
+                # Merge when amounts agree (or unknown row has no amount)
+                if g_amt <= 0 or abs(g_amt - keep_amt) < 0.01:
+                    details.append({
+                        "id": g.id,
+                        "action": "merged_unknown_builder_into",
+                        "kept": keeper.id,
+                        "lot": g.lot_number,
+                        "community": g.community,
+                    })
+                    await session.delete(g)
+                    unknown_merged += 1
+                else:
+                    # Amount mismatch — don't silently drop; flag both for review
+                    keeper.needs_review = True
+                    g.needs_review = True
+                    details.append({
+                        "id": g.id,
+                        "action": "flagged_unknown_builder_amount_mismatch",
+                        "keeper_id": keeper.id,
+                        "keeper_amount": keep_amt,
+                        "this_amount": g_amt,
+                    })
+
         await session.commit()
 
         return {
@@ -946,6 +997,7 @@ async def reparse_all_epos(
             "duplicates_deleted": duped,
             "same_lot_dups_deleted": lot_duped,
             "amount_conflicts_flagged": conflict_flagged,
+            "unknown_builder_merged": unknown_merged,
             "skipped_no_text": skipped_no_text,
             "errors": errors[:20],
             "details": details[:120],
