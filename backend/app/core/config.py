@@ -12,8 +12,8 @@ class Settings(BaseSettings):
 
     # Database - PostgreSQL for production, SQLite for local dev
     DATABASE_URL: str = "sqlite+aiosqlite:///:memory:"
-    DB_POOL_SIZE: int = 5
-    DB_MAX_OVERFLOW: int = 5
+    DB_POOL_SIZE: int = 3
+    DB_MAX_OVERFLOW: int = 2
     DB_POOL_TIMEOUT: int = 30
 
     # JWT
