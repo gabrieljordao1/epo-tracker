@@ -655,15 +655,51 @@ async def reparse_all_epos(
                 changes["community"] = new_comm
                 epo.community = new_comm
 
-            # Lot — expand multi-lot emails into separate EPOs
+            # ── Amount — extract FIRST so multi-lot expansion uses the correct value ──
+            total_amt = _extract_total_amount(body, subject)
+            new_amt = total_amt if total_amt else parsed.get("amount")
+            try:
+                new_amt_f = float(new_amt) if new_amt is not None else None
+            except (TypeError, ValueError):
+                new_amt_f = None
+            if new_amt_f and new_amt_f > 0:
+                if epo.amount in (None, 0) or abs((epo.amount or 0) - new_amt_f) > 0.01:
+                    changes["amount"] = new_amt_f
+                    epo.amount = new_amt_f
+                    amount_fixed += 1
+
+            # ── Description ──
+            from ..services.email_parser import _extract_work_description
+            new_desc = _extract_work_description(body)
+            old = (epo.description or "").strip()
+            old_low = old.lower()
+            old_is_boilerplate_or_bad = (
+                not old
+                or len(old) < 25
+                or old_low.startswith(("please submit", "submit an", "re:", "any chance", "got returned", "were these", "no i do not", "yes", "no ", "extra paint", "hello sir", "hi ", "afternoon", "morning"))
+                or "[cid:" in old
+                or "gabriel jordao" in old_low
+                or "field manager" in old_low
+                or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
+            )
+            if new_desc and new_desc != epo.description and old_is_boilerplate_or_bad:
+                if "gabriel jordao" not in new_desc.lower() and "field manager" not in new_desc.lower():
+                    changes["description"] = new_desc[:500]
+                    epo.description = new_desc[:500]
+                    desc_fixed += 1
+            elif old_is_boilerplate_or_bad:
+                epo.description = None
+                epo.needs_review = True
+                changes["description_cleared"] = True
+                desc_fixed += 1
+
+            # ── Lot — expand multi-lot emails into separate EPOs ──
             from ..services.email_parser import _expand_lot_list, _extract_lots_from_subject
             first_lot_subj, lot_count, lot_range_str = _extract_lots_from_subject(subject)
             new_lot = subj_parsed.get("lot_number") or parsed.get("lot_number")
 
-            # If subject has multiple lots, expand them
             all_lots = []
             if first_lot_subj and lot_count > 1:
-                # Subject-based multi-lot: "lots 25, 26, 27 and 28" or "lots 21-23"
                 raw_lots_str = re.search(
                     r"lots?\s+([\d][\w,\s\-&]*?(?:(?:\s*,\s*|\s+and\s+|\s+&\s+)\d+[\w]*)*)\s+[A-Za-z]",
                     re.sub(r"^\s*((re|fwd|fw)\s*:\s*)+", "", subject, flags=re.IGNORECASE),
@@ -674,7 +710,6 @@ async def reparse_all_epos(
                 if not all_lots:
                     all_lots = _expand_lot_list(lot_range_str or "")
             elif isinstance(new_lot, str):
-                # Try expanding lot field itself (e.g., "21, 22, 23")
                 expanded = _expand_lot_list(new_lot)
                 if len(expanded) > 1:
                     all_lots = expanded
@@ -691,40 +726,53 @@ async def reparse_all_epos(
                     changes["lot_number"] = first
                     epo.lot_number = first
 
-                # Calculate per-lot amount
-                # Check if email says "per lot" — if so, stored amount IS already per-lot
-                per_lot_amt = None
-                email_body = (epo.raw_email_body or "")
-                is_per_lot = bool(re.search(r"per\s+lot", email_body, re.IGNORECASE))
-                if epo.amount and epo.amount > 0:
-                    if is_per_lot:
-                        # Email explicitly says "per lot" — keep the amount as-is for each lot
-                        per_lot_amt = epo.amount
-                        changes["amount_is_per_lot"] = True
-                    else:
-                        # Total amount — divide equally across lots
-                        per_lot_amt = round(epo.amount / len(all_lots), 2)
-                        if abs(epo.amount - per_lot_amt) > 0.01:
-                            epo.amount = per_lot_amt
-                            changes["amount_per_lot"] = per_lot_amt
+                # ── Per-lot amount: extract directly from email body ──
+                body_clean = re.sub(r"<[^>]+>", " ", epo.raw_email_body or "")
+                body_clean = re.sub(r"&nbsp;", " ", body_clean)
+                body_clean = re.sub(r"\s+", " ", body_clean)
 
-                # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
-                for extra_lot in all_lots[1:]:
-                    # Check if this lot already exists for same community+builder
-                    dup_check = await session.execute(
+                per_lot_amt = None
+                # Look for explicit "X per lot" pattern in email
+                per_lot_matches = re.findall(
+                    r"(?:epo\s+of\s+)?\$?\s*([\d,]+(?:\.\d{1,2})?)\s+per\s+lot",
+                    body_clean, re.IGNORECASE,
+                )
+                if per_lot_matches:
+                    unique_amounts = list(set(
+                        float(m.replace(",", "")) for m in per_lot_matches
+                    ))
+                    if len(unique_amounts) == 1:
+                        # Single per-lot price — use it for every lot
+                        per_lot_amt = unique_amounts[0]
+                        epo.amount = per_lot_amt
+                        changes["amount_per_lot_from_email"] = per_lot_amt
+
+                # Fallback: divide total by lot count
+                if per_lot_amt is None and epo.amount and epo.amount > 0:
+                    per_lot_amt = round(epo.amount / len(all_lots), 2)
+                    if abs(epo.amount - per_lot_amt) > 0.01:
+                        epo.amount = per_lot_amt
+                        changes["amount_per_lot"] = per_lot_amt
+
+                # Delete previous reparse duplicates for this email before re-creating
+                if epo.gmail_message_id:
+                    prev_dups = await session.execute(
                         select(EPO).where(
                             and_(
                                 EPO.company_id == current_user.company_id,
-                                EPO.community == epo.community,
-                                EPO.lot_number == extra_lot,
-                                EPO.vendor_name == epo.vendor_name,
+                                EPO.gmail_message_id == epo.gmail_message_id,
+                                EPO.id != epo.id,
                             )
                         )
                     )
-                    if dup_check.scalars().first():
-                        continue  # Already exists, skip
+                    for dup in prev_dups.scalars().all():
+                        details.append({"id": dup.id, "action": "deleted_prev_reparse_dup", "lot": dup.lot_number})
+                        await session.delete(dup)
+                    await session.flush()
 
-                    import secrets
+                # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
+                import secrets
+                for extra_lot in all_lots[1:]:
                     extra_epo = EPO(
                         company_id=current_user.company_id,
                         created_by_id=epo.created_by_id,
@@ -748,7 +796,7 @@ async def reparse_all_epos(
                         gmail_message_id=epo.gmail_message_id,
                     )
                     session.add(extra_epo)
-                    details.append({"id": f"new_lot_{extra_lot}", "parent_epo": epo.id, "lot": extra_lot, "action": "created_from_multi_lot"})
+                    details.append({"id": f"new_lot_{extra_lot}", "parent_epo": epo.id, "lot": extra_lot, "amount": per_lot_amt, "action": "created_from_multi_lot"})
                 changes["multi_lot_expanded"] = all_lots
             else:
                 # Single lot handling
@@ -761,52 +809,11 @@ async def reparse_all_epos(
             if epo.lot_number and _looks_like_bad_lot(epo.lot_number):
                 epo.lot_number = None
                 changes["lot_number_cleared"] = True
-            # Strip trailing commas/periods from existing lot ("21," → "21")
             if epo.lot_number and isinstance(epo.lot_number, str):
                 stripped = epo.lot_number.strip(",;. ")
                 if stripped and stripped != epo.lot_number:
                     epo.lot_number = stripped
                     changes["lot_number_trimmed"] = stripped
-
-            # Description — extract just the WORK, not the "Please submit an EPO" request boilerplate
-            from ..services.email_parser import _extract_work_description
-            new_desc = _extract_work_description(body)
-            old = (epo.description or "").strip()
-            old_low = old.lower()
-            old_is_boilerplate_or_bad = (
-                not old
-                or len(old) < 25
-                or old_low.startswith(("please submit", "submit an", "re:", "any chance", "got returned", "were these", "no i do not", "yes", "no ", "extra paint", "hello sir", "hi ", "afternoon", "morning"))
-                or "[cid:" in old
-                or "gabriel jordao" in old_low
-                or "field manager" in old_low
-                or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
-            )
-            if new_desc and new_desc != epo.description and old_is_boilerplate_or_bad:
-                # Also reject the new description if it contains signature boilerplate
-                if "gabriel jordao" not in new_desc.lower() and "field manager" not in new_desc.lower():
-                    changes["description"] = new_desc[:500]
-                    epo.description = new_desc[:500]
-                    desc_fixed += 1
-            elif old_is_boilerplate_or_bad:
-                # Couldn't extract work info and existing desc is junk — clear it, flag for review
-                epo.description = None
-                epo.needs_review = True
-                changes["description_cleared"] = True
-                desc_fixed += 1
-
-            # Amount — prefer "Total: $X" in body; multiply per-lot × count; sum tiers
-            total_amt = _extract_total_amount(body, subject)
-            new_amt = total_amt if total_amt else parsed.get("amount")
-            try:
-                new_amt_f = float(new_amt) if new_amt is not None else None
-            except (TypeError, ValueError):
-                new_amt_f = None
-            if new_amt_f and new_amt_f > 0:
-                if epo.amount in (None, 0) or abs((epo.amount or 0) - new_amt_f) > 0.01:
-                    changes["amount"] = new_amt_f
-                    epo.amount = new_amt_f
-                    amount_fixed += 1
 
             if changes:
                 reparsed += 1
