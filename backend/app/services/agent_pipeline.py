@@ -187,6 +187,8 @@ class AgentPipelineService:
                         synced_from_email=True,
                         vendor_token=extra_token,
                         needs_review=extra.get("confidence_score", confidence_score) < 0.8,
+                        gmail_thread_id=gmail_thread_id,
+                        gmail_message_id=gmail_message_id,
                     )
                     session.add(extra_epo)
                     await session.flush()

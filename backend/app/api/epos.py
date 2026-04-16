@@ -745,38 +745,47 @@ async def reparse_all_epos(
                     changes["lot_number"] = first
                     epo.lot_number = first
 
-                # ── Per-lot amount: extract directly from email body ──
+                # ── Per-lot amount resolution ──
+                # Priority: (1) tiered "$X per lot for lots Y-Z = $total" segments,
+                #           (2) single "$X per lot" flat, (3) divide stored total by count.
+                from ..services.email_parser import _extract_tiered_per_lot_amounts
+                tiered_map = _extract_tiered_per_lot_amounts(epo.raw_email_body or "")
+
                 body_clean = re.sub(r"<[^>]+>", " ", epo.raw_email_body or "")
                 body_clean = re.sub(r"&nbsp;", " ", body_clean)
                 body_clean = re.sub(r"\s+", " ", body_clean)
 
-                per_lot_amt = None
-                # Look for explicit "X per lot" pattern in email
-                per_lot_matches = re.findall(
-                    r"(?:epo\s+of\s+)?\$?\s*([\d,]+(?:\.\d{1,2})?)\s+per\s+lot",
-                    body_clean, re.IGNORECASE,
-                )
-                if per_lot_matches:
-                    unique_amounts = list(set(
-                        float(m.replace(",", "")) for m in per_lot_matches
-                    ))
-                    if len(unique_amounts) == 1:
-                        # Single per-lot price — use it for every lot
-                        per_lot_amt = unique_amounts[0]
-                        epo.amount = per_lot_amt
-                        changes["amount_per_lot_from_email"] = per_lot_amt
+                per_lot_amt: Optional[float] = None  # flat fallback
+                if not tiered_map:
+                    per_lot_matches = re.findall(
+                        r"(?:epo\s+of\s+)?\$?\s*([\d,]+(?:\.\d{1,2})?)\s+per\s+lot",
+                        body_clean, re.IGNORECASE,
+                    )
+                    if per_lot_matches:
+                        unique_amounts = list({
+                            float(m.replace(",", "")) for m in per_lot_matches
+                        })
+                        if len(unique_amounts) == 1:
+                            per_lot_amt = unique_amounts[0]
 
-                # Fallback: divide total by lot count
-                if per_lot_amt is None and epo.amount and epo.amount > 0:
-                    per_lot_amt = round(epo.amount / len(all_lots), 2)
-                    if abs(epo.amount - per_lot_amt) > 0.01:
-                        epo.amount = per_lot_amt
-                        changes["amount_per_lot"] = per_lot_amt
+                    if per_lot_amt is None and epo.amount and epo.amount > 0:
+                        per_lot_amt = round(epo.amount / len(all_lots), 2)
+
+                # Resolve amount for the FIRST lot (this EPO)
+                first_amt = tiered_map.get(first) if tiered_map else per_lot_amt
+                if first_amt and first_amt > 0 and abs((epo.amount or 0) - first_amt) > 0.01:
+                    epo.amount = first_amt
+                    changes["amount_resolved"] = first_amt
+                    if tiered_map:
+                        changes["amount_source"] = "tiered"
+                    elif per_lot_amt is not None:
+                        changes["amount_source"] = "per_lot_flat_or_divided"
 
                 # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
                 # Note: previous-reparse dupes already cleaned in pre-pass above
                 import secrets
                 for extra_lot in all_lots[1:]:
+                    extra_amt = tiered_map.get(extra_lot) if tiered_map else per_lot_amt
                     extra_epo = EPO(
                         company_id=current_user.company_id,
                         created_by_id=epo.created_by_id,
@@ -786,7 +795,7 @@ async def reparse_all_epos(
                         community=epo.community,
                         lot_number=extra_lot,
                         description=epo.description,
-                        amount=per_lot_amt,
+                        amount=extra_amt,
                         status=epo.status,
                         confirmation_number=epo.confirmation_number,
                         confidence_score=epo.confidence_score,
@@ -800,8 +809,17 @@ async def reparse_all_epos(
                         gmail_message_id=epo.gmail_message_id,
                     )
                     session.add(extra_epo)
-                    details.append({"id": f"new_lot_{extra_lot}", "parent_epo": epo.id, "lot": extra_lot, "amount": per_lot_amt, "action": "created_from_multi_lot"})
+                    details.append({
+                        "id": f"new_lot_{extra_lot}",
+                        "parent_epo": epo.id,
+                        "lot": extra_lot,
+                        "amount": extra_amt,
+                        "source": "tiered" if (tiered_map and extra_lot in tiered_map) else "flat",
+                        "action": "created_from_multi_lot",
+                    })
                 changes["multi_lot_expanded"] = all_lots
+                if tiered_map:
+                    changes["tiered_pricing"] = tiered_map
             else:
                 # Single lot handling
                 if isinstance(new_lot, str):
@@ -826,7 +844,7 @@ async def reparse_all_epos(
         # Flush so subsequent dedup query sees updates
         await session.flush()
 
-        # Dedupe: for each (vendor_name, community, lot_number, amount) keep lowest-id
+        # ── Dedupe Pass 1: exact (vendor, community, lot, amount) match → keep lowest id ──
         dedup_query = select(EPO).where(EPO.company_id == current_user.company_id)
         all_epos = (await session.execute(dedup_query)).scalars().all()
         seen: Dict[tuple, int] = {}
@@ -848,6 +866,74 @@ async def reparse_all_epos(
             else:
                 seen[key] = e.id
 
+        await session.flush()
+
+        # ── Dedupe Pass 2: same (vendor, community, lot) with differing/missing amounts ──
+        # Groups "lot 2c" type duplicates that came from separate email threads.
+        # Rule: keep the row with the most recent, fully-populated amount;
+        # merge amounts from zero/null rows into the keeper, then delete the others.
+        dup_query2 = select(EPO).where(EPO.company_id == current_user.company_id)
+        all_epos2 = (await session.execute(dup_query2)).scalars().all()
+        groups: Dict[tuple, List[EPO]] = {}
+        for e in all_epos2:
+            if not (e.vendor_name and e.community and e.lot_number):
+                continue
+            g_key = (
+                e.vendor_name.strip().lower(),
+                e.community.strip().lower(),
+                e.lot_number.strip().lower(),
+            )
+            groups.setdefault(g_key, []).append(e)
+
+        conflict_flagged = 0
+        lot_duped = 0
+        for g_key, group in groups.items():
+            if len(group) <= 1:
+                continue
+            # Sort: populated-amount rows first (by amount desc), then by id asc
+            with_amt = [g for g in group if g.amount and g.amount > 0]
+            without_amt = [g for g in group if not g.amount or g.amount <= 0]
+
+            if with_amt:
+                # Keeper = lowest ID among rows with amounts (stable)
+                with_amt.sort(key=lambda x: x.id)
+                keeper = with_amt[0]
+                distinct_amts = {round(float(g.amount), 2) for g in with_amt}
+                if len(distinct_amts) > 1:
+                    # Genuine conflict — flag keeper for manual review, don't silently delete
+                    keeper.needs_review = True
+                    conflict_flagged += 1
+                    details.append({
+                        "id": keeper.id,
+                        "action": "flagged_amount_conflict",
+                        "group": f"{g_key[0]}|{g_key[1]}|{g_key[2]}",
+                        "conflicting_amounts": sorted(distinct_amts),
+                    })
+                # Delete everything else in the group
+                for g in group:
+                    if g.id == keeper.id:
+                        continue
+                    details.append({
+                        "id": g.id,
+                        "action": "deleted_same_lot_dup",
+                        "kept": keeper.id,
+                        "kept_amount": keeper.amount,
+                    })
+                    await session.delete(g)
+                    lot_duped += 1
+            else:
+                # All rows lack amount — keep lowest-id, delete the rest
+                group.sort(key=lambda x: x.id)
+                keeper = group[0]
+                for g in group[1:]:
+                    details.append({
+                        "id": g.id,
+                        "action": "deleted_same_lot_dup_no_amount",
+                        "kept": keeper.id,
+                    })
+                    await session.delete(g)
+                    lot_duped += 1
+
         await session.commit()
 
         return {
@@ -858,9 +944,11 @@ async def reparse_all_epos(
             "description_fixed": desc_fixed,
             "archived_not_epo": archived_not_epo,
             "duplicates_deleted": duped,
+            "same_lot_dups_deleted": lot_duped,
+            "amount_conflicts_flagged": conflict_flagged,
             "skipped_no_text": skipped_no_text,
             "errors": errors[:20],
-            "details": details[:80],
+            "details": details[:120],
         }
     except Exception as e:
         tb = traceback.format_exc()

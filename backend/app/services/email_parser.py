@@ -372,6 +372,46 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
     return None
 
 
+def _extract_tiered_per_lot_amounts(body: str) -> Dict[str, float]:
+    """Parse multi-tier pricing segments and return {lot_id: per_lot_amount}.
+
+    Handles patterns like:
+      "400 per lot for lots 1-9 = $3600"
+      "500 per lot for lots 10-20 = $5000"
+      "$300 per lot, lots 21 and 22"
+
+    Returns empty dict when no tiered structure is detected.
+    """
+    if not body:
+        return {}
+    clean = re.sub(r"<[^>]+>", " ", body)
+    clean = re.sub(r"&nbsp;", " ", clean)
+    clean = re.sub(r"\s+", " ", clean)
+
+    out: Dict[str, float] = {}
+    # Pattern: "<amt> per lot for lots <lots-expr>"
+    # <lots-expr> can be: 1-9, 10-20, 1,2,3, 2a and 2b, etc.
+    pattern = re.compile(
+        r"\$?\s*([\d,]+(?:\.\d{1,2})?)\s*per\s+lot\s*(?:,\s*|for\s+)?lots?\s+"
+        r"([0-9][\w,\s\-&]*?)(?=\s*(?:=|\$|\.|,|\n|and\s+\$?\d|$|\s{2,}))",
+        re.IGNORECASE,
+    )
+    for m in pattern.finditer(clean):
+        try:
+            amt = float(m.group(1).replace(",", ""))
+        except ValueError:
+            continue
+        lots_expr = m.group(2).strip(" ,.;-")
+        expanded = _expand_lot_list(lots_expr)
+        if not expanded or amt <= 0:
+            continue
+        for lot in expanded:
+            # First match wins (email order) — don't let later tiers overwrite
+            if lot not in out:
+                out[lot] = amt
+    return out
+
+
 def _strip_reply_chain(body: str) -> str:
     """Return only the top (original) portion of an email, stripping reply quotes."""
     if not body:
