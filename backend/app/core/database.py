@@ -218,6 +218,18 @@ async def _run_safe_migrations():
         UPDATE epos SET amount = 4375.0
         WHERE id = 588 AND amount = 1150.0;
         """,
+        # ── v32: Fix EPO 651 status — has PO# but status was never flipped ──
+        """
+        UPDATE epos SET status = 'confirmed'
+        WHERE id = 651 AND confirmation_number IS NOT NULL AND status = 'pending';
+        """,
+        # ── v32: Fix EPO 51 (Context 58) — Blake replied with conf screenshot ──
+        # Scheduler missed the image attachment; set to pending so it gets reprocessed
+        # rather than staying denied incorrectly
+        """
+        UPDATE epos SET status = 'pending'
+        WHERE id = 51 AND status = 'denied';
+        """,
     ]
 
     async with engine.begin() as conn:

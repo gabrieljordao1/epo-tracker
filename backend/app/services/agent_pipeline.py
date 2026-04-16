@@ -406,6 +406,7 @@ class AgentPipelineService:
 
             # Step 3: Update EPO based on intent
             changes_made = False
+            reply_confidence = classification.get("confidence", 0)
 
             if intent == "confirmation":
                 epo.status = EPOStatus.CONFIRMED
@@ -416,10 +417,20 @@ class AgentPipelineService:
                 logger.info(f"EPO #{epo.id} CONFIRMED, conf#={final_confirmation}")
 
             elif intent == "denial":
-                epo.status = EPOStatus.DENIED
-                changes_made = True
-                result["new_status"] = "denied"
-                logger.info(f"EPO #{epo.id} DENIED by builder")
+                # Only auto-deny if confidence is high enough
+                # Low-confidence denials get flagged for manual review instead
+                if reply_confidence >= 0.7:
+                    epo.status = EPOStatus.DENIED
+                    changes_made = True
+                    result["new_status"] = "denied"
+                    logger.info(f"EPO #{epo.id} DENIED by builder (confidence={reply_confidence:.2f})")
+                else:
+                    epo.needs_review = True
+                    changes_made = True
+                    logger.info(
+                        f"EPO #{epo.id} denial flagged for review "
+                        f"(low confidence={reply_confidence:.2f})"
+                    )
 
             elif intent == "discount_request":
                 epo.status = EPOStatus.DISCOUNT
