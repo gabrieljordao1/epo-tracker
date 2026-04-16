@@ -54,7 +54,14 @@ async def init_db():
         logger.info("SQLite tables created via create_all()")
     else:
         logger.info("PostgreSQL detected — running safe schema migrations")
-        await _run_safe_migrations()
+        try:
+            await _run_safe_migrations()
+        except Exception as e:
+            # During blue-green deploys the old instance may hold all Neon
+            # connections.  Let the app start anyway — tables already exist
+            # in production, and migrations are idempotent so the next
+            # deploy will catch up.
+            logger.warning(f"Migrations failed (app will start anyway): {e}")
 
 
 async def _run_safe_migrations():

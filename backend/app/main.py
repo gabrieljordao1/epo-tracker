@@ -220,9 +220,12 @@ async def lifespan(app: FastAPI):
     await init_db()
 
     # Start background scheduler
-    from .services.scheduler import start_scheduler
-    if settings.ENVIRONMENT != "development" or settings.DEBUG:
-        start_scheduler()
+    try:
+        from .services.scheduler import start_scheduler
+        if settings.ENVIRONMENT != "development" or settings.DEBUG:
+            start_scheduler()
+    except Exception as e:
+        logger.warning(f"Scheduler failed to start (non-fatal): {e}")
 
     yield
     await close_db()
@@ -389,7 +392,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "nullpool-v24-2026-04-16",
+            "build_marker": "nullpool-resilient-v25-2026-04-16",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
