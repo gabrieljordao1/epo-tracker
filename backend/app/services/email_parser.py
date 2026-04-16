@@ -235,7 +235,8 @@ def sanitize_description(desc: str) -> Optional[str]:
 # Known communities — used to validate/normalize community names
 _KNOWN_COMMUNITIES = {
     "olmsted", "galloway", "context", "mallard park", "plott", "sugar creek",
-    "byrnes", "anderson townhomes", "anderson",
+    "byrnes", "anderson townhomes", "anderson", "cama", "cedar hills",
+    "ridgeview", "odell park", "odell",
 }
 
 # Things that should NEVER be a community
@@ -888,8 +889,21 @@ class EmailParserService:
     ]
 
     CONFIRMATION_PATTERNS = [
-        r"(?:PO|CO|Conf)\s*[-#:]\s*([A-Z0-9][\w\-]{2,19})",
-        r"Confirmation\s*#?\s*:?\s*([A-Z0-9][\w\-]{2,19})",
+        # "PO# 13441438", "PO #13441438", "PO: 13441438", "PO-13441438"
+        r"PO\s*[#:\-]\s*(\d{4,20})",
+        # "PO Number: 13441438", "PO Number 13441438"
+        r"PO\s+(?:Number|Num|No)\s*[#:.\-]?\s*(\d{4,20})",
+        # "CO# 12345", "CO-12345", "CO: 12345"
+        r"CO\s*[#:\-]\s*([A-Z0-9][\w\-]{2,19})",
+        # "Confirmation #: 12345", "Conf# 12345"
+        r"Conf(?:irmation)?\s*[#:.\-]\s*([A-Z0-9][\w\-]{2,19})",
+        # "Reference: 12345", "Ref# 12345"
+        r"Ref(?:erence)?\s*[#:.\-]\s*([A-Z0-9][\w\-]{2,19})",
+        # "Order Number: 12345", "Order# 12345"
+        r"Order\s*[#:.\-]\s*(\d{4,20})",
+        # Bare PO format "PO 13441438" (no separator, just space)
+        r"(?:^|\s)PO\s+(\d{5,20})(?:\s|$|[.,;])",
+        # Legacy patterns
         r"(?:PO|CO)-(\d{3,})",
     ]
 
@@ -1344,40 +1358,65 @@ Example (Google security alert):
         vendor_email: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Tier 3: Claude Haiku fallback parsing
+        Tier 2: Claude Haiku fallback parsing (matches Gemini prompt quality)
         """
         try:
             import anthropic
 
             client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
 
-            prompt = f"""Parse this construction EPO (Extra Paint/Work Order) email and extract structured data.
+            vendor_hint = ""
+            if vendor_email:
+                vendor_hint = f"\nSender/recipient email: {vendor_email}"
+
+            prompt = f"""You read emails for a paint & drywall subcontractor's field manager and extract Extra Purchase Order (EPO) requests. EPOs are requests for extra paint/drywall work on a specific lot at a builder's community.
+
+STEP 1 — CLASSIFY: Is this email an EPO request? Return is_epo=false for:
+- Google/Gmail/Microsoft security alerts, newsletters, marketing, receipts
+- Calendar invites, meeting notes, out-of-office replies
+- Generic replies without lot/community/amount ("ok thanks", "got it")
+- Personal emails, spam
+An EPO email normally has SOME of: "EPO" or "extra paint/work", a lot number, a community/subdivision, a dollar amount, or describes paint/drywall work.
+
+STEP 2 — Extract one object per lot.
+Multi-lot rule: "lot 2b and 2c" or "lots 5, 6, 7" → one entry per lot. "$700 for lots 2b and 2c" = $350 each. "$400 per lot for lots 1-9" = nine entries, $400 each.
+
+EXTRACTION RULES:
+- community: Subdivision name, properly capitalized. NEVER garbage like "View", "1-20", mid-sentence fragments. If you can't identify a real subdivision, set null.
+- lot_number: Just the lot identifier like "12", "2B", "A-5". NEVER a single letter from mid-word. If you can't find a clear lot, set null.
+- builder_name: The HOMEBUILDER COMPANY (Pulte, DR Horton, Summit, Ryan Homes, Meritage, TriPointe, Red Cedar, K. Hovnanian, Toll Brothers, Lennar, KB Home, NVR, True Homes, Eastwood, Mungo, etc.)
+  * NEVER return a person's name (like "Gabriel Jordao" or "Sue Bennett")
+  * NEVER return the paint/drywall subcontractor's name
+  * If you can only see a person's signature, set null
+  * If you see a builder in the email domain or body, use that
+- description: ONE SHORT SENTENCE describing the actual work. Strip "please submit an epo of $X" prefixes. Good: "Patch and paint master bathroom after cabinet install". If no work description, write "Extra paint/drywall work" and set needs_review=true.
+- amount: Dollar amount as float. Patterns: "$350", "epo of 700", "$1,200". If total given for multiple lots, divide. If no amount, set null.
+- confirmation_number: PO/confirmation number if present (e.g., "PO# 13441438"), else null.
+- confidence_score: 0.85+ if all fields clean; 0.7+ if one missing; 0.5+ if two missing.
+- needs_review: true if community/lot/amount is null or confidence < 0.8.
 
 Email Subject: {email_subject}
 Email Body:
-{email_body}
+{email_body}{vendor_hint}
 
-Extract:
-- vendor_name: Company name
-- vendor_email: Email address
-- community: Subdivision/community name
-- lot_number: Lot number
-- description: Work description
-- amount: Dollar amount as number
-- confirmation_number: PO or confirmation number
-- confidence_score: Your confidence 0-1 (be conservative)
-- needs_review: Boolean, true if uncertain about critical fields
+OUTPUT FORMAT (JSON only, no markdown, no commentary):
+{{"is_epo": true|false, "epos": [{{...entry per lot...}}]}}
 
-Return ONLY this JSON format:
-{{"vendor_name": "...", "vendor_email": "...", "community": "...", "lot_number": "...", "description": "...", "amount": 0, "confirmation_number": "...", "confidence_score": 0.8, "needs_review": false}}"""
+If is_epo=false, return {{"is_epo": false, "epos": []}}."""
 
             message = client.messages.create(
                 model="claude-haiku-4-5-20251001",
-                max_tokens=500,
+                max_tokens=1000,
                 messages=[{"role": "user", "content": prompt}],
             )
 
-            response_text = message.content[0].text
+            response_text = message.content[0].text.strip()
+
+            # Strip markdown code fences if present
+            if response_text.startswith("```"):
+                lines = response_text.split("\n")
+                lines = [line for line in lines if not line.strip().startswith("```")]
+                response_text = "\n".join(lines).strip()
 
             # Extract JSON from response
             start_idx = response_text.find("{")
@@ -1385,16 +1424,49 @@ Return ONLY this JSON format:
 
             if start_idx >= 0 and end_idx > start_idx:
                 json_str = response_text[start_idx:end_idx]
-                result = json.loads(json_str)
+                parsed = json.loads(json_str)
             else:
-                result = {}
+                parsed = {}
 
-            result["parse_model"] = "haiku"
-            result.setdefault("confidence_score", 0.6)
-            result.setdefault("needs_review", result.get("confidence_score", 0.5) < 0.7)
+            # Handle envelope format {is_epo, epos:[...]} same as Gemini
+            if isinstance(parsed, dict) and "is_epo" in parsed:
+                if not parsed.get("is_epo"):
+                    return {
+                        "is_epo": False,
+                        "confidence_score": 0.0,
+                        "needs_review": False,
+                        "parse_model": "haiku",
+                    }
+                items = parsed.get("epos") or []
+            elif isinstance(parsed, list):
+                items = parsed
+            else:
+                items = [parsed]
+
+            results = []
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item["parse_model"] = "haiku"
+                item["is_epo"] = True
+                item.setdefault("confidence_score", 0.6)
+                item.setdefault("needs_review", item.get("confidence_score", 0.5) < 0.8)
+                # Safety net: reject person-name builder_names
+                b = item.get("builder_name")
+                if b and (_looks_like_person_name(b) or _is_bad_builder_name(b)):
+                    logger.info(f"Haiku: Dropping bad builder '{b}'")
+                    item["builder_name"] = None
+                results.append(item)
+
+            if results:
+                result = results[0]
+                if len(results) > 1:
+                    result["_additional_epos"] = results[1:]
+                claude_breaker.record_success()
+                return result
 
             claude_breaker.record_success()
-            return result
+            return None
 
         except Exception as e:
             claude_breaker.record_failure()
@@ -1458,28 +1530,31 @@ Return ONLY this JSON format:
                 context_hint = f"\nOriginal EPO context: {original_epo_context}"
 
             prompt = f"""You are analyzing a reply email in a construction EPO (Extra Purchase Order) workflow.
-A field manager sent an EPO request to a builder. The builder has replied. Classify the builder's reply intent.
+A field manager at a paint/drywall subcontractor sent an EPO request to a homebuilder. The builder has replied. Classify the reply intent.
 
 INTENTS:
-- "confirmation": Builder confirms the EPO, may include a PO/confirmation number. Look for: "approved", "confirmed", "PO#", "submitted", "processed", "done", "entered", "taken care of"
-- "denial": Builder denies or rejects the EPO. Look for: "denied", "rejected", "cannot approve", "not authorized", "declined"
-- "discount_request": Builder asks for a discount or price reduction. Look for: "discount", "reduce", "lower price", "negotiate", "too much", "credit"
-- "question": Builder asks a question or needs clarification. Look for: questions, "what lot?", "which community?", "can you clarify?"
+- "confirmation": Builder approves/confirms the EPO. May include a PO number. Look for: "approved", "confirmed", "PO#", "PO 13441438", "submitted", "processed", "done", "entered", "taken care of", "will process", a bare number that looks like a PO (7-8 digits)
+- "denial": Builder denies/rejects the EPO. Look for: "denied", "rejected", "cannot approve", "not authorized", "declined", "will not approve"
+- "discount_request": Builder wants a price reduction. Look for: "discount", "reduce", "lower price", "too much", "credit back"
+- "question": Builder asks for clarification. Look for: "?", "what lot?", "which community?", "can you clarify?"
 - "unknown": Cannot determine intent
+
+CRITICAL — CONFIRMATION NUMBER EXTRACTION:
+Builders often include PO numbers in various formats. Look CAREFULLY for:
+- "PO# 13441438" or "PO #13441438" or "PO: 13441438"
+- "PO Number 13441438"
+- A bare 7-8 digit number in the reply (likely a PO number)
+- "13441438" by itself or at the end of a sentence
+- "Order #12345", "Ref #12345"
+- Numbers that appear in the reply but NOT in the original EPO request (those are new PO numbers)
+If the builder's reply contains ANY number that looks like a PO/reference number, extract it.
 
 Reply Email Subject: {email_subject}
 Reply Email Body:
 {email_body}{context_hint}
 
-Extract:
-- intent: One of the above intents (string)
-- confirmation_number: PO#, confirmation#, or reference number if present (string or null). Look for patterns like "PO-12345", "CO#4567", or just a number the builder provides as confirmation.
-- discount_details: If discount request, what discount are they requesting? (string or null)
-- summary: One-sentence summary of what the builder is saying (string)
-- confidence: 0-1 how confident you are in the classification (float)
-
 Return ONLY valid JSON:
-{{"intent": "confirmation", "confirmation_number": "PO-12345", "discount_details": null, "summary": "Builder confirmed and provided PO number", "confidence": 0.95}}"""
+{{"intent": "confirmation", "confirmation_number": "13441438", "discount_details": null, "summary": "Builder confirmed and provided PO number", "confidence": 0.95}}"""
 
             @retry(
                 stop=stop_after_attempt(3),
@@ -1524,13 +1599,18 @@ Return ONLY valid JSON:
         discount_kw = ["discount", "reduce", "lower", "negotiate", "credit", "too much", "too high"]
         question_kw = ["?", "what lot", "which community", "clarify", "can you", "please explain", "not sure"]
 
-        # Extract confirmation number with regex
+        # Extract confirmation number with regex — try all patterns + bare large numbers
         confirmation_number = None
         for pattern in self.CONFIRMATION_PATTERNS:
-            match = re.search(pattern, email_body or "")
+            match = re.search(pattern, email_body or "", re.IGNORECASE)
             if match:
                 confirmation_number = match.group(1)
                 break
+        # Fallback: look for bare 7-8 digit numbers that could be PO numbers
+        if not confirmation_number and email_body:
+            bare_numbers = re.findall(r"(?<!\d)(\d{7,8})(?!\d)", email_body)
+            if bare_numbers:
+                confirmation_number = bare_numbers[0]
 
         if any(kw in combined for kw in confirm_kw) or confirmation_number:
             return {

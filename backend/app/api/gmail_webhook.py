@@ -253,11 +253,12 @@ async def _process_gmail_notification(
                 ))
 
                 # Strategy 1: Thread ID match (only if this looks like a reply)
+                # Match ANY status — replies can come for confirmed/denied EPOs too
+                # (e.g., builder sends updated PO# after initial confirmation)
                 if thread_id and (is_reply_subject or not body_has_new_request):
                     epo_query = select(EPO).where(
                         (EPO.gmail_thread_id == thread_id)
                         & (EPO.company_id == company_id)
-                        & (EPO.status == EPOStatus.PENDING)
                     ).order_by(EPO.created_at.desc())
                     epo_result = await session.execute(epo_query)
                     matched_epo = epo_result.scalars().first()
