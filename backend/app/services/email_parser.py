@@ -1034,8 +1034,13 @@ class EmailParserService:
         )
         vendor_email = vendor_email or self._extract_email(email_body)
 
-        # Try to extract amount
-        amount, amount_conf = self._extract_amount(combined_text)
+        # Try to extract amount — prefer total/per-lot calculation over raw first-match
+        total_amount = _extract_total_amount(email_body, subject=email_subject)
+        if total_amount and total_amount > 0:
+            amount = total_amount
+            amount_conf = 0.95
+        else:
+            amount, amount_conf = self._extract_amount(combined_text)
 
         # Try to extract lot number (prefer subject format)
         lot_number = subject_parsed.get("lot_number")
@@ -1085,7 +1090,60 @@ class EmailParserService:
         raw_desc = self._extract_description(email_body, subject=email_subject) or email_subject
         description = sanitize_description(raw_desc) or raw_desc
 
-        return {
+        # ── Multi-lot with different amounts per lot → split into separate EPOs ──
+        additional_epos = []
+        individual_amounts = _extract_individual_lot_amounts(email_body)
+        individual_descs = _extract_individual_lot_descriptions(email_body)
+
+        if individual_amounts and len(individual_amounts) > 1:
+            # Each lot has its own amount (e.g., Cama lots 1-4)
+            sorted_lots = sorted(individual_amounts.keys(), key=lambda x: (len(x), x))
+            # First lot goes into the main EPO
+            first_lot = sorted_lots[0]
+            lot_number = first_lot
+            amount = individual_amounts[first_lot]
+            amount_conf = 0.95
+            if first_lot in individual_descs:
+                description = sanitize_description(individual_descs[first_lot]) or description
+
+            # Remaining lots become additional EPOs
+            for extra_lot in sorted_lots[1:]:
+                extra_desc = individual_descs.get(extra_lot, description)
+                additional_epos.append({
+                    "vendor_name": vendor_name,
+                    "vendor_email": vendor_email,
+                    "community": community,
+                    "lot_number": extra_lot,
+                    "description": sanitize_description(extra_desc) or description,
+                    "amount": individual_amounts[extra_lot],
+                    "confirmation_number": None,
+                    "confidence_score": confidence_score,
+                    "parse_model": "regex",
+                })
+        elif not individual_amounts:
+            # Check for tiered per-lot pricing (e.g., "$400/lot for lots 1-9, $500/lot for lots 10-20")
+            tiered = _extract_tiered_per_lot_amounts(email_body)
+            if tiered and len(tiered) > 1:
+                sorted_lots = sorted(tiered.keys(), key=lambda x: (len(x), x))
+                first_lot = sorted_lots[0]
+                lot_number = first_lot
+                amount = tiered[first_lot]
+                amount_conf = 0.95
+
+                for extra_lot in sorted_lots[1:]:
+                    additional_epos.append({
+                        "vendor_name": vendor_name,
+                        "vendor_email": vendor_email,
+                        "community": community,
+                        "lot_number": extra_lot,
+                        "description": description,
+                        "amount": tiered[extra_lot],
+                        "confirmation_number": None,
+                        "confidence_score": confidence_score,
+                        "parse_model": "regex",
+                    })
+
+        result = {
             "vendor_name": vendor_name,
             "vendor_email": vendor_email,
             "community": community,
@@ -1097,6 +1155,9 @@ class EmailParserService:
             "needs_review": needs_review,
             "parse_model": "regex",
         }
+        if additional_epos:
+            result["_additional_epos"] = additional_epos
+        return result
 
     # Known builders for fuzzy matching
     KNOWN_VENDORS = {

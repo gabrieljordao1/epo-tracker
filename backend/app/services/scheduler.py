@@ -463,11 +463,13 @@ async def run_periodic_email_sync():
 
                     # Process each email
                     created_this_conn = 0
+                    import re as _re
                     for email_data in fetched_emails:
                         msg_id = email_data.get("message_id", "")
                         subject_text = email_data.get("subject", "")
                         body_text = email_data.get("body", "")
                         from_addr = email_data.get("from", "")
+                        in_reply_to = email_data.get("in_reply_to", "")
 
                         if not msg_id:
                             continue
@@ -484,7 +486,78 @@ async def run_periodic_email_sync():
                         if existing.scalars().first():
                             continue
 
-                        # Process through the agent pipeline
+                        # ── REPLY DETECTION ──
+                        # Check if this is a reply to an existing EPO
+                        matched_epo = None
+                        subject_low = (subject_text or "").lower().strip()
+                        is_reply_subject = subject_low.startswith(("re:", "re :", "fwd:", "fw:"))
+                        body_has_new_request = bool(_re.search(
+                            r"(?:please\s+)?submit\s+an?\s+epo",
+                            body_text or "",
+                            _re.IGNORECASE,
+                        ))
+
+                        # Strategy 1: Match by In-Reply-To header
+                        if in_reply_to and (is_reply_subject or not body_has_new_request):
+                            clean_reply_to = in_reply_to.strip().strip("<>")
+                            if clean_reply_to:
+                                epo_q = await session.execute(
+                                    select(EPO).where(
+                                        and_(
+                                            EPO.gmail_message_id == clean_reply_to,
+                                            EPO.company_id == conn.company_id,
+                                        )
+                                    )
+                                )
+                                matched_epo = epo_q.scalars().first()
+                                if matched_epo:
+                                    logger.info(
+                                        f"[auto-sync] REPLY DETECTED (In-Reply-To): "
+                                        f"'{subject_text[:50]}' → EPO #{matched_epo.id}"
+                                    )
+
+                        # Strategy 2: Match by subject (strip Re:/Fwd: and match)
+                        if not matched_epo and is_reply_subject and not body_has_new_request:
+                            clean_subj = _re.sub(
+                                r"^\s*((re|fwd|fw)\s*:\s*)+", "", subject_text,
+                                flags=_re.IGNORECASE
+                            ).strip()
+                            if clean_subj:
+                                epo_q = await session.execute(
+                                    select(EPO).where(
+                                        and_(
+                                            EPO.company_id == conn.company_id,
+                                            EPO.raw_email_subject.ilike(f"%{clean_subj[:80]}%"),
+                                        )
+                                    ).order_by(EPO.created_at.desc())
+                                )
+                                matched_epo = epo_q.scalars().first()
+                                if matched_epo:
+                                    logger.info(
+                                        f"[auto-sync] REPLY DETECTED (subject match): "
+                                        f"'{subject_text[:50]}' → EPO #{matched_epo.id}"
+                                    )
+
+                        # Route: Reply vs New EPO
+                        if matched_epo:
+                            try:
+                                reply_result = await pipeline.process_reply_email(
+                                    session=session,
+                                    epo=matched_epo,
+                                    email_subject=subject_text,
+                                    email_body=body_text,
+                                )
+                                logger.info(
+                                    f"[auto-sync] Reply processed for EPO #{matched_epo.id}: "
+                                    f"intent={reply_result.get('intent')}, "
+                                    f"status={reply_result.get('new_status')}"
+                                )
+                            except Exception as e:
+                                logger.error(f"[auto-sync] Reply processing error: {e}")
+                                total_errors += 1
+                            continue
+
+                        # ── NEW EPO FLOW ──
                         try:
                             pipeline_result = await pipeline.process_new_email(
                                 session=session,

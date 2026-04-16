@@ -175,6 +175,49 @@ async def _run_safe_migrations():
             'mail', 'protonmail', 'msn', 'live', 'comcast'
         );
         """,
+        # ── v31 QA Cleanup: Delete reply emails that were wrongly created as EPOs ──
+        # ID 245: "Were these submitted?" reply to Plott 2b/2c — duplicate of 653
+        # ID 33:  "Were these submitted" reply to Sugar Creek lot 12 — duplicate of 652
+        # ID 649: PO# reply for Mallard Park 15,16,18 — should have updated 651
+        # ID 648: PO# reply for Galloway lot 28 — reply with bare conf number
+        # ID 654: Exact duplicate of ID 27 (same email, same lot)
+        """
+        DELETE FROM epos WHERE id IN (245, 33, 649, 648, 654)
+          AND EXISTS (SELECT 1 FROM epos WHERE id = 27);
+        """,
+        # ── v31 QA Cleanup: Apply PO# from reply ID 649 to original EPO 651 ──
+        # Reply had: Lot 15=PO#13441438, Lot 16=PO#13441447, Lot 18=PO#13441452
+        # EPO 651 covers lots 15, 16 and 18 — store the first PO#
+        """
+        UPDATE epos SET confirmation_number = '13441438'
+        WHERE id = 651 AND confirmation_number IS NULL;
+        """,
+        # ── v31 QA Cleanup: Fix amounts for "per lot" EPOs ──
+        # ID 268: $275 per lot × 3 lots = $825 (was $275)
+        """
+        UPDATE epos SET amount = 825.0
+        WHERE id = 268 AND amount = 275.0;
+        """,
+        # ID 246: $125 per lot × 4 lots = $500 (was $125)
+        """
+        UPDATE epos SET amount = 500.0
+        WHERE id = 246 AND amount = 125.0;
+        """,
+        # ID 651: $450 per lot × 3 lots = $1350 (was $450)
+        """
+        UPDATE epos SET amount = 1350.0
+        WHERE id = 651 AND amount = 450.0;
+        """,
+        # ID 460: Total is $8600 per email (lots 1-9@$400 + lots 10-20@$500)
+        """
+        UPDATE epos SET amount = 8600.0
+        WHERE id = 460 AND amount = 3600.0;
+        """,
+        # ID 588: Grand total $4375 per email (Cama lots 1-4, different amounts each)
+        """
+        UPDATE epos SET amount = 4375.0
+        WHERE id = 588 AND amount = 1150.0;
+        """,
     ]
 
     async with engine.begin() as conn:

@@ -191,13 +191,19 @@ class GmailSyncService:
                     subject = msg.get("Subject", "")
                     date_str = msg.get("Date", "")
                     message_id = msg.get("Message-ID", "")
+                    in_reply_to = msg.get("In-Reply-To", "")
+                    references = msg.get("References", "")
+                    to_addr = msg.get("To", "")
 
                     emails.append({
                         "message_id": message_id,
                         "from": from_addr,
+                        "to": to_addr,
                         "subject": subject,
                         "body": body[:5000],  # Cap at 5k chars
                         "date": date_str,
+                        "in_reply_to": in_reply_to,
+                        "references": references,
                     })
                 except Exception as e:
                     logger.warning(f"Failed to parse email {msg_id}: {e}")
