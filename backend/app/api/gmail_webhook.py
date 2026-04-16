@@ -243,8 +243,17 @@ async def _process_gmail_notification(
 
                 matched_epo = None
 
-                # Strategy 1: Thread ID match
-                if thread_id:
+                # Guard: only treat as reply if it looks like a reply
+                subject_low = (subject or "").lower().strip()
+                is_reply_subject = subject_low.startswith(("re:", "re :", "fwd:", "fw:"))
+                body_has_new_request = bool(re.search(
+                    r"(?:please\s+)?submit\s+an?\s+epo",
+                    body or "",
+                    re.IGNORECASE,
+                ))
+
+                # Strategy 1: Thread ID match (only if this looks like a reply)
+                if thread_id and (is_reply_subject or not body_has_new_request):
                     epo_query = select(EPO).where(
                         (EPO.gmail_thread_id == thread_id)
                         & (EPO.company_id == company_id)
@@ -693,9 +702,20 @@ async def sync_recent_gmail(
                     in_reply_to = msg.get("in_reply_to", "")
                     image_attachments = msg.get("image_attachments", [])
 
-                    # Check if this is a reply to an existing EPO thread
+                    # Check if this is a reply to an existing EPO thread.
+                    # IMPORTANT: Only treat as a reply if the subject starts with Re:/Fwd:
+                    # OR the body does NOT contain a fresh "Please submit an EPO" request.
+                    # Otherwise same-subject NEW EPOs get absorbed into old threads.
+                    subject_low = (subject or "").lower().strip()
+                    is_reply_subject = subject_low.startswith(("re:", "re :", "fwd:", "fw:"))
+                    body_has_new_request = bool(re.search(
+                        r"(?:please\s+)?submit\s+an?\s+epo",
+                        body or "",
+                        re.IGNORECASE,
+                    ))
                     matched_epo = None
-                    if thread_id:
+                    # Only look up thread matches if this looks like an actual reply
+                    if thread_id and (is_reply_subject or not body_has_new_request):
                         q = select(EPO).where(
                             (EPO.gmail_thread_id == thread_id)
                             & (EPO.company_id == current_user.company_id)
