@@ -692,12 +692,21 @@ async def reparse_all_epos(
                     epo.lot_number = first
 
                 # Calculate per-lot amount
+                # Check if email says "per lot" — if so, stored amount IS already per-lot
                 per_lot_amt = None
+                email_body = (epo.raw_email_body or "")
+                is_per_lot = bool(re.search(r"per\s+lot", email_body, re.IGNORECASE))
                 if epo.amount and epo.amount > 0:
-                    per_lot_amt = round(epo.amount / len(all_lots), 2)
-                    if abs(epo.amount - per_lot_amt) > 0.01:
-                        epo.amount = per_lot_amt
-                        changes["amount_per_lot"] = per_lot_amt
+                    if is_per_lot:
+                        # Email explicitly says "per lot" — keep the amount as-is for each lot
+                        per_lot_amt = epo.amount
+                        changes["amount_is_per_lot"] = True
+                    else:
+                        # Total amount — divide equally across lots
+                        per_lot_amt = round(epo.amount / len(all_lots), 2)
+                        if abs(epo.amount - per_lot_amt) > 0.01:
+                            epo.amount = per_lot_amt
+                            changes["amount_per_lot"] = per_lot_amt
 
                 # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
                 for extra_lot in all_lots[1:]:
