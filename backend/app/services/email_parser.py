@@ -456,6 +456,58 @@ def _extract_individual_lot_amounts(body: str) -> Dict[str, float]:
     return out
 
 
+def _extract_individual_lot_descriptions(body: str) -> Dict[str, str]:
+    """Parse per-lot work descriptions from emails with individual lot breakdowns.
+
+    Handles patterns like:
+      Lot 1- please submit an epo of $800 to Patch and paint all repairs + repaint ... total= $1,150
+      Lot 2- please submit an epo of $600 to Sand and repaint damaged walls ... total= $900
+
+    Returns: {'1': 'Patch and paint all repairs + repaint', '2': 'Sand and repaint damaged walls'}
+    """
+    if not body:
+        return {}
+    clean = re.sub(r"<[^>]+>", " ", body)
+    clean = re.sub(r"&nbsp;", " ", clean)
+    clean = re.sub(r"\s+", " ", clean)
+
+    out: Dict[str, str] = {}
+    # Match: "Lot <id>- ... submit epo of $X to [WORK] ... total="
+    pattern = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—]\s*(?:please\s+)?(?:submit\s+(?:an?\s+)?(?:epo|extra)\s+(?:of\s+)?\$?[\d,\.]*\s+(?:to\s+(?:get\s+)?|for\s+))"
+        r"(?P<work>[A-Za-z][^=\n$]{5,}?)(?:\s*total\s*[:=]|\s*=\s*\$|\s*\$[\d,]+|\s+lot\s+\d)",
+        re.IGNORECASE,
+    )
+    for m in pattern.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        work = m.group("work").strip().rstrip(".,;: +")
+        if work and len(work) > 5 and lot_id not in out:
+            work = work[0].upper() + work[1:]
+            out[lot_id] = work[:300]
+
+    # Fallback: "Lot N- [work text]... total="  (no "submit epo" prefix)
+    if not out:
+        pattern2 = re.compile(
+            r"lot\s+(\d+[\w]?)\s*[-:–—]\s*(?P<work>[A-Z][^=\n$]{10,}?)(?:\s*total\s*[:=]|\s*=\s*\$|\s*\$[\d,]+)",
+            re.IGNORECASE,
+        )
+        for m in pattern2.finditer(clean):
+            lot_id = m.group(1).lower().strip()
+            work = m.group("work").strip().rstrip(".,;: +")
+            # Filter out things that start with "please submit" etc.
+            if work and len(work) > 8 and lot_id not in out:
+                # Strip "please submit an epo of $X to" prefix if present
+                sub = re.sub(
+                    r'^(?:please\s+)?submit\s+(?:an?\s+)?(?:epo|extra)\s+(?:of\s+)?\$?[\d,\.]*\s+(?:to\s+(?:get\s+)?|for\s+)',
+                    '', work, flags=re.IGNORECASE
+                ).strip()
+                if sub and len(sub) > 5:
+                    sub = sub[0].upper() + sub[1:]
+                    out[lot_id] = sub[:300]
+
+    return out
+
+
 def _strip_reply_chain(body: str) -> str:
     """Return only the top (original) portion of an email, stripping reply quotes."""
     if not body:
@@ -476,50 +528,172 @@ def _strip_reply_chain(body: str) -> str:
     return body[:earliest].strip()
 
 
-def _extract_work_description(body: str) -> Optional[str]:
-    """Return the ACTUAL WORK description, stripping 'Please submit an EPO of $X to/for' prefix.
-    e.g. 'Please submit an epo of 350 to patch and paint hole in the ceiling'
-         → 'Patch and paint hole in the ceiling'
-    Also strips email signature lines.
+def _extract_work_description(body: str, subject: str = "") -> Optional[str]:
+    """Return the ACTUAL WORK description from an EPO email.
+
+    Strategy (tried in order):
+      1. Per-lot work: "Lot N- please submit an epo of $X to [WORK]" → extract [WORK]
+      2. "Submit an epo ... to/for [WORK]" pattern in top portion
+      3. If top portion is a follow-up ("Were these submitted?"), scan the
+         QUOTED REPLY CHAIN for the original EPO request
+      4. Explicit "Description:" / "Work:" / "Scope:" lines
+      5. Paint/drywall action phrases ("patch and paint", "texture ceiling", etc.)
+
+    Returns None if no meaningful work description is found.
     """
     if not body:
         return None
-    clean = re.sub(r"<[^>]+>", " ", body)
-    clean = re.sub(r"&nbsp;", " ", clean)
-    clean = re.sub(r"\s+", " ", clean).strip()
 
-    # Stop at signature markers
-    for marker in [
-        "Gabriel Jordao", "Field Manager", "Stancil Services", "Stancil Painting",
-        "[Stancil", "gabriel.jordao@", "www.stancil", "Thank you", "Thanks,",
-        "Regards,", "Best,", "Sent from", "-- ",
-    ]:
-        idx = clean.find(marker)
-        if idx > 0:
-            clean = clean[:idx].strip()
+    def _clean_text(text: str) -> str:
+        """Strip HTML, normalize whitespace, truncate at signature."""
+        c = re.sub(r"<[^>]+>", " ", text)
+        c = re.sub(r"&nbsp;", " ", c)
+        c = re.sub(r"\s+", " ", c).strip()
+        # Stop at signature markers
+        for marker in [
+            "Gabriel Jordao", "Field Manager", "Stancil Services", "Stancil Painting",
+            "[Stancil", "gabriel.jordao@", "www.stancil", "Sent from my",
+            "-- \n", "Sent from",
+        ]:
+            idx = c.find(marker)
+            if idx > 0:
+                c = c[:idx].strip()
+        return c
 
-    # Find the "submit an epo" sentence and extract everything AFTER "to"/"for"
-    m = re.search(
-        r"(?:please\s+)?submit\s+(?:an?\s+)?epo\s+(?:of\s+)?\$?[\d,\.]*(?:\s+per\s+lot)?\s+(?:to\s+(?:get\s+)?|for\s+)(?P<work>[^.!?]+?)(?:\s*\.|\s*$|=\s*\$)",
-        clean,
-        re.IGNORECASE,
+    def _extract_submit_epo_work(text: str) -> Optional[str]:
+        """Extract the work portion from 'submit an epo of $X to [WORK]'."""
+        m = re.search(
+            r"(?:please\s+)?submit\s+(?:an?\s+)?(?:epo|extra\s+(?:paint|work)\s+order)\s+"
+            r"(?:of\s+)?\$?[\d,\.]*(?:\s+per\s+lot)?\s+"
+            r"(?:to\s+(?:get\s+)?|for\s+)"
+            r"(?P<work>.+?)(?:\s*\.\s|\s*$|=\s*\$|\s+lot\s+\d|\s+lots?\s+\d|\s+for\s+lot)",
+            text,
+            re.IGNORECASE,
+        )
+        if m:
+            work = m.group("work").strip().rstrip(".,;:")
+            # Filter out bad extractions (just numbers, lot references, prices)
+            if work and len(work) > 5 and not re.match(r'^[\d\$,\.\s]+$', work):
+                # Don't accept fragments that are just lot ranges like "lots 1-9"
+                if re.match(r'^lots?\s+[\d\-,\s]+$', work, re.IGNORECASE):
+                    return None
+                work = work[0].upper() + work[1:]
+                return work[:300]
+        return None
+
+    def _extract_per_lot_work(text: str) -> Optional[str]:
+        """Extract work from 'Lot N- please submit an epo of $X to [WORK]' patterns.
+        Returns the FIRST unique work description found (they're often all the same)."""
+        pattern = re.compile(
+            r"lot\s+\d+[\w]?\s*[-:–—]\s*(?:please\s+)?(?:submit\s+(?:an?\s+)?(?:epo|extra)\s+(?:of\s+)?\$?[\d,\.]*\s+(?:to\s+(?:get\s+)?|for\s+))?"
+            r"(?P<work>[A-Z][^=\n$]{10,}?)(?:\s*total\s*[:=]|\s*=\s*\$|\s*\$[\d,]+|\s*$)",
+            re.IGNORECASE,
+        )
+        works = set()
+        for m in pattern.finditer(text):
+            w = m.group("work").strip().rstrip(".,;: ")
+            # Filter out bad matches
+            if w and len(w) > 8 and not re.match(r'^[\d\$,\.\s]+$', w):
+                w = w[0].upper() + w[1:]
+                works.add(w[:200])
+        if works:
+            # If all lots have the same work, return it; otherwise join unique ones
+            if len(works) == 1:
+                return works.pop()
+            # Return the longest (most descriptive) one
+            return max(works, key=len)
+        return None
+
+    def _extract_action_phrases(text: str) -> Optional[str]:
+        """Find paint/drywall work action phrases."""
+        # Common EPO work patterns
+        action_patterns = [
+            r"((?:patch|repair|fix|skim\s*coat|texture|sand|prime|paint|repaint|re-paint|touch[\s-]?up|"
+            r"hang\s+drywall|install\s+drywall|replace\s+drywall|drywall\s+repair|"
+            r"fill\s+(?:holes?|gaps?|cracks?)|caulk|seal|mud\s+and\s+tape|float|"
+            r"prep\s+and\s+paint|scrape\s+and\s+paint|spray|roll|cut\s+in|"
+            r"stain|varnish|lacquer|apply\s+(?:primer|paint|coating)|"
+            r"cabinet\s+(?:paint|refinish)|trim\s+(?:paint|stain|install))"
+            r"(?:\s+(?:and|&)\s+\w+)*"     # "patch and paint"
+            r"(?:\s+\w+){0,12})",           # up to 12 more words for context
+        ]
+        for ap in action_patterns:
+            m = re.search(ap, text, re.IGNORECASE)
+            if m:
+                work = m.group(1).strip().rstrip(".,;:")
+                if len(work) > 10:
+                    work = work[0].upper() + work[1:]
+                    return work[:300]
+        return None
+
+    def _extract_explicit_description(text: str) -> Optional[str]:
+        """Find explicit 'Description:', 'Work:', 'Scope:' lines."""
+        patterns = [
+            r"(?:Description|Work|Scope|Services?)[\s]*[:]\s*(.+?)(?:\n|$)",
+            r"(?:Extra|Additional|Change\s+Order)[\s]*[:]\s*(.+?)(?:\n|$)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, text, re.IGNORECASE)
+            if m:
+                desc = m.group(1).strip()
+                if len(desc) > 10 and not re.match(r'^[\d\$,\.\s]+$', desc):
+                    return desc[:300]
+        return None
+
+    # ── Main extraction pipeline ──
+
+    # Split into top portion (before reply quotes) and full body
+    top_portion = _strip_reply_chain(body)
+    clean_top = _clean_text(top_portion)
+    clean_full = _clean_text(body)
+
+    # 1. Try per-lot work patterns (e.g., Cama emails with "Lot 1- ... total=$X")
+    result = _extract_per_lot_work(clean_full)
+    if result:
+        return result
+
+    # 2. Try "submit an epo ... to [WORK]" in top portion
+    result = _extract_submit_epo_work(clean_top)
+    if result:
+        return result
+
+    # 3. Try explicit description fields in top portion
+    result = _extract_explicit_description(clean_top)
+    if result:
+        return result
+
+    # 4. Try action phrases in top portion
+    result = _extract_action_phrases(clean_top)
+    if result:
+        return result
+
+    # 5. If top portion looks like a follow-up (short, no work content),
+    #    scan the FULL body including reply chain
+    top_is_followup = (
+        len(clean_top) < 120
+        or bool(re.match(r'^(?:Were these|Any update|Did you|Has this|Just following|Following up|Checking in|Status|Reminder)', clean_top, re.IGNORECASE))
     )
-    if m:
-        work = m.group("work").strip().rstrip(".,;:")
-        # Capitalize first letter
-        if work:
-            work = work[0].upper() + work[1:]
-            # Cap at reasonable length
-            return work[:300]
+    if top_is_followup and len(clean_full) > len(clean_top) + 50:
+        # Try the full body (includes quoted reply text)
+        result = _extract_submit_epo_work(clean_full)
+        if result:
+            return result
+        result = _extract_explicit_description(clean_full)
+        if result:
+            return result
+        result = _extract_action_phrases(clean_full)
+        if result:
+            return result
 
-    # Fallback: a "submit an epo" sentence without extractable work → return the whole thing
-    m = re.search(
-        r"((?:please\s+)?submit\s+an?\s+epo[^.]*?(?:=\s*\$[\d,\.]+|\$[\d,\.]+|\.)\s*)",
-        clean,
-        re.IGNORECASE,
-    )
-    if m:
-        return m.group(1).strip().rstrip(".,;:")
+    # 6. Last resort: try to pull something useful from the subject line
+    if subject:
+        clean_subj = re.sub(r'^(?:re|fwd?|fw)\s*:\s*', '', subject, flags=re.IGNORECASE).strip()
+        # Don't use subjects that are just "EPO - Community - Lot - Builder"
+        if not re.match(r'^EPO\s*[-–—]', clean_subj, re.IGNORECASE):
+            result = _extract_action_phrases(clean_subj)
+            if result:
+                return result
+
     return None
 
 
@@ -776,7 +950,7 @@ class EmailParserService:
             "vendor_email": vendor_email,
             "community": community,
             "lot_number": lot_number,
-            "description": self._extract_description(email_body) or email_subject,
+            "description": self._extract_description(email_body, subject=email_subject) or email_subject,
             "amount": amount,
             "confirmation_number": confirmation,
             "confidence_score": confidence_score,
@@ -898,28 +1072,9 @@ class EmailParserService:
                     return conf, 0.9
         return None, 0.0
 
-    def _extract_description(self, body: str) -> Optional[str]:
-        """Extract work description"""
-        # Look for common description patterns
-        patterns = [
-            r"(?:Description|Work|Services?):\s*(.+?)(?:\n|$)",
-            r"(?:Extra|Additional|Change Order):\s*(.+?)(?:\n|$)",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, body, re.IGNORECASE)
-            if match:
-                desc = match.group(1).strip()
-                if len(desc) > 10:
-                    return desc[:500]
-
-        # If no pattern found, try to extract first 100 chars of body
-        lines = body.strip().split("\n")
-        for line in lines:
-            if len(line) > 20:
-                return line[:500]
-
-        return None
+    def _extract_description(self, body: str, subject: str = "") -> Optional[str]:
+        """Extract work description — delegates to the improved standalone function."""
+        return _extract_work_description(body, subject=subject)
 
     async def _parse_gemini(
         self,

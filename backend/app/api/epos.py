@@ -658,6 +658,29 @@ async def reparse_all_epos(
                         epo.vendor_name = norm_existing
                         changes["vendor_name_normalized"] = norm_existing
                         builder_fixed += 1
+            # Also try extracting builder from email body text (TO header, signature, etc.)
+            if not new_builder:
+                new_builder = _normalize_builder(
+                    parsed.get("builder_name") or parsed.get("vendor_name") or ""
+                )
+            # Last resort: scan vendor_email domain for known builder
+            if not new_builder and epo.vendor_email:
+                domain = epo.vendor_email.lower().split("@")[-1] if "@" in epo.vendor_email else ""
+                domain_builder_map = {
+                    "pulte": "Pulte", "pultehomes": "Pulte", "drhorton": "DR Horton",
+                    "tripointe": "TriPointe Homes", "tripointehomes": "TriPointe Homes",
+                    "redcedar": "Red Cedar", "redcedarco": "Red Cedar",
+                    "madisonsimmons": "Madison Simmons Homes",
+                    "summitbuilders": "Summit Homes", "mungo": "Mungo Homes",
+                    "truehomes": "True Homes", "eastwood": "Eastwood Homes",
+                    "hovnanian": "K. Hovnanian", "ryanhomes": "Ryan Homes",
+                    "meritage": "Meritage Homes", "tollbrothers": "Toll Brothers",
+                    "lennar": "Lennar", "kbhome": "KB Home",
+                }
+                for key, name in domain_builder_map.items():
+                    if key in domain.replace(".", ""):
+                        new_builder = name
+                        break
             if new_builder and new_builder != epo.vendor_name:
                 current = (epo.vendor_name or "").strip()
                 if current in ("", "Unknown Builder"):
@@ -689,7 +712,7 @@ async def reparse_all_epos(
 
             # ── Description ──
             from ..services.email_parser import _extract_work_description
-            new_desc = _extract_work_description(body)
+            new_desc = _extract_work_description(body, subject=subject)
             old = (epo.description or "").strip()
             old_low = old.lower()
             old_is_boilerplate_or_bad = (
@@ -700,6 +723,7 @@ async def reparse_all_epos(
                 or "gabriel jordao" in old_low
                 or "field manager" in old_low
                 or old.endswith((" and", " to", " the", " of", " for", " in", " with"))
+                or re.match(r'^lots?\s+[\d\-,\s]+$', old, re.IGNORECASE)  # "Lots 1-9" is not a description
             )
             if new_desc and new_desc != epo.description and old_is_boilerplate_or_bad:
                 if "gabriel jordao" not in new_desc.lower() and "field manager" not in new_desc.lower():
@@ -748,11 +772,13 @@ async def reparse_all_epos(
                 # ── Per-lot amount resolution ──
                 # Priority: (1) tiered "$X per lot for lots Y-Z = $total" segments,
                 #           (2) single "$X per lot" flat, (3) divide stored total by count.
-                from ..services.email_parser import _extract_tiered_per_lot_amounts, _extract_individual_lot_amounts
+                from ..services.email_parser import _extract_tiered_per_lot_amounts, _extract_individual_lot_amounts, _extract_individual_lot_descriptions
                 tiered_map = _extract_tiered_per_lot_amounts(epo.raw_email_body or "")
                 # Fallback: individual "Lot N- ... total= $X" breakdowns
                 if not tiered_map:
                     tiered_map = _extract_individual_lot_amounts(epo.raw_email_body or "")
+                # Per-lot descriptions (for Cama-style emails)
+                lot_desc_map = _extract_individual_lot_descriptions(epo.raw_email_body or "")
 
                 body_clean = re.sub(r"<[^>]+>", " ", epo.raw_email_body or "")
                 body_clean = re.sub(r"&nbsp;", " ", body_clean)
@@ -784,11 +810,19 @@ async def reparse_all_epos(
                     elif per_lot_amt is not None:
                         changes["amount_source"] = "per_lot_flat_or_divided"
 
+                # Apply per-lot description to parent if available
+                first_lot_desc = lot_desc_map.get(first)
+                if first_lot_desc and len(first_lot_desc) > 10:
+                    epo.description = first_lot_desc[:500]
+                    changes["description_per_lot"] = first_lot_desc[:100]
+
                 # Create NEW EPOs for remaining lots (2nd, 3rd, etc.)
                 # Note: previous-reparse dupes already cleaned in pre-pass above
                 import secrets
                 for extra_lot in all_lots[1:]:
                     extra_amt = tiered_map.get(extra_lot) if tiered_map else per_lot_amt
+                    # Use per-lot description if available, else fall back to parent's
+                    extra_desc = lot_desc_map.get(extra_lot, epo.description)
                     extra_epo = EPO(
                         company_id=current_user.company_id,
                         created_by_id=epo.created_by_id,
@@ -797,7 +831,7 @@ async def reparse_all_epos(
                         vendor_email=epo.vendor_email,
                         community=epo.community,
                         lot_number=extra_lot,
-                        description=epo.description,
+                        description=(extra_desc or epo.description or "")[:500] or None,
                         amount=extra_amt,
                         status=epo.status,
                         confirmation_number=epo.confirmation_number,
@@ -807,7 +841,7 @@ async def reparse_all_epos(
                         raw_email_body=epo.raw_email_body,
                         synced_from_email=True,
                         vendor_token=secrets.token_urlsafe(32),
-                        needs_review=epo.needs_review,
+                        needs_review=False,  # Expanded from high-confidence parent
                         gmail_thread_id=epo.gmail_thread_id,
                         gmail_message_id=epo.gmail_message_id,
                     )
@@ -839,6 +873,19 @@ async def reparse_all_epos(
                 if stripped and stripped != epo.lot_number:
                     epo.lot_number = stripped
                     changes["lot_number_trimmed"] = stripped
+
+            # ── Recalculate needs_review based on actual data quality ──
+            has_builder = bool(epo.vendor_name and epo.vendor_name.strip().lower() not in ("", "unknown builder", "unknown"))
+            has_amount = bool(epo.amount and epo.amount > 0)
+            has_lot = bool(epo.lot_number and not _looks_like_bad_lot(epo.lot_number))
+            has_community = bool(epo.community and not _is_bad_community(epo.community))
+            has_desc = bool(epo.description and len((epo.description or "").strip()) > 10)
+
+            # Only flag needs_review if CRITICAL data is missing
+            should_review = not (has_builder and has_amount and has_lot and has_community)
+            if epo.needs_review != should_review:
+                epo.needs_review = should_review
+                changes["needs_review"] = should_review
 
             if changes:
                 reparsed += 1
