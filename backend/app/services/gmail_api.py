@@ -383,9 +383,12 @@ class GmailAPIService:
             url = f"{self.GMAIL_API_BASE}/users/me/messages"
             headers = {"Authorization": f"Bearer {access_token}"}
             # Use newer_than: which is more reliable than after: for recent emails
+            # Search ALL mail (no in:inbox filter) so we catch outbound EPO
+            # requests the field manager sends to builders, same as the old
+            # IMAP code that searched [Gmail]/All Mail.
             days_delta = max(1, (datetime.utcnow() - since_date).days)
             params = {
-                "q": f"newer_than:{days_delta}d in:inbox",
+                "q": f"newer_than:{days_delta}d",
                 "maxResults": max_results,
             }
             logger.info(f"Gmail list query: q='{params['q']}', max={max_results}")

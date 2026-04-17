@@ -370,22 +370,114 @@ async def check_gmail_connection_health():
         logger.info(f"Gmail health check: {unhealthy}/{len(conns)} marked inactive")
 
 
+def _extract_email_address(raw: str) -> str:
+    """Extract email from 'Name <email@domain.com>' format."""
+    import re as _re
+    match = _re.search(r"<(.+?)>", raw)
+    if match:
+        return match.group(1).strip().lower()
+    if "@" in raw:
+        return raw.strip().lower()
+    return ""
+
+
+def _extract_all_emails(header_value: str) -> list:
+    """Extract all email addresses from a TO/CC header (comma-separated)."""
+    if not header_value:
+        return []
+    parts = header_value.split(",")
+    emails = []
+    for part in parts:
+        email = _extract_email_address(part.strip())
+        if email:
+            emails.append(email)
+    return emails
+
+
+def _is_internal_email(email: str, internal_addresses: set, internal_domains: set) -> bool:
+    """Check if an email is internal to the company."""
+    email_lower = email.lower()
+    if email_lower in internal_addresses:
+        return True
+    domain = email_lower.split("@")[-1] if "@" in email_lower else ""
+    if domain in internal_domains:
+        return True
+    return False
+
+
+def _builder_name_from_domain(email: str) -> str:
+    """Derive builder name from email domain.
+    e.g. john@meritagehomes.com → Meritage Homes
+    """
+    import re as _re
+    try:
+        domain = email.split("@")[1]
+        name_part = domain.rsplit(".", 1)[0]
+        name_part = _re.sub(r"^(mail|email|info|sales|www)\.", "", name_part)
+        words = _re.split(r"[-.]", name_part)
+        return " ".join(w.capitalize() for w in words if w)
+    except Exception:
+        return "Unknown Builder"
+
+
+async def _build_internal_email_set(session, company_id: int, tracker_email: str) -> tuple:
+    """Build the set of internal email addresses and domains for a company.
+    Returns: (internal_addresses: set, internal_domains: set)
+    """
+    from ..models.models import User
+    internal_addresses = set()
+    internal_domains = set()
+
+    # 1) Tracker email itself
+    internal_addresses.add(tracker_email.lower())
+
+    # 2) All company users' emails (login + work)
+    user_query = select(User.email, User.work_email).where(User.company_id == company_id)
+    result = await session.execute(user_query)
+    for user_email, work_email in result:
+        for em in [user_email, work_email]:
+            if em:
+                email_lower = em.lower()
+                internal_addresses.add(email_lower)
+                domain = email_lower.split("@")[-1]
+                internal_domains.add(domain)
+
+    # 3) All company email connections
+    conn_query = select(EmailConnection.email_address).where(
+        EmailConnection.company_id == company_id
+    )
+    conn_result = await session.execute(conn_query)
+    for (conn_email,) in conn_result:
+        internal_addresses.add(conn_email.lower())
+
+    return internal_addresses, internal_domains
+
+
 async def run_periodic_email_sync():
     """Automatically sync new emails from ALL active Gmail connections.
 
     This is the CORE auto-sync job that makes the app autonomous.
-    Runs every 5 minutes. For each active email connection across all companies:
-      1. Refreshes OAuth token if expired
-      2. Fetches new emails via IMAP since last sync
-      3. Processes through the parser pipeline → creates EPO records
-      4. Updates last_sync_at timestamp
+    Runs every 5 minutes. Uses the Gmail REST API (not IMAP) so we get:
+      - thread_id for reliable reply matching
+      - In-Reply-To / References headers
+      - image_attachments for Gemini Vision parsing (screenshot confirmations)
+      - proper submitter/builder identification
+
+    For each active email connection across all companies:
+      1. Refreshes OAuth token if expired (handled by GmailAPIService)
+      2. Fetches new emails via Gmail REST API since last sync
+      3. Detects replies using thread_id, In-Reply-To, and builder email matching
+      4. Routes replies → process_reply_email (with image attachments)
+      5. Routes new emails → process_new_email (with submitter/builder identification)
+      6. Updates last_sync_at timestamp
     """
-    logger.info("Running periodic email sync...")
+    logger.info("Running periodic email sync (Gmail REST API)...")
 
     try:
         from ..core.security import decrypt_token, encrypt_token
-        from .gmail_sync import GmailSyncService
+        from .gmail_api import GmailAPIService
         from .agent_pipeline import AgentPipelineService
+        import re as _re
     except Exception as e:
         logger.error(f"[auto-sync] Import error: {e}")
         return
@@ -404,12 +496,13 @@ async def run_periodic_email_sync():
                 logger.info("No active email connections — nothing to sync")
                 return
 
-            gmail = GmailSyncService(
+            gmail_api = GmailAPIService(
                 client_id=settings.GOOGLE_CLIENT_ID,
                 client_secret=settings.GOOGLE_CLIENT_SECRET,
             )
             pipeline = AgentPipelineService()
             total_created = 0
+            total_replies = 0
             total_errors = 0
 
             for conn in connections:
@@ -417,64 +510,57 @@ async def run_periodic_email_sync():
                     # Decrypt stored tokens
                     try:
                         access_token = decrypt_token(conn.access_token, settings.SECRET_KEY)
-                        refresh_token_val = decrypt_token(conn.refresh_token, settings.SECRET_KEY) if conn.refresh_token else None
+                        refresh_token_val = decrypt_token(conn.refresh_token, settings.SECRET_KEY) if conn.refresh_token else ""
                     except Exception as e:
                         logger.error(f"[auto-sync] Token decryption failed for {conn.email_address}: {e}")
                         continue
 
-                    # Refresh token if expired
-                    from datetime import timedelta as td
-                    if conn.token_expires_at and conn.token_expires_at.replace(tzinfo=None) < datetime.utcnow():
-                        if refresh_token_val:
-                            refresh_result = await gmail.refresh_access_token(refresh_token_val)
-                            if refresh_result.get("success"):
-                                access_token = refresh_result["access_token"]
-                                conn.access_token = encrypt_token(access_token, settings.SECRET_KEY)
-                                conn.token_expires_at = datetime.utcnow() + td(seconds=3600)
-                                logger.info(f"[auto-sync] Refreshed token for {conn.email_address}")
-                            else:
-                                logger.warning(
-                                    f"[auto-sync] Token refresh failed for {conn.email_address}: "
-                                    f"{refresh_result.get('error')} — marking inactive"
-                                )
-                                conn.is_active = False
-                                await session.commit()
-                                continue
-                        else:
-                            logger.warning(f"[auto-sync] Token expired, no refresh token for {conn.email_address}")
-                            conn.is_active = False
-                            await session.commit()
-                            continue
-
                     # Fetch emails since last sync (or last 2 days for first run)
                     since_date = conn.last_sync_at or (datetime.utcnow() - timedelta(days=2))
-                    # Don't go further back than 14 days to avoid re-processing old stuff
+                    # Don't go further back than 14 days
                     min_date = datetime.utcnow() - timedelta(days=14)
-                    if since_date < min_date:
+                    if since_date.replace(tzinfo=None) < min_date:
                         since_date = min_date
 
-                    fetched_emails = await gmail.fetch_epo_emails(
+                    # ★ USE GMAIL REST API instead of IMAP ★
+                    # This gives us: thread_id, In-Reply-To, image_attachments
+                    # Token refresh is handled inside GmailAPIService._ensure_valid_token()
+                    fetched_messages = await gmail_api.get_messages_since(
                         access_token=access_token,
-                        email_address=conn.email_address,
+                        refresh_token=refresh_token_val,
+                        token_expires_at=conn.token_expires_at,
                         since_date=since_date,
                         max_results=50,
                     )
-                    logger.info(f"[auto-sync] Fetched {len(fetched_emails)} emails from {conn.email_address}")
+                    logger.info(
+                        f"[auto-sync] Fetched {len(fetched_messages)} messages "
+                        f"from {conn.email_address} via REST API"
+                    )
 
-                    # Process each email
+                    # Build internal email set for submitter/builder identification
+                    internal_addresses, internal_domains = await _build_internal_email_set(
+                        session, conn.company_id, conn.email_address
+                    )
+
+                    # Process each message
                     created_this_conn = 0
-                    import re as _re
-                    for email_data in fetched_emails:
-                        msg_id = email_data.get("message_id", "")
-                        subject_text = email_data.get("subject", "")
-                        body_text = email_data.get("body", "")
-                        from_addr = email_data.get("from", "")
-                        in_reply_to = email_data.get("in_reply_to", "")
+                    replies_this_conn = 0
+
+                    for msg in fetched_messages:
+                        msg_id = msg.get("message_id") or msg.get("id", "")
+                        subject_text = msg.get("subject", "")
+                        body_text = msg.get("body", "")
+                        from_field = msg.get("from", "")
+                        to_field = msg.get("to", "")
+                        cc_field = msg.get("cc", "")
+                        thread_id = msg.get("thread_id", "")
+                        in_reply_to = msg.get("in_reply_to", "")
+                        image_attachments = msg.get("image_attachments", [])
 
                         if not msg_id:
                             continue
 
-                        # Skip if already processed
+                        # Skip if already processed (dedup by gmail_message_id)
                         existing = await session.execute(
                             select(EPO).where(
                                 and_(
@@ -486,8 +572,7 @@ async def run_periodic_email_sync():
                         if existing.scalars().first():
                             continue
 
-                        # ── REPLY DETECTION ──
-                        # Check if this is a reply to an existing EPO
+                        # ── REPLY DETECTION (same logic as webhook) ──
                         matched_epo = None
                         subject_low = (subject_text or "").lower().strip()
                         is_reply_subject = subject_low.startswith(("re:", "re :", "fwd:", "fw:"))
@@ -497,16 +582,29 @@ async def run_periodic_email_sync():
                             _re.IGNORECASE,
                         ))
 
-                        # Strategy 1: Match by In-Reply-To header
-                        if in_reply_to and (is_reply_subject or not body_has_new_request):
+                        # Strategy 1: Thread ID match (most reliable — Gmail REST API only)
+                        if thread_id and (is_reply_subject or not body_has_new_request):
+                            epo_q = await session.execute(
+                                select(EPO).where(
+                                    (EPO.gmail_thread_id == thread_id)
+                                    & (EPO.company_id == conn.company_id)
+                                ).order_by(EPO.created_at.desc())
+                            )
+                            matched_epo = epo_q.scalars().first()
+                            if matched_epo:
+                                logger.info(
+                                    f"[auto-sync] REPLY DETECTED (thread match): "
+                                    f"'{subject_text[:50]}' → EPO #{matched_epo.id}"
+                                )
+
+                        # Strategy 2: In-Reply-To header match
+                        if not matched_epo and in_reply_to:
                             clean_reply_to = in_reply_to.strip().strip("<>")
                             if clean_reply_to:
                                 epo_q = await session.execute(
                                     select(EPO).where(
-                                        and_(
-                                            EPO.gmail_message_id == clean_reply_to,
-                                            EPO.company_id == conn.company_id,
-                                        )
+                                        (EPO.gmail_message_id == clean_reply_to)
+                                        & (EPO.company_id == conn.company_id)
                                     )
                                 )
                                 matched_epo = epo_q.scalars().first()
@@ -516,57 +614,102 @@ async def run_periodic_email_sync():
                                         f"'{subject_text[:50]}' → EPO #{matched_epo.id}"
                                     )
 
-                        # Strategy 2: Match by subject (strip Re:/Fwd: and match)
-                        if not matched_epo and is_reply_subject and not body_has_new_request:
-                            clean_subj = _re.sub(
-                                r"^\s*((re|fwd|fw)\s*:\s*)+", "", subject_text,
-                                flags=_re.IGNORECASE
-                            ).strip()
-                            if clean_subj:
+                        # Strategy 3: External builder with pending EPO
+                        if not matched_epo:
+                            sender_email = _extract_email_address(from_field)
+                            if sender_email and not _is_internal_email(
+                                sender_email, internal_addresses, internal_domains
+                            ):
                                 epo_q = await session.execute(
                                     select(EPO).where(
-                                        and_(
-                                            EPO.company_id == conn.company_id,
-                                            EPO.raw_email_subject.ilike(f"%{clean_subj[:80]}%"),
-                                        )
+                                        (EPO.vendor_email == sender_email)
+                                        & (EPO.company_id == conn.company_id)
+                                        & (EPO.status == EPOStatus.PENDING)
                                     ).order_by(EPO.created_at.desc())
                                 )
                                 matched_epo = epo_q.scalars().first()
                                 if matched_epo:
                                     logger.info(
-                                        f"[auto-sync] REPLY DETECTED (subject match): "
-                                        f"'{subject_text[:50]}' → EPO #{matched_epo.id}"
+                                        f"[auto-sync] REPLY DETECTED (builder email): "
+                                        f"{sender_email} → EPO #{matched_epo.id}"
                                     )
 
-                        # Route: Reply vs New EPO
+                        # ── ROUTE: Reply vs New EPO ──
                         if matched_epo:
                             try:
+                                # ★ Pass image_attachments + gmail_api + tokens
+                                # so process_reply_email can use Gemini Vision
+                                # to parse screenshot confirmations from builders
                                 reply_result = await pipeline.process_reply_email(
                                     session=session,
                                     epo=matched_epo,
                                     email_subject=subject_text,
                                     email_body=body_text,
+                                    image_attachments=image_attachments,
+                                    gmail_api=gmail_api,
+                                    access_token=access_token,
+                                    refresh_token=refresh_token_val,
+                                    token_expires_at=conn.token_expires_at,
+                                    message_id=msg_id,
                                 )
+                                replies_this_conn += 1
                                 logger.info(
                                     f"[auto-sync] Reply processed for EPO #{matched_epo.id}: "
                                     f"intent={reply_result.get('intent')}, "
-                                    f"status={reply_result.get('new_status')}"
+                                    f"status={reply_result.get('new_status')}, "
+                                    f"image_parsed={reply_result.get('image_parsed')}"
                                 )
                             except Exception as e:
                                 logger.error(f"[auto-sync] Reply processing error: {e}")
                                 total_errors += 1
                             continue
 
-                        # ── NEW EPO FLOW ──
+                        # ── NEW EPO FLOW (with submitter/builder identification) ──
                         try:
+                            # Identify submitter from FROM field
+                            submitter_email = _extract_email_address(from_field)
+                            if not submitter_email:
+                                logger.warning(f"[auto-sync] No submitter email from: {from_field}")
+                                continue
+
+                            # Match submitter to a User record
+                            submitted_by_id = None
+                            from ..models.models import User
+                            user_q = await session.execute(
+                                select(User).where(
+                                    or_(
+                                        User.email.ilike(submitter_email),
+                                        User.work_email.ilike(submitter_email),
+                                    )
+                                )
+                            )
+                            submitter_user = user_q.scalars().first()
+                            if submitter_user:
+                                submitted_by_id = submitter_user.id
+
+                            # Identify builder from TO/CC recipients
+                            all_recipients = _extract_all_emails(to_field) + _extract_all_emails(cc_field)
+                            builder_email = ""
+                            for recipient in all_recipients:
+                                if not _is_internal_email(
+                                    recipient, internal_addresses, internal_domains
+                                ) and recipient != submitter_email:
+                                    builder_email = recipient
+                                    break
+                            builder_name = _builder_name_from_domain(builder_email) if builder_email else "Unknown Builder"
+
                             pipeline_result = await pipeline.process_new_email(
                                 session=session,
                                 email_subject=subject_text,
                                 email_body=body_text,
-                                vendor_email=from_addr,
+                                vendor_email=builder_email or submitter_email,
                                 company_id=conn.company_id,
                                 email_connection_id=conn.id,
-                                submitted_by_id=None,  # system-initiated sync
+                                builder_name=builder_name,
+                                builder_email=builder_email,
+                                submitter_email=submitter_email,
+                                submitted_by_id=submitted_by_id,
+                                gmail_thread_id=thread_id,
                                 gmail_message_id=msg_id,
                             )
                             if pipeline_result.get("created"):
@@ -580,9 +723,13 @@ async def run_periodic_email_sync():
                     # Update last_sync_at
                     conn.last_sync_at = datetime.utcnow()
                     total_created += created_this_conn
+                    total_replies += replies_this_conn
 
-                    if created_this_conn > 0:
-                        logger.info(f"[auto-sync] Created {created_this_conn} new EPOs from {conn.email_address}")
+                    if created_this_conn > 0 or replies_this_conn > 0:
+                        logger.info(
+                            f"[auto-sync] {conn.email_address}: "
+                            f"{created_this_conn} new EPOs, {replies_this_conn} replies processed"
+                        )
 
                 except Exception as e:
                     logger.error(f"[auto-sync] Error syncing {conn.email_address}: {e}")
@@ -592,6 +739,7 @@ async def run_periodic_email_sync():
             await session.commit()
             logger.info(
                 f"Periodic email sync complete: {total_created} EPOs created, "
+                f"{total_replies} replies processed, "
                 f"{total_errors} errors, {len(connections)} connections checked"
             )
 
