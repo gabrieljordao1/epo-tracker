@@ -89,6 +89,48 @@ class AgentPipelineService:
                     result["skipped_duplicate"] = True
                     return result
 
+            # Step 0b: Spam / non-EPO pre-filter
+            # Reject obvious spam, newsletters, and marketing emails BEFORE
+            # wasting a Gemini call on them. These pollute the EPO list.
+            import re as _re
+            _subj_lower = (email_subject or "").lower()
+            _body_lower = (email_body or "").lower()[:500]
+            _SPAM_SUBJECT_PATTERNS = [
+                r"unsubscribe",
+                r"exclusive.{0,20}(deal|offer|discount|save|off)",
+                r"hurry.{0,10}(up|limited|off|sale)",
+                r"(podcast|episode|webinar|newsletter)",
+                r"(trading|forex|crypto|bitcoin|investment\s+opportunity)",
+                r"(video\s+generation|ai\s+tool|new\s+feature)",
+                r"\b(free|win|winner|congrat|claim\s+your)\b",
+                r"(status\s*\]\s*confirm|claude\s+status)",
+                r"(new\s+messages?|view\s+message)",
+                r"(half\s+a\s+million|page\s*view)",
+                r"(consultancy\s+senior|job\s+alert|career)",
+                r"(add\s+\w+\s+to\s+your|connect\s+with)",
+            ]
+            _SPAM_BODY_PATTERNS = [
+                r"unsubscribe",
+                r"click\s+here\s+to\s+(view|opt|manage)",
+                r"you\s+are\s+receiving\s+this\s+(because|email)",
+                r"email\s+preferences",
+                r"manage\s+your\s+subscription",
+            ]
+            is_spam_subject = any(
+                _re.search(p, _subj_lower) for p in _SPAM_SUBJECT_PATTERNS
+            )
+            is_spam_body = any(
+                _re.search(p, _body_lower) for p in _SPAM_BODY_PATTERNS
+            )
+            if is_spam_subject or is_spam_body:
+                logger.info(
+                    f"Spam filter: skipping non-EPO email "
+                    f"subject='{email_subject[:60]}' "
+                    f"(subject_match={is_spam_subject}, body_match={is_spam_body})"
+                )
+                result["skipped_spam"] = True
+                return result
+
             # Step 1: Parse the email
             logger.info(f"Parsing email from {vendor_email} for company {company_id}")
             parsed = await self.parser.parse_email(
