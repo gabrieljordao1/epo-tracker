@@ -140,14 +140,23 @@ class EPOUpdate(BaseModel):
     version: Optional[int] = None  # For optimistic locking — send current version to prevent lost updates
 
 
-class EPOResponse(EPOBase):
+class EPOResponse(BaseModel):
+    """Response schema — no validation constraints on amount so bad DB data
+    doesn't crash the entire list endpoint with a Pydantic ValidationError."""
     id: int
     company_id: int
+    vendor_name: str
+    vendor_email: str  # plain str, not EmailStr — bad data shouldn't crash reads
+    community: Optional[str] = None
+    lot_number: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None  # No ge/le — display whatever is in the DB
+    confirmation_number: Optional[str] = None
     status: EPOStatus
     needs_review: bool
-    confidence_score: Optional[float]
-    parse_model: Optional[str]
-    synced_from_email: bool
+    confidence_score: Optional[float] = None
+    parse_model: Optional[str] = None
+    synced_from_email: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -173,12 +182,16 @@ class EPOFollowupCreate(EPOFollowupBase):
     pass
 
 
-class EPOFollowupResponse(EPOFollowupBase):
+class EPOFollowupResponse(BaseModel):
+    """Response schema — no EmailStr validation so bad data doesn't crash reads."""
     id: int
     epo_id: int
     company_id: int
+    sent_to_email: str  # plain str for reads
+    subject: str
+    body: str
     status: FollowupStatus
-    sent_at: Optional[datetime]
+    sent_at: Optional[datetime] = None
     created_at: datetime
 
     class Config:
