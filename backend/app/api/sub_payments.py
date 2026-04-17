@@ -222,8 +222,11 @@ async def profit_summary(
     payment_count = 0
     epo_summaries: List[EPOProfitSummary] = []
 
+    MAX_SANE_AMOUNT = 500_000.0
     for epo in epos:
-        epo_amount = float(epo.amount or 0)
+        raw_amount = float(epo.amount or 0)
+        # Cap insane amounts — mis-parsed phone/PO numbers shouldn't wreck totals
+        epo_amount = raw_amount if raw_amount <= MAX_SANE_AMOUNT else 0.0
         total_paid_subs = sum(float(p.amount or 0) for p in epo.sub_payments)
         net_profit = epo_amount - total_paid_subs
         margin = (

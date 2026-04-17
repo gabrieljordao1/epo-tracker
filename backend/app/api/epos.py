@@ -266,8 +266,16 @@ async def get_dashboard_stats(
             func.count(case((EPO.status == EPOStatus.DENIED, 1))).label("denied_count"),
             func.count(case((EPO.status == EPOStatus.DISCOUNT, 1))).label("discount_count"),
             func.count(case((EPO.needs_review.is_(True), 1))).label("needs_review_count"),
-            func.avg(EPO.amount).label("average_amount"),
-            func.sum(EPO.amount).label("total_amount"),
+            # Cap amounts at $500K in aggregates — amounts above this are
+            # mis-parsed phone/PO numbers and should not pollute stats
+            func.avg(case(
+                (EPO.amount <= 500000, EPO.amount),
+                else_=None,
+            )).label("average_amount"),
+            func.sum(case(
+                (EPO.amount <= 500000, EPO.amount),
+                else_=0,
+            )).label("total_amount"),
             func.avg(EPO.days_open).label("avg_days_open"),
         ).where(and_(*scope_filters))
 
