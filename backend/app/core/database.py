@@ -237,69 +237,27 @@ async def _run_safe_migrations():
         UPDATE epos SET amount = NULL, needs_review = true
         WHERE amount > 500000;
         """,
-        # ── v35: Delete spam / newsletter / marketing EPOs ──
-        # These were ingested before the spam pre-filter was added.
-        # Match on description keywords that are clearly not EPOs.
+        # ── v36: Delete spam EPOs by exact ID ──
+        # Verified via live app: IDs 663-675 are all spam/marketing emails
+        # (newsletters, trading tips, Claude status, GitHub promo, clearance sales)
+        # that were ingested before the spam pre-filter was added.
+        # ID 664 also has the $639 quadrillion mis-parsed amount.
         """
-        DELETE FROM epos WHERE id IN (
-            SELECT e.id FROM epos e
-            WHERE (
-                LOWER(e.description) LIKE '%podcast%'
-                OR LOWER(e.description) LIKE '%claude status%'
-                OR LOWER(e.description) LIKE '%hurry%off%'
-                OR LOWER(e.description) LIKE '%jak consultancy%'
-                OR LOWER(e.description) LIKE '%turn up your trading%'
-                OR LOWER(e.description) LIKE '%video generation%'
-                OR LOWER(e.description) LIKE '%add heather%'
-                OR LOWER(e.description) LIKE '%new messages%'
-                OR LOWER(e.description) LIKE '%half a million%'
-                OR LOWER(e.description) LIKE '%time to create your fi%'
-                OR LOWER(e.description) LIKE '%exclusive%get%$20%'
-                OR LOWER(e.description) LIKE '%unsubscribe%'
-                OR LOWER(e.description) LIKE '%newsletter%'
-                OR LOWER(e.description) LIKE '%trading%'
-                OR LOWER(e.description) LIKE '%forex%'
-                OR LOWER(e.description) LIKE '%crypto%'
-                OR LOWER(e.description) LIKE '%bitcoin%'
-                OR LOWER(e.description) LIKE '%webinar%'
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM sub_payments sp WHERE sp.epo_id = e.id
-            )
-        );
+        DELETE FROM epos
+        WHERE id IN (663, 664, 665, 666, 667, 668, 669, 670, 671, 672, 673, 674, 675);
         """,
-        # Also clean up spam by subject pattern (raw_email_subject)
+        # ── v36b: Catch-all — delete any future "Unknown Builder" with no
+        # community AND no lot number (no real EPO would have both null).
+        # Guard: skip if it has sub_payments linked to it.
         """
         DELETE FROM epos WHERE id IN (
             SELECT e.id FROM epos e
-            WHERE (
-                LOWER(e.raw_email_subject) LIKE '%unsubscribe%'
-                OR LOWER(e.raw_email_subject) LIKE '%podcast%'
-                OR LOWER(e.raw_email_subject) LIKE '%newsletter%'
-                OR LOWER(e.raw_email_subject) LIKE '%claude status%'
-                OR LOWER(e.raw_email_subject) LIKE '%trading%'
-                OR LOWER(e.raw_email_subject) LIKE '%exclusive%deal%'
-                OR LOWER(e.raw_email_subject) LIKE '%exclusive%get%'
-                OR LOWER(e.raw_email_subject) LIKE '%hurry%'
-                OR LOWER(e.raw_email_subject) LIKE '%video generation%'
-                OR LOWER(e.raw_email_subject) LIKE '%half a million%'
-                OR LOWER(e.raw_email_subject) LIKE '%consultancy%senior%'
-            )
-            AND NOT EXISTS (
-                SELECT 1 FROM sub_payments sp WHERE sp.epo_id = e.id
-            )
-        );
-        """,
-        # ── v35b: Force-delete any EPO still stuck with amount > $500K ──
-        # The v33 UPDATE may have missed some or new ones were ingested.
-        # These are mis-parsed phone/PO numbers, not real EPO amounts.
-        """
-        DELETE FROM epos WHERE id IN (
-            SELECT e.id FROM epos e
-            WHERE e.amount > 500000
-            AND NOT EXISTS (
-                SELECT 1 FROM sub_payments sp WHERE sp.epo_id = e.id
-            )
+            WHERE e.vendor_name = 'Unknown Builder'
+              AND e.community IS NULL
+              AND e.lot_number IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM sub_payments sp WHERE sp.epo_id = e.id
+              )
         );
         """,
     ]
