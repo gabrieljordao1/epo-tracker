@@ -420,7 +420,11 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
       2. Sum of per-segment '= $X' totals in multi-tier requests
       3. 'per lot' × lot_count from subject
       4. Single-amount fallback
+
+    All results are capped at $500K — amounts above this are almost certainly
+    mis-parsed phone numbers, PO numbers, or account numbers.
     """
+    MAX_EPO_AMOUNT = 500_000.0
     if not body:
         return None
     clean = re.sub(r"<[^>]+>", " ", body)
@@ -430,12 +434,22 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
 
     # 1. Explicit total — prefer "Grand total" over bare "total" (individual
     #    lot lines often have their own "total=" which is NOT the overall amount)
+    def _capped(val: float) -> Optional[float]:
+        """Return val if within sane range, else None."""
+        if val > MAX_EPO_AMOUNT:
+            logger.warning(
+                f"_extract_total_amount: ${val:,.2f} exceeds "
+                f"${MAX_EPO_AMOUNT:,.0f} cap — discarding"
+            )
+            return None
+        return val
+
     grand_m = re.search(r"grand\s+total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)", clean, re.IGNORECASE)
     if grand_m:
         try:
             total = float(grand_m.group(1).replace(",", ""))
             if total > 0:
-                return total
+                return _capped(total)
         except ValueError:
             pass
     # Fallback: bare "Total:" but only if there's just ONE such match
@@ -445,7 +459,7 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
         try:
             total = float(total_matches[0].replace(",", ""))
             if total > 0:
-                return total
+                return _capped(total)
         except ValueError:
             pass
 
@@ -456,7 +470,7 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
             vals = [float(x.replace(",", "")) for x in seg_totals]
             summed = sum(v for v in vals if v > 0)
             if summed > 0:
-                return summed
+                return _capped(summed)
         except ValueError:
             pass
 
@@ -473,7 +487,7 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
                 per_lot = float(per_m.group(1).replace(",", ""))
                 _first, count, _range = _extract_lots_from_subject(subject)
                 if per_lot > 0 and count > 1:
-                    return per_lot * count
+                    return _capped(per_lot * count)
             except ValueError:
                 pass
     return None

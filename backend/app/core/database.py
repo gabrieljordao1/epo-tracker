@@ -230,6 +230,13 @@ async def _run_safe_migrations():
         UPDATE epos SET status = 'pending'
         WHERE id = 51 AND status = 'denied';
         """,
+        # ── v33: Fix insane EPO amounts (mis-parsed phone/PO numbers) ──
+        # Any amount over $500K for a paint/drywall EPO is clearly wrong.
+        # Null them out so the backfill job can re-extract correctly.
+        """
+        UPDATE epos SET amount = NULL, needs_review = true
+        WHERE amount > 500000;
+        """,
     ]
 
     async with engine.begin() as conn:

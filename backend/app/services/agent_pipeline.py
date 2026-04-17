@@ -121,6 +121,23 @@ class AgentPipelineService:
             lot_number = parsed.get("lot_number")
             description = sanitize_description(parsed.get("description"))
             amount = parsed.get("amount")
+            # Sanity cap: no single paint/drywall EPO should exceed $500K.
+            # Numbers above this are almost certainly mis-parsed (phone numbers,
+            # PO numbers, account numbers, etc.)
+            MAX_EPO_AMOUNT = 500_000.0
+            if amount is not None:
+                try:
+                    amount = float(amount)
+                    if amount > MAX_EPO_AMOUNT:
+                        logger.warning(
+                            f"Amount ${amount:,.2f} exceeds ${MAX_EPO_AMOUNT:,.0f} cap — "
+                            f"likely mis-parsed, discarding"
+                        )
+                        amount = None
+                    elif amount < 0:
+                        amount = None
+                except (TypeError, ValueError):
+                    amount = None
             confirmation_number = parsed.get("confirmation_number")
             confidence_score = parsed.get("confidence_score", 0.0)
             parse_model = parsed.get("parse_model", "unknown")
