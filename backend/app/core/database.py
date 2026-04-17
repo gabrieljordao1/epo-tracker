@@ -237,28 +237,74 @@ async def _run_safe_migrations():
         UPDATE epos SET amount = NULL, needs_review = true
         WHERE amount > 500000;
         """,
-        # ── v36: Delete spam EPOs by exact ID ──
-        # Verified via live app: IDs 663-675 are all spam/marketing emails
-        # (newsletters, trading tips, Claude status, GitHub promo, clearance sales)
-        # that were ingested before the spam pre-filter was added.
-        # ID 664 also has the $639 quadrillion mis-parsed amount.
+        # ── v37: Delete spam EPOs by exact ID ──
+        # v35/v36 failed silently because FK constraints (no CASCADE) block
+        # deleting EPOs that have rows in epo_followups, vendor_actions, etc.
+        # Must delete dependent rows FIRST, then the EPOs.
+        #
+        # Spam IDs verified via live app: 663-675 are all marketing/spam.
+        # ID 664 has the $639 quadrillion mis-parsed amount.
+        """
+        DELETE FROM epo_followups
+        WHERE epo_id IN (663,664,665,666,667,668,669,670,671,672,673,674,675);
+        """,
+        """
+        DELETE FROM vendor_actions
+        WHERE epo_id IN (663,664,665,666,667,668,669,670,671,672,673,674,675);
+        """,
+        """
+        DELETE FROM epo_attachments
+        WHERE epo_id IN (663,664,665,666,667,668,669,670,671,672,673,674,675);
+        """,
+        """
+        DELETE FROM epo_approvals
+        WHERE epo_id IN (663,664,665,666,667,668,669,670,671,672,673,674,675);
+        """,
+        """
+        DELETE FROM sub_payments
+        WHERE epo_id IN (663,664,665,666,667,668,669,670,671,672,673,674,675);
+        """,
         """
         DELETE FROM epos
-        WHERE id IN (663, 664, 665, 666, 667, 668, 669, 670, 671, 672, 673, 674, 675);
+        WHERE id IN (663,664,665,666,667,668,669,670,671,672,673,674,675);
         """,
-        # ── v36b: Catch-all — delete any future "Unknown Builder" with no
-        # community AND no lot number (no real EPO would have both null).
-        # Guard: skip if it has sub_payments linked to it.
+        # ── v37b: Catch-all for any "Unknown Builder" with no community
+        # AND no lot (no real EPO would have both null). Same FK cleanup first.
         """
-        DELETE FROM epos WHERE id IN (
-            SELECT e.id FROM epos e
-            WHERE e.vendor_name = 'Unknown Builder'
-              AND e.community IS NULL
-              AND e.lot_number IS NULL
-              AND NOT EXISTS (
-                  SELECT 1 FROM sub_payments sp WHERE sp.epo_id = e.id
-              )
+        DELETE FROM epo_followups WHERE epo_id IN (
+            SELECT id FROM epos WHERE vendor_name = 'Unknown Builder'
+            AND community IS NULL AND lot_number IS NULL
         );
+        """,
+        """
+        DELETE FROM vendor_actions WHERE epo_id IN (
+            SELECT id FROM epos WHERE vendor_name = 'Unknown Builder'
+            AND community IS NULL AND lot_number IS NULL
+        );
+        """,
+        """
+        DELETE FROM epo_attachments WHERE epo_id IN (
+            SELECT id FROM epos WHERE vendor_name = 'Unknown Builder'
+            AND community IS NULL AND lot_number IS NULL
+        );
+        """,
+        """
+        DELETE FROM epo_approvals WHERE epo_id IN (
+            SELECT id FROM epos WHERE vendor_name = 'Unknown Builder'
+            AND community IS NULL AND lot_number IS NULL
+        );
+        """,
+        """
+        DELETE FROM sub_payments WHERE epo_id IN (
+            SELECT id FROM epos WHERE vendor_name = 'Unknown Builder'
+            AND community IS NULL AND lot_number IS NULL
+        );
+        """,
+        """
+        DELETE FROM epos
+        WHERE vendor_name = 'Unknown Builder'
+          AND community IS NULL
+          AND lot_number IS NULL;
         """,
     ]
 
