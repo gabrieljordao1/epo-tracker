@@ -392,12 +392,78 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v37-fk-cascade-delete-2026-04-17",
+            "build_marker": "v38-nuke-endpoint-2026-04-17",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
             },
         }
+
+    @app.get("/api/admin/nuke-spam")
+    async def nuke_spam():
+        """One-time endpoint to delete spam EPOs. Returns detailed errors."""
+        from sqlalchemy import text
+        from .core.database import engine
+
+        SPAM_IDS = [663, 664, 665, 666, 667, 668, 669, 670, 671, 672, 673, 674, 675]
+        results = []
+
+        async with engine.begin() as conn:
+            # First: find ALL tables that have an epo_id column
+            fk_query = await conn.execute(text("""
+                SELECT DISTINCT tc.table_name
+                FROM information_schema.columns c
+                WHERE c.column_name = 'epo_id'
+                  AND c.table_schema = 'public'
+                ORDER BY c.table_name
+            """))
+            fk_tables = [row[0] for row in fk_query.fetchall()]
+            results.append({"fk_tables_found": fk_tables})
+
+            # Delete from every table that references epo_id
+            for table in fk_tables:
+                try:
+                    r = await conn.execute(text(
+                        f"DELETE FROM {table} WHERE epo_id IN :ids"
+                    ), {"ids": tuple(SPAM_IDS)})
+                    results.append({"table": table, "deleted": r.rowcount})
+                except Exception as e:
+                    results.append({"table": table, "error": str(e)})
+
+            # Now delete the EPOs themselves
+            try:
+                r = await conn.execute(text(
+                    "DELETE FROM epos WHERE id IN :ids"
+                ), {"ids": tuple(SPAM_IDS)})
+                results.append({"epos_deleted": r.rowcount})
+            except Exception as e:
+                results.append({"epos_error": str(e)})
+
+            # Also nuke Unknown Builder with null community+lot
+            for table in fk_tables:
+                try:
+                    r = await conn.execute(text(f"""
+                        DELETE FROM {table} WHERE epo_id IN (
+                            SELECT id FROM epos
+                            WHERE vendor_name = 'Unknown Builder'
+                              AND community IS NULL AND lot_number IS NULL
+                        )
+                    """))
+                    results.append({"catchall_" + table: r.rowcount})
+                except Exception as e:
+                    results.append({"catchall_" + table + "_error": str(e)})
+
+            try:
+                r = await conn.execute(text("""
+                    DELETE FROM epos
+                    WHERE vendor_name = 'Unknown Builder'
+                      AND community IS NULL AND lot_number IS NULL
+                """))
+                results.append({"catchall_epos_deleted": r.rowcount})
+            except Exception as e:
+                results.append({"catchall_epos_error": str(e)})
+
+        return {"status": "done", "results": results}
 
     @app.get("/")
     async def root():
