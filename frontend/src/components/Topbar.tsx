@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { Search, Bell, ChevronDown, Users, Eye, AlertTriangle, CheckCircle2, Mail, Clock, Flame, X } from "lucide-react";
 import { useUser } from "@/lib/user-context";
-import { getEPOs } from "@/lib/api";
+import { getEPOs, getEmailStatus } from "@/lib/api";
 import type { EPO } from "@/lib/api";
 import { CommandPalette } from "@/components/CommandPalette";
 
@@ -28,6 +28,26 @@ export function Topbar() {
   const notifRef = useRef<HTMLDivElement>(null);
   const [alerts, setAlerts] = useState<{ id: string; type: string; title: string; description: string; icon: any; color: string; time: string }[]>([]);
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const [emailSyncStatus, setEmailSyncStatus] = useState<"active" | "expired" | "none" | "loading">("loading");
+
+  // Check actual email sync status
+  useEffect(() => {
+    const checkSync = async () => {
+      try {
+        const status = await getEmailStatus();
+        if (status.active_connections > 0) {
+          setEmailSyncStatus("active");
+        } else if (status.total_connections > 0) {
+          setEmailSyncStatus("expired");
+        } else {
+          setEmailSyncStatus("none");
+        }
+      } catch {
+        setEmailSyncStatus("none");
+      }
+    };
+    checkSync();
+  }, []);
 
   // Build alerts from live EPO data
   useEffect(() => {
@@ -209,11 +229,29 @@ export function Topbar() {
           )}
         </div>
 
-        {/* Email sync status */}
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green"></div>
-          <span className="text-sm text-text2">Email sync active</span>
-        </div>
+        {/* Email sync status — reflects actual connection state */}
+        {emailSyncStatus === "active" ? (
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green"></div>
+            <span className="text-sm text-text2">Email sync active</span>
+          </div>
+        ) : emailSyncStatus === "expired" ? (
+          <button
+            onClick={() => window.location.href = "/integrations"}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
+            <div className="w-2 h-2 rounded-full bg-amber animate-pulse"></div>
+            <span className="text-sm text-amber">Gmail disconnected</span>
+          </button>
+        ) : emailSyncStatus === "none" ? (
+          <button
+            onClick={() => window.location.href = "/integrations"}
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
+            <div className="w-2 h-2 rounded-full bg-text3"></div>
+            <span className="text-sm text-text3">No email connected</span>
+          </button>
+        ) : null}
 
         {/* Notifications */}
         <div className="relative" ref={notifRef}>

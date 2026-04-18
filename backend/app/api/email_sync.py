@@ -100,9 +100,14 @@ async def get_email_status(
         result = await session.execute(query)
         connections = result.scalars().all()
 
+        active_count = sum(1 for c in connections if c.is_active)
+        # If we have connections but none are active, tokens have expired
+        needs_reconnect = len(connections) > 0 and active_count == 0
+
         return {
             "total_connections": len(connections),
-            "active_connections": sum(1 for c in connections if c.is_active),
+            "active_connections": active_count,
+            "needs_reconnect": needs_reconnect,
             "connections": [
                 {
                     "id": c.id,

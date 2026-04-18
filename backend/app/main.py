@@ -392,74 +392,39 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v39-fix-nuke-sql-2026-04-17",
+            "build_marker": "v40-debug-epo-remove-nuke-2026-04-17",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
             },
         }
 
-    @app.get("/api/admin/nuke-spam")
-    async def nuke_spam():
-        """One-time endpoint to delete spam EPOs. Returns detailed errors."""
+    @app.get("/api/admin/debug-epo/{epo_id}")
+    async def debug_epo(epo_id: int):
+        """Temporary debug endpoint — returns gmail fields for an EPO."""
         from sqlalchemy import text
         from .core.database import engine
 
-        IDS = "663,664,665,666,667,668,669,670,671,672,673,674,675"
-        results = []
-
-        try:
-            async with engine.begin() as conn:
-                # Find ALL tables with epo_id column
-                fk_query = await conn.execute(text(
-                    "SELECT DISTINCT table_name FROM information_schema.columns "
-                    "WHERE column_name = 'epo_id' AND table_schema = 'public' "
-                    "ORDER BY table_name"
-                ))
-                fk_tables = [row[0] for row in fk_query.fetchall()]
-                results.append({"fk_tables": fk_tables})
-
-                # Delete from every FK table first
-                for table in fk_tables:
-                    try:
-                        sql = f"DELETE FROM {table} WHERE epo_id IN ({IDS})"
-                        r = await conn.execute(text(sql))
-                        results.append({f"del_{table}": r.rowcount})
-                    except Exception as e:
-                        results.append({f"err_{table}": str(e)})
-
-                # Now delete the EPOs
-                try:
-                    r = await conn.execute(text(f"DELETE FROM epos WHERE id IN ({IDS})"))
-                    results.append({"epos_deleted": r.rowcount})
-                except Exception as e:
-                    results.append({"epos_error": str(e)})
-
-                # Catch-all: Unknown Builder with null community + lot
-                ub_sql = ("SELECT id FROM epos WHERE vendor_name = 'Unknown Builder' "
-                          "AND community IS NULL AND lot_number IS NULL")
-                for table in fk_tables:
-                    try:
-                        r = await conn.execute(text(
-                            f"DELETE FROM {table} WHERE epo_id IN ({ub_sql})"
-                        ))
-                        results.append({f"ub_{table}": r.rowcount})
-                    except Exception as e:
-                        results.append({f"ub_err_{table}": str(e)})
-
-                try:
-                    r = await conn.execute(text(
-                        "DELETE FROM epos WHERE vendor_name = 'Unknown Builder' "
-                        "AND community IS NULL AND lot_number IS NULL"
-                    ))
-                    results.append({"ub_epos_deleted": r.rowcount})
-                except Exception as e:
-                    results.append({"ub_epos_error": str(e)})
-
-        except Exception as e:
-            return {"status": "error", "message": str(e), "partial_results": results}
-
-        return {"status": "done", "results": results}
+        async with engine.begin() as conn:
+            r = await conn.execute(text(
+                "SELECT id, vendor_name, vendor_email, community, lot_number, "
+                "status, confirmation_number, gmail_thread_id, gmail_message_id, "
+                "amount, description, created_at "
+                "FROM epos WHERE id = :eid"
+            ), {"eid": epo_id})
+            row = r.fetchone()
+            if not row:
+                return {"error": f"EPO {epo_id} not found"}
+            cols = r.keys()
+            data = dict(zip(cols, row))
+            # Also check for any emails in the same thread
+            if data.get("gmail_thread_id"):
+                t = await conn.execute(text(
+                    "SELECT id, vendor_name, status, gmail_message_id, created_at "
+                    "FROM epos WHERE gmail_thread_id = :tid ORDER BY id"
+                ), {"tid": data["gmail_thread_id"]})
+                data["same_thread_epos"] = [dict(zip(t.keys(), r2)) for r2 in t.fetchall()]
+            return data
 
     @app.get("/")
     async def root():

@@ -96,19 +96,25 @@ export default function IntegrationsPage() {
     }
   };
 
-  // Show ALL active Gmail connections for this company
-  const gmailConnections = emailStatus?.connections?.filter(
-    (c: any) => c.provider === "gmail" && c.is_active
+  // Show ALL Gmail connections for this company (active + inactive)
+  const allGmailConnections = emailStatus?.connections?.filter(
+    (c: any) => c.provider === "gmail"
   ) || [];
+  const gmailConnections = allGmailConnections.filter((c: any) => c.is_active);
+  const inactiveGmailConnections = allGmailConnections.filter((c: any) => !c.is_active);
   const gmailConnection = gmailConnections[0]; // primary for the card
   const hasGmail = gmailConnections.length > 0;
+  const needsReconnect = inactiveGmailConnections.length > 0 && !hasGmail;
 
   const integrations = [
     {
       name: "Gmail",
-      description: "Sync EPOs directly from Gmail",
+      description: needsReconnect
+        ? "Connection expired — reconnect to resume syncing"
+        : "Sync EPOs directly from Gmail",
       icon: Mail,
       active: hasGmail,
+      needsReconnect,
       connectionInfo: gmailConnection,
       comingSoon: false,
     },
@@ -175,8 +181,14 @@ export default function IntegrationsPage() {
           const Icon = integration.icon;
           const borderClass = integration.active
             ? "border-green-bdr"
+            : (integration as any).needsReconnect
+            ? "border-amber-bdr"
             : "border-card-border";
-          const bgClass = integration.active ? "bg-green-dim" : "";
+          const bgClass = integration.active
+            ? "bg-green-dim"
+            : (integration as any).needsReconnect
+            ? "bg-amber-dim"
+            : "";
 
           return (
             <div
@@ -202,9 +214,11 @@ export default function IntegrationsPage() {
                     </p>
                   </div>
                 </div>
-                {integration.active && (
+                {integration.active ? (
                   <div className="w-2 h-2 rounded-full bg-green flex-shrink-0 mt-2" />
-                )}
+                ) : (integration as any).needsReconnect ? (
+                  <AlertTriangle size={16} className="text-amber flex-shrink-0 mt-1" />
+                ) : null}
               </div>
 
               {/* Connection details for Gmail — show all team connections */}
@@ -224,6 +238,34 @@ export default function IntegrationsPage() {
                         onClick={() => handleDisconnect(conn.id)}
                         disabled={disconnecting === conn.id}
                         className="text-xs text-red hover:bg-red-dim px-2 py-1 rounded flex items-center gap-1"
+                      >
+                        {disconnecting === conn.id ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Unplug size={12} />
+                        )}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Expired/inactive connections that need reconnect */}
+              {integration.name === "Gmail" && inactiveGmailConnections.length > 0 && (
+                <div className="mb-4 space-y-2">
+                  {inactiveGmailConnections.map((conn: any) => (
+                    <div key={conn.id} className="p-3 bg-surface rounded-lg flex items-center justify-between border border-amber-bdr">
+                      <div>
+                        <p className="text-sm text-text1">{conn.email_address}</p>
+                        <p className="text-xs text-amber">
+                          Expired — click &quot;Reconnect Gmail&quot; below
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleDisconnect(conn.id)}
+                        disabled={disconnecting === conn.id}
+                        className="text-xs text-red hover:bg-red-dim px-2 py-1 rounded flex items-center gap-1"
+                        title="Remove this connection"
                       >
                         {disconnecting === conn.id ? (
                           <Loader2 size={12} className="animate-spin" />
@@ -270,7 +312,7 @@ export default function IntegrationsPage() {
                       ) : (
                         <ExternalLink size={14} />
                       )}
-                      {connectingGmail ? "Connecting..." : hasGmail ? "Add Another Gmail" : "Connect Gmail"}
+                      {connectingGmail ? "Connecting..." : hasGmail ? "Add Another Gmail" : needsReconnect ? "Reconnect Gmail" : "Connect Gmail"}
                     </button>
                   </div>
                 ) : (

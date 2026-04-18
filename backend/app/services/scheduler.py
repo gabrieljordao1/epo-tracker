@@ -334,20 +334,32 @@ async def check_gmail_connection_health():
         result = await session.execute(query)
         conns = result.scalars().all()
 
-        from ..core.security import decrypt_token
+        from ..core.security import decrypt_token, encrypt_token
         import httpx
         unhealthy = 0
         for conn in conns:
             try:
-                # Decrypt stored token
+                # Decrypt stored tokens
                 try:
                     access_token = decrypt_token(conn.access_token, settings.SECRET_KEY)
+                    refresh_token_val = decrypt_token(conn.refresh_token, settings.SECRET_KEY) if conn.refresh_token else ""
                 except Exception:
                     conn.is_active = False
                     unhealthy += 1
                     continue
 
-                # Probe Gmail profile endpoint
+                # Try to refresh the token FIRST — stored tokens expire every hour
+                refreshed_token, refreshed_expiry = gmail_api._ensure_valid_token(
+                    access_token, refresh_token_val, conn.token_expires_at
+                )
+                if refreshed_token != access_token:
+                    # Persist the refreshed token to DB
+                    conn.access_token = encrypt_token(refreshed_token, settings.SECRET_KEY)
+                    conn.token_expires_at = refreshed_expiry
+                    access_token = refreshed_token
+                    logger.info(f"Health check refreshed token for {conn.email_address}")
+
+                # Probe Gmail profile endpoint with the (possibly refreshed) token
                 url = "https://www.googleapis.com/gmail/v1/users/me/profile"
                 async with httpx.AsyncClient() as client:
                     r = await client.get(
@@ -356,11 +368,12 @@ async def check_gmail_connection_health():
                         timeout=8.0,
                     )
                 if r.status_code == 401:
+                    # Token refresh didn't help — refresh token itself is revoked
                     conn.is_active = False
                     unhealthy += 1
                     logger.warning(
                         f"Gmail connection {conn.email_address} marked inactive "
-                        f"(401 from Google — token revoked or expired)"
+                        f"(401 from Google — refresh token revoked, user must re-auth)"
                     )
             except Exception as e:
                 logger.error(f"Health check for {conn.email_address} errored: {e}")
@@ -525,10 +538,26 @@ async def run_periodic_email_sync():
                     # ★ USE GMAIL REST API instead of IMAP ★
                     # This gives us: thread_id, In-Reply-To, image_attachments
                     # Token refresh is handled inside GmailAPIService._ensure_valid_token()
+                    #
+                    # CRITICAL: Pre-refresh the token and persist it to DB.
+                    # _ensure_valid_token returns a fresh access token but
+                    # never saves it. Without this, the DB keeps the old
+                    # expired token and the health check will mark the
+                    # connection inactive on the next cycle.
+                    refreshed_token, refreshed_expiry = gmail_api._ensure_valid_token(
+                        access_token, refresh_token_val, conn.token_expires_at
+                    )
+                    if refreshed_token != access_token:
+                        # Token was refreshed — persist to DB
+                        conn.access_token = encrypt_token(refreshed_token, settings.SECRET_KEY)
+                        conn.token_expires_at = refreshed_expiry
+                        access_token = refreshed_token
+                        logger.info(f"[auto-sync] Persisted refreshed token for {conn.email_address}")
+
                     fetched_messages = await gmail_api.get_messages_since(
                         access_token=access_token,
                         refresh_token=refresh_token_val,
-                        token_expires_at=conn.token_expires_at,
+                        token_expires_at=refreshed_expiry or conn.token_expires_at,
                         since_date=since_date,
                         max_results=50,
                     )
