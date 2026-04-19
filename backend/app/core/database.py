@@ -350,6 +350,14 @@ async def _run_safe_migrations():
             updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
         );
         """,
+        # ── v43: Fix EPO 659 — Pulte replied with conf# 13445559 on Apr 17 ──
+        # The periodic sync missed the reply because the token persistence bug
+        # caused the sync to be down when the reply arrived, and by the time
+        # the fix deployed the reply was outside the 1-day fetch window.
+        """
+        UPDATE epos SET status = 'confirmed', confirmation_number = '13445559'
+        WHERE id = 659 AND status = 'pending' AND confirmation_number IS NULL;
+        """,
     ]
 
     async with engine.begin() as conn:

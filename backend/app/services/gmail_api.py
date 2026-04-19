@@ -386,7 +386,9 @@ class GmailAPIService:
             # Search ALL mail (no in:inbox filter) so we catch outbound EPO
             # requests the field manager sends to builders, same as the old
             # IMAP code that searched [Gmail]/All Mail.
-            days_delta = max(1, (datetime.utcnow() - since_date).days)
+            # Minimum 3 days to avoid missing replies when sync is temporarily
+            # down (e.g. token expiry, deploys). Dedup prevents double-processing.
+            days_delta = max(3, (datetime.utcnow() - since_date).days)
             params = {
                 "q": f"newer_than:{days_delta}d",
                 "maxResults": max_results,
