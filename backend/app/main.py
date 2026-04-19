@@ -392,7 +392,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v43-fix-epo659-sync-window-2026-04-19",
+            "build_marker": "v43b-fix-epo659-endpoint-2026-04-19",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
@@ -450,6 +450,22 @@ def create_app() -> FastAPI:
         except Exception as e:
             return {"status": "error", "message": str(e), "partial": results}
         return {"status": "done", "results": results}
+
+    @app.get("/api/admin/fix-epo-659")
+    async def fix_epo_659():
+        """One-time fix: set EPO 659 confirmation from Pulte reply."""
+        from sqlalchemy import text
+        from .core.database import engine
+
+        try:
+            async with engine.begin() as conn:
+                r = await conn.execute(text(
+                    "UPDATE epos SET status = 'confirmed', confirmation_number = '13445559' "
+                    "WHERE id = 659 AND confirmation_number IS NULL"
+                ))
+                return {"status": "done", "rows_updated": r.rowcount}
+        except Exception as e:
+            return {"status": "error", "message": str(e)}
 
     @app.get("/")
     async def root():
