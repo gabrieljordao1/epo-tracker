@@ -65,15 +65,15 @@ async def _check_punch_access(
     FIELD users see only items in their communities or assigned to them.
     ADMIN/MANAGER see all company items.
     """
-    result = await session.execute(select(PunchItem).where(PunchItem.id == item_id))
+    result = await session.execute(
+        select(PunchItem).where(
+            and_(PunchItem.id == item_id, PunchItem.company_id == current_user.company_id)
+        )
+    )
     item = result.scalars().first()
 
     if not item:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Punch item not found")
-
-    # Company check
-    if item.company_id != current_user.company_id:
-        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Unauthorized")
 
     # Admin/Manager can access anything in their company
     if current_user.role in (UserRole.ADMIN, UserRole.MANAGER):

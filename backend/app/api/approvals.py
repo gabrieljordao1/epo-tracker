@@ -128,11 +128,21 @@ async def approve_epo(
         approval.note = decision.note or approval.note
         approval.decided_at = datetime.utcnow()
 
-        # Update EPO
-        epo_result = await session.execute(select(EPO).where(EPO.id == approval.epo_id))
+        # Update EPO — always scope by company_id for tenant isolation
+        epo_result = await session.execute(
+            select(EPO).where(
+                EPO.id == approval.epo_id,
+                EPO.company_id == current_user.company_id,
+            )
+        )
         epo = epo_result.scalars().first()
-        if epo:
-            epo.approval_status = ApprovalStatus.APPROVED
+        if not epo:
+            logger.error(
+                f"Data integrity: approval {approval.id} references EPO {approval.epo_id} "
+                f"but it was not found in company {current_user.company_id}"
+            )
+            raise HTTPException(500, "Data integrity error — contact support")
+        epo.approval_status = ApprovalStatus.APPROVED
 
         await session.commit()
 
@@ -193,11 +203,21 @@ async def reject_epo(
         approval.note = decision.note or approval.note
         approval.decided_at = datetime.utcnow()
 
-        # Update EPO
-        epo_result = await session.execute(select(EPO).where(EPO.id == approval.epo_id))
+        # Update EPO — always scope by company_id for tenant isolation
+        epo_result = await session.execute(
+            select(EPO).where(
+                EPO.id == approval.epo_id,
+                EPO.company_id == current_user.company_id,
+            )
+        )
         epo = epo_result.scalars().first()
-        if epo:
-            epo.approval_status = ApprovalStatus.REJECTED
+        if not epo:
+            logger.error(
+                f"Data integrity: approval {approval.id} references EPO {approval.epo_id} "
+                f"but it was not found in company {current_user.company_id}"
+            )
+            raise HTTPException(500, "Data integrity error — contact support")
+        epo.approval_status = ApprovalStatus.REJECTED
 
         await session.commit()
 

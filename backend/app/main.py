@@ -5,13 +5,10 @@ import re
 from contextlib import asynccontextmanager
 from collections import defaultdict
 
-from fastapi import FastAPI, Depends, Request, Response, HTTPException, status as http_status
+from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials
 from starlette.middleware.base import BaseHTTPMiddleware
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
 
 from .core.config import get_settings
 
@@ -69,10 +66,9 @@ if _settings.SENTRY_DSN:
         release=getattr(_settings, "APP_VERSION", "unknown"),
     )
 
-from .core.database import init_db, close_db, get_db  # noqa: E402
-from .core.auth import get_current_user, decode_token, security  # noqa: E402
+from .core.database import init_db, close_db  # noqa: E402
+from .core.auth import decode_token  # noqa: E402
 from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook, attachments, approvals, notifications, portal, billing, builder_analytics, daily_reports, punch_list, budgets, work_orders, sub_payments  # noqa: E402
-from .models.models import User  # noqa: E402
 
 settings = get_settings()
 
@@ -334,29 +330,6 @@ def create_app() -> FastAPI:
                 "request_id": request_id,
             },
         )
-
-    # ─── Auth dependency override ───
-    async def get_current_user_with_session(
-        credentials: HTTPAuthorizationCredentials = Depends(security),
-        session: AsyncSession = Depends(get_db),
-    ) -> User:
-        payload = decode_token(credentials.credentials)
-        if payload is None:
-            raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-        user_id = payload.get("sub")
-        if user_id is None:
-            raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-        result = await session.execute(select(User).where(User.id == int(user_id)))
-        user = result.scalars().first()
-        if user is None:
-            raise HTTPException(status_code=http_status.HTTP_401_UNAUTHORIZED, detail="User not found")
-        if not user.is_active:
-            raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Account disabled")
-        return user
-
-    app.dependency_overrides[get_current_user] = get_current_user_with_session
 
     # ─── Routers ───
     app.include_router(auth.router)

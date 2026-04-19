@@ -232,7 +232,16 @@ async def stripe_webhook(
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
-    if settings.STRIPE_WEBHOOK_SECRET:
+    # ── Webhook signature verification ──
+    if not settings.STRIPE_WEBHOOK_SECRET:
+        if settings.ENVIRONMENT == "production":
+            logger.critical("STRIPE_WEBHOOK_SECRET is not set in production — refusing webhook")
+            raise HTTPException(500, "Webhook not configured")
+        # Local dev only — allow unsigned payload for testing
+        logger.warning("Processing unsigned Stripe webhook — DEV MODE ONLY")
+        import json
+        event = stripe.Event.construct_from(json.loads(payload), stripe.api_key)
+    else:
         try:
             event = stripe.Webhook.construct_event(
                 payload, sig_header, settings.STRIPE_WEBHOOK_SECRET
@@ -240,12 +249,6 @@ async def stripe_webhook(
         except stripe.error.SignatureVerificationError:
             logger.warning("Stripe webhook signature verification failed")
             raise HTTPException(400, "Invalid signature")
-    else:
-        # Dev mode — no signature verification
-        import json
-        event = stripe.Event.construct_from(
-            json.loads(payload), stripe.api_key
-        )
 
     event_type = event["type"]
     data = event["data"]["object"]
@@ -260,6 +263,8 @@ async def stripe_webhook(
         await _handle_subscription_change(data, session)
     elif event_type == "invoice.payment_failed":
         await _handle_payment_failed(data, session)
+    elif event_type == "invoice.paid":
+        await _handle_invoice_paid(data, session)
 
     return JSONResponse({"status": "ok"})
 
@@ -370,6 +375,23 @@ async def _handle_payment_failed(data: dict, session: AsyncSession):
         session.add(company)
         await session.commit()
         logger.warning(f"Payment failed for company {company.id}")
+
+
+async def _handle_invoice_paid(data: dict, session: AsyncSession):
+    """When an invoice is paid, reactivate the subscription if it was past_due."""
+    subscription_id = data.get("subscription")
+    if not subscription_id:
+        return
+
+    result = await session.execute(
+        select(Company).where(Company.stripe_subscription_id == subscription_id)
+    )
+    company = result.scalars().first()
+    if company and company.stripe_subscription_status == "past_due":
+        company.stripe_subscription_status = "active"
+        session.add(company)
+        await session.commit()
+        logger.info(f"Company {company.id} reactivated after invoice paid")
 
 
 # ─── GET /api/billing/plans ──────────────────────

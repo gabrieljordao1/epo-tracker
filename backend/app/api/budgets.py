@@ -47,16 +47,14 @@ async def _check_budget_access(
 ) -> CommunityBudget:
     """Check if user has access to a budget"""
     result = await session.execute(
-        select(CommunityBudget).where(CommunityBudget.id == budget_id)
+        select(CommunityBudget).where(
+            and_(CommunityBudget.id == budget_id, CommunityBudget.company_id == current_user.company_id)
+        )
     )
     budget = result.scalars().first()
 
     if not budget:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Budget not found")
-
-    # Check company access
-    if budget.company_id != current_user.company_id:
-        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Unauthorized")
 
     return budget
 

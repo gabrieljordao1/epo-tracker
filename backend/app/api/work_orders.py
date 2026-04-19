@@ -68,15 +68,15 @@ async def _check_work_order_access(
     FIELD users see only orders assigned to them or in their communities.
     ADMIN/MANAGER see all company orders.
     """
-    result = await session.execute(select(WorkOrder).where(WorkOrder.id == order_id))
+    result = await session.execute(
+        select(WorkOrder).where(
+            and_(WorkOrder.id == order_id, WorkOrder.company_id == current_user.company_id)
+        )
+    )
     order = result.scalars().first()
 
     if not order:
         raise HTTPException(status_code=http_status.HTTP_404_NOT_FOUND, detail="Work order not found")
-
-    # Company check
-    if order.company_id != current_user.company_id:
-        raise HTTPException(status_code=http_status.HTTP_403_FORBIDDEN, detail="Unauthorized")
 
     # Admin/Manager can access anything in their company
     if current_user.role in (UserRole.ADMIN, UserRole.MANAGER):
