@@ -29,6 +29,11 @@ import {
   getMe,
   changePassword,
   logout,
+  updateProfile,
+  updateNotifications,
+  getNotificationPrefs,
+  exportData,
+  deleteAccount,
 } from "@/lib/api";
 
 export default function SettingsPage() {
@@ -221,13 +226,50 @@ function SettingsContent() {
     }
   };
 
+  // Load notification prefs on mount
+  useEffect(() => {
+    const loadNotifPrefs = async () => {
+      try {
+        const prefs = await getNotificationPrefs();
+        setNotificationSettings({
+          emailNotifications: prefs.email_enabled,
+          smsNotifications: prefs.sms_enabled,
+          newEpoAlerts: prefs.notify_new_epo,
+          statusChangeAlerts: prefs.notify_status_change,
+          approvalNeededAlerts: prefs.notify_approval_needed,
+          overdueAlerts: prefs.notify_overdue,
+        });
+        if (prefs.phone_number) setPhoneNumber(prefs.phone_number);
+      } catch {
+        // Use defaults
+      }
+    };
+    loadNotifPrefs();
+  }, []);
+
   // Notification handlers
-  const handleNotificationToggle = (key: keyof typeof notificationSettings) => {
-    setNotificationSettings((prev) => ({
-      ...prev,
-      [key]: !prev[key],
-    }));
-    toast.success("Notification preference updated");
+  const handleNotificationToggle = async (key: keyof typeof notificationSettings) => {
+    const newVal = !notificationSettings[key];
+    setNotificationSettings((prev) => ({ ...prev, [key]: newVal }));
+
+    // Map frontend keys to backend keys
+    const keyMap: Record<string, string> = {
+      emailNotifications: "email_enabled",
+      smsNotifications: "sms_enabled",
+      newEpoAlerts: "notify_new_epo",
+      statusChangeAlerts: "notify_status_change",
+      approvalNeededAlerts: "notify_approval_needed",
+      overdueAlerts: "notify_overdue",
+    };
+
+    try {
+      await updateNotifications({ [keyMap[key]]: newVal });
+      toast.success("Notification preference updated");
+    } catch (err: any) {
+      // Revert on failure
+      setNotificationSettings((prev) => ({ ...prev, [key]: !newVal }));
+      toast.error("Failed to update preference");
+    }
   };
 
   const handleSavePhone = async () => {
@@ -237,7 +279,7 @@ function SettingsContent() {
     }
     setSavingPhone(true);
     try {
-      // API call would go here
+      await updateNotifications({ phone_number: phoneNumber });
       toast.success("Phone number saved");
     } catch (err: any) {
       toast.error("Failed to save phone number");
@@ -255,8 +297,17 @@ function SettingsContent() {
   const handleExportData = async () => {
     try {
       toast.info("Preparing your data export...");
-      // API call would go here
-      toast.success("Data export started. Check your email for download link.");
+      const blob = await exportData();
+      // Trigger browser download
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `epo-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Data exported successfully");
     } catch (err: any) {
       toast.error("Failed to export data");
     }
@@ -265,14 +316,14 @@ function SettingsContent() {
   const handleDeleteAccount = async () => {
     setDeleting(true);
     try {
-      // API call would go here
-      toast.success("Account deleted. Redirecting...");
+      await deleteAccount();
+      toast.success("Account deactivated. Redirecting...");
       setTimeout(() => {
         logout();
         window.location.href = "/";
       }, 2000);
     } catch (err: any) {
-      toast.error("Failed to delete account");
+      toast.error(err.message || "Failed to delete account");
     } finally {
       setDeleting(false);
     }
@@ -375,11 +426,19 @@ function SettingsContent() {
                       placeholder="Your full name"
                     />
                     <button
-                      onClick={() => {
-                        setEditingFullName(false);
-                        setFullNameValue(user.full_name || "");
-                        // API call would go here
-                        toast.success("Full name updated");
+                      onClick={async () => {
+                        if (!fullNameValue.trim()) {
+                          toast.error("Name cannot be empty");
+                          return;
+                        }
+                        try {
+                          const result = await updateProfile(fullNameValue.trim());
+                          setUser({ ...user, full_name: result.full_name });
+                          setEditingFullName(false);
+                          toast.success("Full name updated");
+                        } catch (err: any) {
+                          toast.error(err.message || "Failed to update name");
+                        }
                       }}
                       className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
                     >

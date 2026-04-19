@@ -303,6 +303,71 @@ export async function changePassword(
   return res.json();
 }
 
+export async function updateProfile(fullName: string): Promise<{ success: boolean; full_name: string }> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/auth/profile`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify({ full_name: fullName }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Update failed" }));
+    throw new Error(err.detail || "Failed to update profile");
+  }
+  return res.json();
+}
+
+export async function updateNotifications(prefs: Record<string, any>): Promise<any> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/auth/notifications`, {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify(prefs),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Update failed" }));
+    throw new Error(err.detail || "Failed to update notifications");
+  }
+  return res.json();
+}
+
+export async function getNotificationPrefs(): Promise<any> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/auth/notifications`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Fetch failed" }));
+    throw new Error(err.detail || "Failed to get notification preferences");
+  }
+  return res.json();
+}
+
+export async function exportData(): Promise<Blob> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/auth/export-data`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    throw new Error("Failed to export data");
+  }
+  return res.blob();
+}
+
+export async function deleteAccount(): Promise<{ success: boolean }> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/auth/account`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Delete failed" }));
+    throw new Error(err.detail || "Failed to delete account");
+  }
+  return res.json();
+}
+
 export async function refreshToken(): Promise<AuthResponse> {
   const refresh = getRefreshToken();
   if (!refresh) {

@@ -306,6 +306,50 @@ async def _run_safe_migrations():
           AND community IS NULL
           AND lot_number IS NULL;
         """,
+        # ── v40: Normalize builder names ──
+        # Fix inconsistent casing and naming for the same builders
+        """
+        UPDATE epos SET vendor_name = 'TriPointe Homes'
+        WHERE LOWER(TRIM(vendor_name)) IN ('tripointe', 'tri pointe', 'tripointe homes', 'tri pointe homes');
+        """,
+        """
+        UPDATE epos SET vendor_name = 'DRB Group'
+        WHERE LOWER(TRIM(vendor_name)) IN ('drbgroup', 'drb group', 'drb', 'drbhomes');
+        """,
+        """
+        UPDATE epos SET vendor_name = 'DR Horton'
+        WHERE LOWER(TRIM(vendor_name)) IN ('dr horton', 'drhorton', 'd.r. horton', 'dr. horton');
+        """,
+        """
+        UPDATE epos SET vendor_name = 'Pulte'
+        WHERE LOWER(TRIM(vendor_name)) IN ('pulte homes', 'pultehomes', 'pultegroup');
+        """,
+        """
+        UPDATE epos SET vendor_name = 'Madison Simmons Homes'
+        WHERE LOWER(TRIM(vendor_name)) IN ('madison simmons', 'madisonsimmons', 'madison simmons homes');
+        """,
+        """
+        UPDATE epos SET vendor_name = 'Red Cedar'
+        WHERE LOWER(TRIM(vendor_name)) IN ('red cedar', 'redcedar', 'red cedar homes');
+        """,
+        # ── v40: Create notification_preferences table ──
+        """
+        CREATE TABLE IF NOT EXISTS notification_preferences (
+            id SERIAL PRIMARY KEY,
+            user_id INTEGER NOT NULL UNIQUE REFERENCES users(id),
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            email_enabled BOOLEAN NOT NULL DEFAULT true,
+            sms_enabled BOOLEAN NOT NULL DEFAULT false,
+            push_enabled BOOLEAN NOT NULL DEFAULT false,
+            phone_number VARCHAR(20),
+            notify_new_epo BOOLEAN NOT NULL DEFAULT true,
+            notify_status_change BOOLEAN NOT NULL DEFAULT true,
+            notify_approval_needed BOOLEAN NOT NULL DEFAULT true,
+            notify_overdue BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+        );
+        """,
     ]
 
     async with engine.begin() as conn:

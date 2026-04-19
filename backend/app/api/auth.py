@@ -18,7 +18,7 @@ from ..core.auth import (
     decode_token,
     get_current_user,
 )
-from ..models.models import User, Company, UserRole, PasswordResetToken
+from ..models.models import User, Company, UserRole, PasswordResetToken, NotificationPreference, EPO
 from ..core.circuit_breaker import resend_breaker
 from ..models.schemas import (
     LoginRequest,
@@ -249,6 +249,168 @@ async def get_current_user_info(
 ) -> UserResponse:
     """Get current authenticated user"""
     return UserResponse.model_validate(current_user)
+
+
+@router.put("/profile")
+async def update_profile(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Update user profile (full name)."""
+    full_name = request.get("full_name", "").strip()
+    if not full_name:
+        raise HTTPException(status_code=400, detail="Full name is required")
+    if len(full_name) > 255:
+        raise HTTPException(status_code=400, detail="Name too long")
+
+    current_user.full_name = full_name
+    await session.commit()
+    await session.refresh(current_user)
+    logger.info(f"User {current_user.id} updated full_name to '{full_name}'")
+    return {"success": True, "full_name": current_user.full_name}
+
+
+@router.put("/notifications")
+async def update_notifications(
+    request: dict,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Update notification preferences and phone number."""
+    # Get or create notification preferences
+    query = select(NotificationPreference).where(
+        NotificationPreference.user_id == current_user.id
+    )
+    result = await session.execute(query)
+    prefs = result.scalars().first()
+
+    if not prefs:
+        prefs = NotificationPreference(
+            user_id=current_user.id,
+            company_id=current_user.company_id,
+        )
+        session.add(prefs)
+
+    # Update fields if provided
+    if "email_enabled" in request:
+        prefs.email_enabled = bool(request["email_enabled"])
+    if "sms_enabled" in request:
+        prefs.sms_enabled = bool(request["sms_enabled"])
+    if "push_enabled" in request:
+        prefs.push_enabled = bool(request["push_enabled"])
+    if "phone_number" in request:
+        prefs.phone_number = request["phone_number"]
+    if "notify_new_epo" in request:
+        prefs.notify_new_epo = bool(request["notify_new_epo"])
+    if "notify_status_change" in request:
+        prefs.notify_status_change = bool(request["notify_status_change"])
+    if "notify_approval_needed" in request:
+        prefs.notify_approval_needed = bool(request["notify_approval_needed"])
+    if "notify_overdue" in request:
+        prefs.notify_overdue = bool(request["notify_overdue"])
+
+    await session.commit()
+    logger.info(f"User {current_user.id} updated notification preferences")
+    return {
+        "success": True,
+        "email_enabled": prefs.email_enabled,
+        "sms_enabled": prefs.sms_enabled,
+        "push_enabled": prefs.push_enabled,
+        "phone_number": prefs.phone_number,
+        "notify_new_epo": prefs.notify_new_epo,
+        "notify_status_change": prefs.notify_status_change,
+        "notify_approval_needed": prefs.notify_approval_needed,
+        "notify_overdue": prefs.notify_overdue,
+    }
+
+
+@router.get("/notifications")
+async def get_notifications(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Get current notification preferences."""
+    query = select(NotificationPreference).where(
+        NotificationPreference.user_id == current_user.id
+    )
+    result = await session.execute(query)
+    prefs = result.scalars().first()
+
+    if not prefs:
+        return {
+            "email_enabled": True,
+            "sms_enabled": False,
+            "push_enabled": False,
+            "phone_number": None,
+            "notify_new_epo": True,
+            "notify_status_change": True,
+            "notify_approval_needed": True,
+            "notify_overdue": True,
+        }
+
+    return {
+        "email_enabled": prefs.email_enabled,
+        "sms_enabled": prefs.sms_enabled,
+        "push_enabled": prefs.push_enabled,
+        "phone_number": prefs.phone_number,
+        "notify_new_epo": prefs.notify_new_epo,
+        "notify_status_change": prefs.notify_status_change,
+        "notify_approval_needed": prefs.notify_approval_needed,
+        "notify_overdue": prefs.notify_overdue,
+    }
+
+
+@router.post("/export-data")
+async def export_data(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Export user's company EPO data as CSV."""
+    import csv
+    import io
+    from fastapi.responses import StreamingResponse
+
+    query = select(EPO).where(
+        EPO.company_id == current_user.company_id
+    ).order_by(EPO.created_at.desc())
+    result = await session.execute(query)
+    epos = result.scalars().all()
+
+    # Build CSV in memory
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "ID", "Builder", "Community", "Lot", "Description",
+        "Amount", "Status", "Confirmation #", "Created",
+    ])
+    for e in epos:
+        writer.writerow([
+            e.id, e.vendor_name, e.community, e.lot_number,
+            e.description, e.amount, e.status.value if e.status else "",
+            e.confirmation_number,
+            e.created_at.strftime("%Y-%m-%d") if e.created_at else "",
+        ])
+
+    output.seek(0)
+    logger.info(f"User {current_user.id} exported {len(epos)} EPOs")
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=epo-export.csv"},
+    )
+
+
+@router.delete("/account")
+async def delete_account(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Deactivate user account (soft delete)."""
+    current_user.is_active = False
+    await session.commit()
+    logger.info(f"User {current_user.id} ({current_user.email}) deactivated their account")
+    return {"success": True, "message": "Account deactivated"}
 
 
 @router.get("/invite-code")
