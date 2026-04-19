@@ -392,7 +392,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v41-settings-builders-notifs-2026-04-18",
+            "build_marker": "v42-fix-builder-names-endpoint-2026-04-18",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
@@ -425,6 +425,31 @@ def create_app() -> FastAPI:
                 ), {"tid": data["gmail_thread_id"]})
                 data["same_thread_epos"] = [dict(zip(t.keys(), r2)) for r2 in t.fetchall()]
             return data
+
+    @app.get("/api/admin/fix-builder-names")
+    async def fix_builder_names():
+        """One-time fix for builder names that migrations keep failing on."""
+        from sqlalchemy import text
+        from .core.database import engine
+
+        fixes = [
+            ("UPDATE epos SET vendor_name = 'TriPointe Homes' WHERE LOWER(TRIM(vendor_name)) IN ('tripointe', 'tri pointe', 'tripointe homes')", "tripointe→TriPointe Homes"),
+            ("UPDATE epos SET vendor_name = 'DRB Group' WHERE LOWER(TRIM(vendor_name)) IN ('drbgroup', 'drb group', 'drb homes', 'drb')", "drbgroup→DRB Group"),
+            ("UPDATE epos SET vendor_name = 'DR Horton' WHERE LOWER(TRIM(vendor_name)) IN ('dr horton', 'drhorton', 'd.r. horton')", "drhorton→DR Horton"),
+            ("UPDATE epos SET community = 'Context' WHERE LOWER(TRIM(community)) = 'context' AND community != 'Context'", "context→Context"),
+        ]
+        results = []
+        try:
+            async with engine.begin() as conn:
+                for sql, label in fixes:
+                    try:
+                        r = await conn.execute(text(sql))
+                        results.append({"fix": label, "rows": r.rowcount})
+                    except Exception as e:
+                        results.append({"fix": label, "error": str(e)})
+        except Exception as e:
+            return {"status": "error", "message": str(e), "partial": results}
+        return {"status": "done", "results": results}
 
     @app.get("/")
     async def root():
