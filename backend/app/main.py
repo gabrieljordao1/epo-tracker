@@ -392,7 +392,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v43b-fix-epo659-endpoint-2026-04-19",
+            "build_marker": "v43c-fix-enum-case-2026-04-19",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
@@ -460,7 +460,7 @@ def create_app() -> FastAPI:
         try:
             async with engine.begin() as conn:
                 r = await conn.execute(text(
-                    "UPDATE epos SET status = 'confirmed', confirmation_number = '13445559' "
+                    "UPDATE epos SET status = 'CONFIRMED', confirmation_number = '13445559' "
                     "WHERE id = 659 AND confirmation_number IS NULL"
                 ))
                 return {"status": "done", "rows_updated": r.rowcount}

@@ -355,8 +355,8 @@ async def _run_safe_migrations():
         # caused the sync to be down when the reply arrived, and by the time
         # the fix deployed the reply was outside the 1-day fetch window.
         """
-        UPDATE epos SET status = 'confirmed', confirmation_number = '13445559'
-        WHERE id = 659 AND status = 'pending' AND confirmation_number IS NULL;
+        UPDATE epos SET status = 'CONFIRMED', confirmation_number = '13445559'
+        WHERE id = 659 AND status = 'PENDING' AND confirmation_number IS NULL;
         """,
     ]
 
