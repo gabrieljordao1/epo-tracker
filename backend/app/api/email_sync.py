@@ -448,6 +448,16 @@ async def trigger_email_sync(
                         logger.debug(f"Skipping already-processed email: {msg_id}")
                         continue
 
+                    # Parse original email date
+                    imap_email_date = None
+                    imap_raw_date = email_data.get("date", "")
+                    if imap_raw_date:
+                        try:
+                            from email.utils import parsedate_to_datetime
+                            imap_email_date = parsedate_to_datetime(imap_raw_date)
+                        except Exception:
+                            pass
+
                     # Process through the agent pipeline
                     try:
                         pipeline_result = await pipeline.process_new_email(
@@ -459,6 +469,7 @@ async def trigger_email_sync(
                             email_connection_id=conn.id,
                             submitted_by_id=current_user.id,
                             gmail_message_id=msg_id,
+                            email_date=imap_email_date,
                         )
                         if pipeline_result.get("created"):
                             total_created += 1

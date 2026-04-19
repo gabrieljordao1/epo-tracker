@@ -142,6 +142,7 @@ export interface EPO {
   confidence_score: number;
   parse_model: string;
   synced_from_email: boolean;
+  email_date: string | null;
   created_at: string;
 }
 

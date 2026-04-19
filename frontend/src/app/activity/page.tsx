@@ -290,7 +290,7 @@ export default function ActivityPage() {
   });
 
   return (
-    <div className="min-h-screen bg-[#0a1929] text-white">
+    <div className="min-h-screen bg-bg text-white">
       {/* Header */}
       <div className="border-b border-white/10 bg-white/[0.02] backdrop-blur-sm">
         <div className="max-w-6xl mx-auto px-6 py-8">
@@ -383,7 +383,7 @@ export default function ActivityPage() {
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: -10 }}
-                    className="absolute top-full left-0 mt-2 w-48 bg-[#0a1929] border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden"
+                    className="absolute top-full left-0 mt-2 w-48 bg-bg border border-white/10 rounded-xl shadow-2xl z-50 overflow-hidden"
                   >
                     {[
                       { label: "All Types", value: "all" },
@@ -462,7 +462,7 @@ export default function ActivityPage() {
                 transition={{ delay: dateIndex * 0.05 }}
               >
                 {/* Date Group Header */}
-                <div className="sticky top-0 z-40 bg-[#0a1929]/80 backdrop-blur-sm py-3 px-4 mb-4 -mx-4">
+                <div className="sticky top-0 z-40 bg-bg/80 backdrop-blur-sm py-3 px-4 mb-4 -mx-4">
                   <h3 className="text-xs font-semibold text-white/40 uppercase tracking-wider">
                     {dateKey}
                   </h3>

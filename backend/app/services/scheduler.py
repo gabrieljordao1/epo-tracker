@@ -586,6 +586,16 @@ async def run_periodic_email_sync():
                         in_reply_to = msg.get("in_reply_to", "")
                         image_attachments = msg.get("image_attachments", [])
 
+                        # Parse original email date from Gmail Date header
+                        email_date_parsed = None
+                        raw_date = msg.get("date", "")
+                        if raw_date:
+                            try:
+                                from email.utils import parsedate_to_datetime
+                                email_date_parsed = parsedate_to_datetime(raw_date)
+                            except Exception:
+                                pass
+
                         if not msg_id:
                             continue
 
@@ -740,6 +750,7 @@ async def run_periodic_email_sync():
                                 submitted_by_id=submitted_by_id,
                                 gmail_thread_id=thread_id,
                                 gmail_message_id=msg_id,
+                                email_date=email_date_parsed,
                             )
                             if pipeline_result.get("created"):
                                 created_this_conn += 1

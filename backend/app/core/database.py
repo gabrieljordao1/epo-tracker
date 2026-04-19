@@ -365,6 +365,26 @@ async def _run_safe_migrations():
           AND confirmation_number != ''
           AND status = 'PENDING';
         """,
+        # ── v45: Add email_date column for accurate Revenue Trend charts ──
+        # Stores the original Gmail Date header instead of relying on created_at
+        # (which is when the EPO was synced, not when the email was sent).
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'epos' AND column_name = 'email_date'
+            ) THEN
+                ALTER TABLE epos ADD COLUMN email_date TIMESTAMP WITH TIME ZONE;
+                CREATE INDEX IF NOT EXISTS ix_epos_email_date ON epos (email_date);
+            END IF;
+        END $$;
+        """,
+        # Backfill: set email_date = created_at for existing EPOs that don't have it
+        """
+        UPDATE epos SET email_date = created_at
+        WHERE email_date IS NULL;
+        """,
     ]
 
     async with engine.begin() as conn:

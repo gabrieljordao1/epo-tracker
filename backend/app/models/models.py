@@ -195,6 +195,10 @@ class EPO(Base):
     # Optimistic locking: version increments on each update to prevent lost writes
     version = Column(Integer, default=1, nullable=False, server_default="1")
 
+    # Original email date (from Gmail Date header) — used for revenue trend charts.
+    # Falls back to created_at if not set (e.g. manually-created EPOs).
+    email_date = Column(DateTime(timezone=True), nullable=True, index=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

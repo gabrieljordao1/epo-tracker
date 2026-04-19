@@ -392,7 +392,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v44-production-hardening-2026-04-19",
+            "build_marker": "v45-email-date-revenue-trend-2026-04-19",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),

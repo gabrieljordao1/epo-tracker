@@ -157,6 +157,7 @@ class EPOResponse(BaseModel):
     confidence_score: Optional[float] = None
     parse_model: Optional[str] = None
     synced_from_email: bool = False
+    email_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

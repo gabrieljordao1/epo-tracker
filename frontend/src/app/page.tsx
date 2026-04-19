@@ -115,15 +115,33 @@ export default function Dashboard() {
     }
   };
 
-  // Revenue chart uses real EPO data grouped by month
+  // Revenue chart — cumulative revenue over time using email_date
+  // Shows how total EPO value has grown, which always looks like a meaningful trend
   const chartData = epos.length > 0
-    ? Object.entries(
-        epos.reduce((acc: Record<string, number>, epo) => {
-          const month = new Date(epo.created_at).toLocaleString("default", { month: "short" });
-          acc[month] = (acc[month] || 0) + (epo.amount || 0);
-          return acc;
-        }, {})
-      ).map(([month, value]) => ({ month, value }))
+    ? (() => {
+        // Sort EPOs by date (oldest first)
+        const sorted = [...epos]
+          .map((epo) => ({
+            date: new Date(epo.email_date || epo.created_at),
+            amount: epo.amount || 0,
+          }))
+          .sort((a, b) => a.date.getTime() - b.date.getTime());
+
+        // Build cumulative data points
+        let cumulative = 0;
+        const points: { month: string; value: number }[] = [];
+        sorted.forEach((item) => {
+          cumulative += item.amount;
+          const label = `${item.date.toLocaleString("default", { month: "short" })} ${item.date.getDate()}`;
+          // Merge same-day entries (update the last point if same label)
+          if (points.length > 0 && points[points.length - 1].month === label) {
+            points[points.length - 1].value = cumulative;
+          } else {
+            points.push({ month: label, value: cumulative });
+          }
+        });
+        return points;
+      })()
     : [];
 
   const statusData = [
@@ -133,7 +151,7 @@ export default function Dashboard() {
     { status: "Discount", count: stats.discount || 0, color: "#c0a0ff" },
   ];
 
-  // Weekly volume from real EPO data
+  // Weekly volume from real EPO data (using email_date for accuracy)
   const monthlyData = epos.length > 0
     ? (() => {
         const now = new Date();
@@ -142,8 +160,8 @@ export default function Dashboard() {
           weeks[`Week ${4 - i}`] = 0;
         }
         epos.forEach((epo) => {
-          const created = new Date(epo.created_at);
-          const weeksAgo = Math.floor((now.getTime() - created.getTime()) / (7 * 86400000));
+          const epoDate = new Date(epo.email_date || epo.created_at);
+          const weeksAgo = Math.floor((now.getTime() - epoDate.getTime()) / (7 * 86400000));
           if (weeksAgo < 4) {
             const key = `Week ${4 - weeksAgo}`;
             if (weeks[key] !== undefined) weeks[key]++;

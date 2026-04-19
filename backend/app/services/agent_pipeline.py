@@ -49,6 +49,7 @@ class AgentPipelineService:
         submitted_by_id: Optional[int] = None,
         gmail_thread_id: Optional[str] = None,
         gmail_message_id: Optional[str] = None,
+        email_date: Optional[datetime] = None,
     ) -> Dict[str, Any]:
         """
         Main pipeline: parse email → create EPO → send confirmation request.
@@ -219,6 +220,7 @@ class AgentPipelineService:
                 needs_review=needs_review,
                 gmail_thread_id=gmail_thread_id,
                 gmail_message_id=gmail_message_id,
+                email_date=email_date,
             )
 
             session.add(epo)
@@ -262,6 +264,7 @@ class AgentPipelineService:
                         needs_review=extra.get("confidence_score", confidence_score) < 0.8,
                         gmail_thread_id=gmail_thread_id,
                         gmail_message_id=gmail_message_id,
+                        email_date=email_date,
                     )
                     session.add(extra_epo)
                     await session.flush()

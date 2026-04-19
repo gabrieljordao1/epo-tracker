@@ -197,7 +197,7 @@ export default function BuildersPage() {
   // Hydration guard — render minimal shell during SSR to avoid mismatch
   if (!mounted) {
     return (
-      <div className="min-h-screen bg-[#0C1B2A] p-8">
+      <div className="min-h-screen bg-bg p-8">
         <div className="max-w-7xl mx-auto">
           <div className="text-emerald-400 text-sm mb-8">← Back to Analytics</div>
           <h1 className="text-4xl font-bold text-white mb-2">Builder Scorecards</h1>
@@ -209,7 +209,7 @@ export default function BuildersPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-[#0C1B2A] p-8">
+      <div className="min-h-screen bg-bg p-8">
         <div className="max-w-6xl mx-auto">
           <Link
             href="/analytics"
@@ -234,7 +234,7 @@ export default function BuildersPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0C1B2A] p-8">
+    <div className="min-h-screen bg-bg p-8">
       <div className="max-w-7xl mx-auto">
         {/* Back Link */}
         <Link

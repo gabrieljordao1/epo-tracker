@@ -234,6 +234,16 @@ async def _process_gmail_notification(
                 in_reply_to = msg_result.get("in_reply_to", "")
                 image_attachments = msg_result.get("image_attachments", [])
 
+                # Parse original email date from Gmail Date header
+                email_date_parsed = None
+                raw_date = msg_result.get("date", "")
+                if raw_date:
+                    try:
+                        from email.utils import parsedate_to_datetime
+                        email_date_parsed = parsedate_to_datetime(raw_date)
+                    except Exception:
+                        pass
+
                 # ── REPLY DETECTION ──────────────────────────────────
                 # Check if this email is a reply to an existing EPO thread.
                 # Strategy:
@@ -384,6 +394,7 @@ async def _process_gmail_notification(
                     submitted_by_id=submitted_by_id,
                     gmail_thread_id=thread_id,
                     gmail_message_id=message_id,
+                    email_date=email_date_parsed,
                 )
 
                 confidence = pipeline_result.get('confidence_score', 0)
@@ -703,6 +714,16 @@ async def sync_recent_gmail(
                     in_reply_to = msg.get("in_reply_to", "")
                     image_attachments = msg.get("image_attachments", [])
 
+                    # Parse original email date
+                    sync_email_date = None
+                    sync_raw_date = msg.get("date", "")
+                    if sync_raw_date:
+                        try:
+                            from email.utils import parsedate_to_datetime
+                            sync_email_date = parsedate_to_datetime(sync_raw_date)
+                        except Exception:
+                            pass
+
                     # Check if this is a reply to an existing EPO thread.
                     # IMPORTANT: Only treat as a reply if the subject starts with Re:/Fwd:
                     # OR the body does NOT contain a fresh "Please submit an EPO" request.
@@ -787,6 +808,7 @@ async def sync_recent_gmail(
                             submitted_by_id=submitted_by_id,
                             gmail_thread_id=thread_id,
                             gmail_message_id=message_id,
+                            email_date=sync_email_date,
                         )
                         if result.get("created"):
                             total_new_epos += 1
