@@ -392,80 +392,12 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v43c-fix-enum-case-2026-04-19",
+            "build_marker": "v44-production-hardening-2026-04-19",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
             },
         }
-
-    @app.get("/api/admin/debug-epo/{epo_id}")
-    async def debug_epo(epo_id: int):
-        """Temporary debug endpoint — returns gmail fields for an EPO."""
-        from sqlalchemy import text
-        from .core.database import engine
-
-        async with engine.begin() as conn:
-            r = await conn.execute(text(
-                "SELECT id, vendor_name, vendor_email, community, lot_number, "
-                "status, confirmation_number, gmail_thread_id, gmail_message_id, "
-                "amount, description, created_at "
-                "FROM epos WHERE id = :eid"
-            ), {"eid": epo_id})
-            row = r.fetchone()
-            if not row:
-                return {"error": f"EPO {epo_id} not found"}
-            cols = r.keys()
-            data = dict(zip(cols, row))
-            # Also check for any emails in the same thread
-            if data.get("gmail_thread_id"):
-                t = await conn.execute(text(
-                    "SELECT id, vendor_name, status, gmail_message_id, created_at "
-                    "FROM epos WHERE gmail_thread_id = :tid ORDER BY id"
-                ), {"tid": data["gmail_thread_id"]})
-                data["same_thread_epos"] = [dict(zip(t.keys(), r2)) for r2 in t.fetchall()]
-            return data
-
-    @app.get("/api/admin/fix-builder-names")
-    async def fix_builder_names():
-        """One-time fix for builder names that migrations keep failing on."""
-        from sqlalchemy import text
-        from .core.database import engine
-
-        fixes = [
-            ("UPDATE epos SET vendor_name = 'TriPointe Homes' WHERE LOWER(TRIM(vendor_name)) IN ('tripointe', 'tri pointe', 'tripointe homes')", "tripointe→TriPointe Homes"),
-            ("UPDATE epos SET vendor_name = 'DRB Group' WHERE LOWER(TRIM(vendor_name)) IN ('drbgroup', 'drb group', 'drb homes', 'drb')", "drbgroup→DRB Group"),
-            ("UPDATE epos SET vendor_name = 'DR Horton' WHERE LOWER(TRIM(vendor_name)) IN ('dr horton', 'drhorton', 'd.r. horton')", "drhorton→DR Horton"),
-            ("UPDATE epos SET community = 'Context' WHERE LOWER(TRIM(community)) = 'context' AND community != 'Context'", "context→Context"),
-        ]
-        results = []
-        try:
-            async with engine.begin() as conn:
-                for sql, label in fixes:
-                    try:
-                        r = await conn.execute(text(sql))
-                        results.append({"fix": label, "rows": r.rowcount})
-                    except Exception as e:
-                        results.append({"fix": label, "error": str(e)})
-        except Exception as e:
-            return {"status": "error", "message": str(e), "partial": results}
-        return {"status": "done", "results": results}
-
-    @app.get("/api/admin/fix-epo-659")
-    async def fix_epo_659():
-        """One-time fix: set EPO 659 confirmation from Pulte reply."""
-        from sqlalchemy import text
-        from .core.database import engine
-
-        try:
-            async with engine.begin() as conn:
-                r = await conn.execute(text(
-                    "UPDATE epos SET status = 'CONFIRMED', confirmation_number = '13445559' "
-                    "WHERE id = 659 AND confirmation_number IS NULL"
-                ))
-                return {"status": "done", "rows_updated": r.rowcount}
-        except Exception as e:
-            return {"status": "error", "message": str(e)}
 
     @app.get("/")
     async def root():

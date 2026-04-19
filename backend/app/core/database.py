@@ -220,15 +220,15 @@ async def _run_safe_migrations():
         """,
         # ── v32: Fix EPO 651 status — has PO# but status was never flipped ──
         """
-        UPDATE epos SET status = 'confirmed'
-        WHERE id = 651 AND confirmation_number IS NOT NULL AND status = 'pending';
+        UPDATE epos SET status = 'CONFIRMED'
+        WHERE id = 651 AND confirmation_number IS NOT NULL AND status = 'PENDING';
         """,
         # ── v32: Fix EPO 51 (Context 58) — Blake replied with conf screenshot ──
         # Scheduler missed the image attachment; set to pending so it gets reprocessed
         # rather than staying denied incorrectly
         """
-        UPDATE epos SET status = 'pending'
-        WHERE id = 51 AND status = 'denied';
+        UPDATE epos SET status = 'PENDING'
+        WHERE id = 51 AND status = 'DENIED';
         """,
         # ── v33: Fix insane EPO amounts (mis-parsed phone/PO numbers) ──
         # Any amount over $500K for a paint/drywall EPO is clearly wrong.
@@ -357,6 +357,13 @@ async def _run_safe_migrations():
         """
         UPDATE epos SET status = 'CONFIRMED', confirmation_number = '13445559'
         WHERE id = 659 AND status = 'PENDING' AND confirmation_number IS NULL;
+        """,
+        # ── v44: Catch-all — any EPO with a confirmation_number still PENDING → CONFIRMED ──
+        """
+        UPDATE epos SET status = 'CONFIRMED'
+        WHERE confirmation_number IS NOT NULL
+          AND confirmation_number != ''
+          AND status = 'PENDING';
         """,
     ]
 
