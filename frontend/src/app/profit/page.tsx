@@ -19,8 +19,8 @@ import {
   Search,
 } from "lucide-react";
 import { useEffect } from "react";
-import { MultiLotModal } from "@/components/MultiLotModal";
 import type { EPO } from "@/lib/api";
+import { useLotItems } from "@/hooks/useLotItems";
 
 // Helper: detect if a lot_number is multi-lot (range or comma-separated list)
 function isMultiLot(lotNumber: string | null | undefined): boolean {
@@ -52,6 +52,46 @@ function fmt(n: number) {
   })}`;
 }
 
+/** Inline per-lot breakdown for multi-lot EPOs in the expanded section */
+function LotBreakdown({ epoId }: { epoId: number }) {
+  const { data: lotItems = [], isLoading } = useLotItems(epoId);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center gap-2 text-text3 text-xs py-2">
+        <Loader2 size={12} className="animate-spin" /> Loading per-lot breakdown…
+      </div>
+    );
+  }
+
+  if (lotItems.length === 0) {
+    return (
+      <div className="text-xs text-text3 py-1">
+        No per-lot breakdown available yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-1">
+      <div className="text-xs text-text3 font-medium">Per-Lot Revenue</div>
+      {lotItems.map((item) => (
+        <div key={item.id} className="flex items-center gap-3 bg-surface rounded-md px-3 py-1.5">
+          <span className="font-mono text-xs bg-blue/15 text-blue px-2 py-0.5 rounded">
+            Lot {item.lot_number}
+          </span>
+          {item.description && (
+            <span className="text-xs text-text2 truncate flex-1">{item.description}</span>
+          )}
+          <span className="font-mono text-xs text-green ml-auto">
+            {item.amount != null ? fmt(item.amount) : "—"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function ProfitTrackerPage() {
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [addingTo, setAddingTo] = useState<number | null>(null);
@@ -64,8 +104,6 @@ export default function ProfitTrackerPage() {
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
-  const [multiLotModalOpen, setMultiLotModalOpen] = useState(false);
-  const [selectedBundle, setSelectedBundle] = useState<{ epos: EPO[]; label: string } | null>(null);
 
   // Fetch data with hooks
   const { data: profitData, isLoading } = useProfitSummary();
@@ -125,62 +163,6 @@ export default function ProfitTrackerPage() {
     }
   };
 
-  // Helper function to detect if an EPO is part of a multi-lot bundle
-  const getBundle = (targetEpo: EPOProfitSummary) => {
-    const bundleEpos = filteredEpos.filter((epo) => {
-      if (epo.epo_id === targetEpo.epo_id) return true;
-      // Match vendor, community, and creation time within 1 hour
-      const timeDiff = Math.abs(
-        new Date(epo.created_at).getTime() - new Date(targetEpo.created_at).getTime()
-      );
-      return (
-        epo.vendor_name === targetEpo.vendor_name &&
-        epo.community === targetEpo.community &&
-        timeDiff <= 60 * 60 * 1000 // 1 hour
-      );
-    });
-    return bundleEpos.length > 1 ? bundleEpos : null;
-  };
-
-  // Convert EPOProfitSummary to EPO for modal display
-  const convertToEPO = (profitEpo: EPOProfitSummary): EPO => ({
-    id: profitEpo.epo_id,
-    vendor_name: profitEpo.vendor_name,
-    vendor_email: "",
-    community: profitEpo.community,
-    lot_number: profitEpo.lot_number,
-    description: profitEpo.description,
-    amount: profitEpo.epo_amount,
-    status: (profitEpo.status as any) || "pending",
-    confirmation_number: null,
-    days_open: 0,
-    needs_review: false,
-    confidence_score: 1,
-    parse_model: "",
-    synced_from_email: false,
-    email_date: null,
-    created_at: profitEpo.created_at,
-  });
-
-  const handleBundleClick = (epo: EPOProfitSummary) => {
-    const bundle = getBundle(epo);
-    if (bundle && bundle.length > 1) {
-      // Multiple separate EPO records bundled together
-      const label = `${epo.vendor_name} — ${epo.community} (${bundle.length} lots)`;
-      const convertedEpos = bundle.map(convertToEPO);
-      setSelectedBundle({ epos: convertedEpos, label });
-      setMultiLotModalOpen(true);
-    } else if (isMultiLot(epo.lot_number)) {
-      // Single EPO with a multi-lot range like "1-4"
-      const label = `${epo.vendor_name} — ${epo.community}, Lot ${epo.lot_number}`;
-      const convertedEpos = [convertToEPO(epo)];
-      setSelectedBundle({ epos: convertedEpos, label });
-      setMultiLotModalOpen(true);
-    } else {
-      // Single lot EPO, just expand it
-      setExpandedId(epo.epo_id);
-    }
-  };
 
   const filteredEpos = epos.filter((e) => {
     const matchesSearch =
@@ -326,7 +308,7 @@ export default function ProfitTrackerPage() {
             >
               {/* Header row */}
               <button
-                onClick={() => handleBundleClick(epo)}
+                onClick={() => setExpandedId(expanded ? null : epo.epo_id)}
                 className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface transition-colors text-left"
               >
                 {expanded ? (
@@ -385,6 +367,11 @@ export default function ProfitTrackerPage() {
                       <span className="text-text3 text-xs">Description: </span>
                       {epo.description}
                     </div>
+                  )}
+
+                  {/* Per-lot breakdown for multi-lot EPOs */}
+                  {isMultiLot(epo.lot_number) && (
+                    <LotBreakdown epoId={epo.epo_id} />
                   )}
 
                   {/* Existing payments */}
@@ -505,18 +492,6 @@ export default function ProfitTrackerPage() {
         })}
       </div>
 
-      {/* Multi-Lot Modal */}
-      {selectedBundle && (
-        <MultiLotModal
-          isOpen={multiLotModalOpen}
-          onClose={() => {
-            setMultiLotModalOpen(false);
-            setSelectedBundle(null);
-          }}
-          epos={selectedBundle.epos}
-          bundleLabel={selectedBundle.label}
-        />
-      )}
     </div>
   );
 }

@@ -18,6 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.database import get_db
 from ..core.auth import get_current_user
 from ..models.models import EPO, EPOLotItem, User
+from ..services.email_parser import (
+    _extract_tiered_per_lot_amounts,
+    _extract_individual_lot_amounts,
+    _extract_individual_lot_descriptions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -255,18 +260,45 @@ async def auto_split_lot_items(
             detail="Could not parse lot numbers from EPO lot_number field",
         )
 
-    # Calculate per-lot amount
+    # Try to extract per-lot amounts from the raw email body
     epo_amount = float(epo.amount or 0)
-    per_lot_amount = epo_amount / len(lot_numbers) if lot_numbers else 0
+    email_body = epo.raw_email_body or ""
+    per_lot_amounts: dict = {}
+    per_lot_descriptions: dict = {}
+    pricing_source = "even_split"
+
+    if email_body:
+        # Try individual lot amounts first (most specific: "Lot 1 ... total= $1,150")
+        per_lot_amounts = _extract_individual_lot_amounts(email_body)
+        if per_lot_amounts:
+            pricing_source = "email_individual"
+            logger.info(f"EPO {epo_id}: found individual lot amounts from email: {per_lot_amounts}")
+        else:
+            # Try tiered pricing ("$400 per lot for lots 1-9")
+            per_lot_amounts = _extract_tiered_per_lot_amounts(email_body)
+            if per_lot_amounts:
+                pricing_source = "email_tiered"
+                logger.info(f"EPO {epo_id}: found tiered lot amounts from email: {per_lot_amounts}")
+
+        # Try to get per-lot descriptions
+        per_lot_descriptions = _extract_individual_lot_descriptions(email_body)
+
+    # Fall back to even split if no email-based pricing found
+    even_amount = epo_amount / len(lot_numbers) if lot_numbers else 0
 
     # Create lot items
     created_items = []
     for lot_number in lot_numbers:
+        # Use email-parsed amount if available, otherwise even split
+        lot_amount = per_lot_amounts.get(lot_number, even_amount)
+        lot_desc = per_lot_descriptions.get(lot_number, None)
+
         lot_item = EPOLotItem(
             epo_id=epo_id,
             company_id=current_user.company_id,
             lot_number=lot_number,
-            amount=per_lot_amount,
+            amount=lot_amount,
+            description=lot_desc,
         )
         session.add(lot_item)
         created_items.append(lot_item)
@@ -282,7 +314,7 @@ async def auto_split_lot_items(
         "epo_id": epo_id,
         "total_amount": epo_amount,
         "lot_count": len(lot_numbers),
-        "per_lot_amount": per_lot_amount,
+        "pricing_source": pricing_source,
         "lots_created": [
             EPOLotItemResponse.model_validate(item) for item in created_items
         ],

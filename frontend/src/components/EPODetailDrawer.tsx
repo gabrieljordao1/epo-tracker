@@ -25,12 +25,23 @@ import {
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { updateEPO, sendFollowup } from "@/lib/api";
+import { useLotItems, useAutoSplitLotItems } from "@/hooks/useLotItems";
+import { Wand2, Layers } from "lucide-react";
 
 interface EPODetailDrawerProps {
   epo: EPO | null;
   open: boolean;
   onClose: () => void;
   onUpdated: () => void;
+}
+
+function isMultiLot(lotNumber: string | null | undefined): boolean {
+  if (!lotNumber) return false;
+  const s = lotNumber.trim();
+  if (/^\d+\s*[-–]\s*\d+$/.test(s)) return true;
+  if (/\d+\s*,\s*\d+/.test(s)) return true;
+  if (/\d+\s+and\s+\d+/i.test(s)) return true;
+  return false;
 }
 
 const STATUS_CONFIG = {
@@ -408,6 +419,11 @@ export function EPODetailDrawer({
                 )}
               </div>
 
+              {/* Per-Lot Breakdown (only for multi-lot EPOs) */}
+              {isMultiLot(epo.lot_number) && (
+                <LotBreakdownDrawer epoId={epo.id} totalAmount={epo.amount} />
+              )}
+
               {/* Timeline */}
               <div className="bg-[#111] rounded-lg p-4 border border-[#222]">
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
@@ -569,6 +585,81 @@ export function EPODetailDrawer({
 }
 
 /* ── Sub Components ──────────────────────────────────── */
+
+function LotBreakdownDrawer({ epoId, totalAmount }: { epoId: number; totalAmount: number | null }) {
+  const { data: lotItems = [], isLoading } = useLotItems(epoId);
+  const autoSplitMutation = useAutoSplitLotItems();
+
+  const handleAutoSplit = async () => {
+    await autoSplitMutation.mutateAsync(epoId);
+  };
+
+  const totalLotAmount = lotItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const isBalanced = totalAmount != null && Math.abs(totalLotAmount - totalAmount) < 0.01;
+
+  return (
+    <div className="bg-[#111] rounded-lg p-4 border border-[#222]">
+      <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+        <Layers size={14} className="text-[rgba(255,255,255,0.4)]" />
+        Per-Lot Breakdown
+      </h3>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-[rgba(255,255,255,0.4)] text-sm py-2">
+          <Loader2 size={14} className="animate-spin" /> Loading…
+        </div>
+      ) : lotItems.length === 0 ? (
+        <div className="text-center py-3">
+          <p className="text-[rgba(255,255,255,0.4)] text-sm mb-3">No per-lot breakdown yet</p>
+          <button
+            onClick={handleAutoSplit}
+            disabled={autoSplitMutation.isPending}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-emerald-400/10 border border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/20 transition-colors disabled:opacity-50"
+          >
+            {autoSplitMutation.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Wand2 size={14} />
+            )}
+            Auto-Split from Lot Range
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {lotItems.map((item) => (
+            <div key={item.id} className="flex items-center justify-between bg-[#0a0a0a] rounded-lg px-3 py-2 border border-[#1a1a1a]">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs bg-blue-400/15 text-blue-400 px-2 py-0.5 rounded">
+                  Lot {item.lot_number}
+                </span>
+                {item.description && (
+                  <span className="text-xs text-[rgba(255,255,255,0.5)] truncate max-w-[150px]">{item.description}</span>
+                )}
+              </div>
+              <span className="font-mono text-sm text-emerald-400">
+                {item.amount != null
+                  ? `$${item.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : "—"}
+              </span>
+            </div>
+          ))}
+          {/* Total row */}
+          <div className="flex items-center justify-between pt-2 border-t border-[#222]">
+            <span className="text-xs text-[rgba(255,255,255,0.4)]">Lot Items Total</span>
+            <span className={`font-mono text-sm font-medium ${isBalanced ? 'text-emerald-400' : 'text-amber-400'}`}>
+              ${totalLotAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {!isBalanced && totalAmount != null && (
+                <span className="text-xs text-amber-400/60 ml-1">
+                  (EPO: ${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DetailField({
   icon,
