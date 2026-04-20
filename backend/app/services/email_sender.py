@@ -110,7 +110,9 @@ class EmailSenderService:
         return await self._send(to=to_email, subject=subject, html=html_body)
 
     async def _send(self, to: str, subject: str, html: str) -> Dict[str, Any]:
-        """Send an email via Resend."""
+        """Send an email via Resend with circuit breaker protection."""
+        from ..core.circuit_breaker import resend_breaker
+
         client = self._get_client()
 
         if not client:
@@ -118,6 +120,15 @@ class EmailSenderService:
             return {
                 "success": False,
                 "error": "Email sending not configured — set RESEND_API_KEY",
+                "to": to,
+                "subject": subject,
+            }
+
+        if not resend_breaker.can_execute():
+            logger.warning(f"Email skipped (circuit breaker OPEN): to={to}, subject={subject}")
+            return {
+                "success": False,
+                "error": "Email service temporarily unavailable (circuit breaker open)",
                 "to": to,
                 "subject": subject,
             }
@@ -131,6 +142,7 @@ class EmailSenderService:
             }
 
             result = client.Emails.send(params)
+            resend_breaker.record_success()
             logger.info(f"Email sent successfully: to={to}, subject={subject}, id={result.get('id', 'unknown')}")
 
             return {
@@ -141,6 +153,7 @@ class EmailSenderService:
                 "sent_at": datetime.utcnow().isoformat(),
             }
         except Exception as e:
+            resend_breaker.record_failure()
             logger.error(f"Email send failed: to={to}, error={str(e)}")
             return {
                 "success": False,

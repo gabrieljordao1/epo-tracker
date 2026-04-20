@@ -46,7 +46,7 @@ export function MultiLotModal({ isOpen, onClose, epos, bundleLabel }: MultiLotMo
 
   const handleAutoSplit = async () => {
     if (!parentEpo) return;
-    await autoSplitMutation.mutateAsync(parentEpo.id);
+    await autoSplitMutation.mutateAsync({ epoId: parentEpo.id });
   };
 
   const handleSaveEdit = async (item: LotItem) => {

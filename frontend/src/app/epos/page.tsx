@@ -22,21 +22,8 @@ import {
 import type { EPO } from "@/lib/api";
 import { AddEPOModal } from "@/components/AddEPOModal";
 import { EPODetailDrawer } from "@/components/EPODetailDrawer";
-import { MultiLotModal } from "@/components/MultiLotModal";
 import { useRouter } from "next/navigation";
 
-// Helper: detect if a lot_number is multi-lot (range or comma-separated list)
-function isMultiLot(lotNumber: string | null | undefined): boolean {
-  if (!lotNumber) return false;
-  const s = lotNumber.trim();
-  // Range: "1-4", "53-57"
-  if (/^\d+\s*[-–]\s*\d+$/.test(s)) return true;
-  // Comma list: "21, 22, 23" or "21,22,23"
-  if (/\d+\s*,\s*\d+/.test(s)) return true;
-  // "and" list: "21 and 22" or "21, 22 and 23"
-  if (/\d+\s+and\s+\d+/i.test(s)) return true;
-  return false;
-}
 
 export default function EPOsPage() {
   const router = useRouter();
@@ -67,8 +54,6 @@ export default function EPOsPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [multiLotModalOpen, setMultiLotModalOpen] = useState(false);
-  const [selectedBundle, setSelectedBundle] = useState<{ epos: EPO[]; label: string } | null>(null);
 
   // Fetch data with hooks
   const { data: epos = [], isLoading: loading, refetch: refetchEPOs } = useEPOs({ supervisorId });
@@ -307,41 +292,10 @@ export default function EPOsPage() {
     (e) => e.status === "pending" && (e.days_open || 0) >= 4
   ).length;
 
-  // Helper function to detect if an EPO is part of a multi-lot bundle
-  // Bundles are detected by matching vendor_name + community + created_at (within 1 hour)
-  const getBundle = (targetEpo: EPO) => {
-    const bundleEpos = filteredEpos.filter((epo) => {
-      if (epo.id === targetEpo.id) return true;
-      // Match vendor, community, and creation time within 1 hour
-      const timeDiff = Math.abs(
-        new Date(epo.created_at).getTime() - new Date(targetEpo.created_at).getTime()
-      );
-      return (
-        epo.vendor_name === targetEpo.vendor_name &&
-        epo.community === targetEpo.community &&
-        timeDiff <= 60 * 60 * 1000 // 1 hour
-      );
-    });
-    return bundleEpos.length > 1 ? bundleEpos : null;
-  };
-
-  const handleBundleClick = (epo: EPO) => {
-    const bundle = getBundle(epo);
-    if (bundle && bundle.length > 1) {
-      // Multiple separate EPO records bundled together
-      const label = `${epo.vendor_name} — ${epo.community} (${bundle.length} lots)`;
-      setSelectedBundle({ epos: bundle, label });
-      setMultiLotModalOpen(true);
-    } else if (isMultiLot(epo.lot_number)) {
-      // Single EPO with a multi-lot range like "1-4"
-      const label = `${epo.vendor_name} — ${epo.community}, Lot ${epo.lot_number}`;
-      setSelectedBundle({ epos: [epo], label });
-      setMultiLotModalOpen(true);
-    } else {
-      // Single lot EPO, show drawer
-      setSelectedEPO(epo);
-      setDrawerOpen(true);
-    }
+  const handleEPOClick = (epo: EPO) => {
+    // Always open the drawer — works for single-lot and multi-lot EPOs alike
+    setSelectedEPO(epo);
+    setDrawerOpen(true);
   };
 
   return (
@@ -576,7 +530,7 @@ export default function EPOsPage() {
               <tr
                 key={epo.id}
                 className="border-b border-card-border hover:bg-surface/50 transition-colors cursor-pointer"
-                onClick={() => handleBundleClick(epo)}
+                onClick={() => handleEPOClick(epo)}
               >
                 <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
                   <input
@@ -717,7 +671,7 @@ export default function EPOsPage() {
       ) : (
       <div className="md:hidden space-y-3">
         {filteredEpos.map((epo) => (
-          <div key={epo.id} className="card p-4 space-y-3 cursor-pointer" onClick={() => handleBundleClick(epo)}>
+          <div key={epo.id} className="card p-4 space-y-3 cursor-pointer" onClick={() => handleEPOClick(epo)}>
             {/* Top row: builder + status */}
             <div className="flex items-start justify-between">
               <div>
@@ -814,18 +768,6 @@ export default function EPOsPage() {
         onUpdated={() => { refetchEPOs(); }}
       />
 
-      {/* Multi-Lot Modal */}
-      {selectedBundle && (
-        <MultiLotModal
-          isOpen={multiLotModalOpen}
-          onClose={() => {
-            setMultiLotModalOpen(false);
-            setSelectedBundle(null);
-          }}
-          epos={selectedBundle.epos}
-          bundleLabel={selectedBundle.label}
-        />
-      )}
 
       {/* Follow-up Alert with Batch Action */}
       {needsFollowupCount > 0 && (

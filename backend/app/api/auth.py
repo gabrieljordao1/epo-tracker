@@ -636,6 +636,13 @@ async def forgot_password(
         <p>If you didn't request this, please ignore this email.</p>
         """
 
+        if not settings.RESEND_API_KEY:
+            logger.error("RESEND_API_KEY not configured - cannot send reset email")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Email service is not configured. Contact your administrator.",
+            )
+
         if resend_breaker.can_execute():
             resend.Emails.send({
                 "from": f"{settings.EMAIL_FROM_NAME} <{settings.EMAIL_FROM_ADDRESS}>",
@@ -644,21 +651,27 @@ async def forgot_password(
                 "html": email_html,
             })
             resend_breaker.record_success()
+            logger.info(f"Password reset email sent to {user.email}")
         else:
-            logger.warning("Resend circuit breaker OPEN â skipping email send")
+            logger.warning("Resend circuit breaker OPEN - skipping email send")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Email service temporarily unavailable. Try again in a few minutes.",
+            )
 
         return {
             "success": True,
             "message": "If an account exists with this email, a reset code has been sent.",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         resend_breaker.record_failure()
-        # Log the error but still return success for security
         logger.error(f"Error sending reset email: {e}")
-        return {
-            "success": True,
-            "message": "If an account exists with this email, a reset code has been sent.",
-        }
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to send reset email. Please try again later.",
+        )
 
 
 @router.post("/verify-reset-code")
@@ -903,3 +916,63 @@ async def refresh_tokens(
         token_type="bearer",
         user=UserResponse.model_validate(user),
     )
+
+
+# ─── Admin: Reset another user's password ────────────────────────
+
+from pydantic import BaseModel as _BaseModel
+
+class _AdminResetRequest(_BaseModel):
+    user_email: str
+    new_password: str
+
+
+@router.post("/admin/reset-user-password")
+async def admin_reset_user_password(
+    body: _AdminResetRequest,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Admin endpoint: reset another user's password in the same company.
+    Requires the caller to be an ADMIN."""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admins can reset other users' passwords.",
+        )
+
+    # Find the target user in the same company
+    query = select(User).where(
+        User.email == body.user_email.strip().lower(),
+        User.company_id == current_user.company_id,
+    )
+    result = await session.execute(query)
+    target_user = result.scalars().first()
+
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found in your company.",
+        )
+
+    # Validate password strength
+    is_valid, error_msg = validate_password_strength(body.new_password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=error_msg,
+        )
+
+    # Reset the password
+    target_user.hashed_password = get_password_hash(body.new_password)
+    await session.commit()
+
+    logger.info(
+        f"Admin {current_user.email} reset password for {target_user.email} "
+        f"(company_id={current_user.company_id})"
+    )
+
+    return {
+        "success": True,
+        "message": f"Password reset for {target_user.email}",
+    }

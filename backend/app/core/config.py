@@ -117,6 +117,17 @@ class Settings(BaseSettings):
             return secrets.token_urlsafe(64)
         return v
 
+    @field_validator("RESEND_API_KEY", mode="before")
+    @classmethod
+    def warn_missing_resend_key(cls, v: str) -> str:
+        if not v and os.getenv("ENVIRONMENT", "development") == "production":
+            import logging
+            logging.getLogger(__name__).warning(
+                "RESEND_API_KEY is not set — password reset emails, "
+                "verification emails, and follow-ups will not be sent!"
+            )
+        return v
+
     class Config:
         env_file = ".env"
         case_sensitive = True

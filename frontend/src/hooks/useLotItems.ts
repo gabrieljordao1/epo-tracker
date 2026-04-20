@@ -41,11 +41,11 @@ export function useDeleteLotItem(): UseMutationResult<void, Error, { itemId: num
   });
 }
 
-export function useAutoSplitLotItems(): UseMutationResult<LotItem[], Error, number> {
+export function useAutoSplitLotItems(): UseMutationResult<LotItem[], Error, { epoId: number; force?: boolean }> {
   const queryClient = useQueryClient();
-  return useMutation<LotItem[], Error, number>({
-    mutationFn: (epoId) => autoSplitLotItems(epoId),
-    onSuccess: (_, epoId) => {
+  return useMutation<LotItem[], Error, { epoId: number; force?: boolean }>({
+    mutationFn: ({ epoId, force }) => autoSplitLotItems(epoId, force),
+    onSuccess: (_, { epoId }) => {
       queryClient.invalidateQueries({ queryKey: ["lotItems", epoId] });
     },
   });
