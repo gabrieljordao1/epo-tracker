@@ -562,7 +562,7 @@ tr:hover{background:#1a1a1a}
               <BarChart
                 data={vendorData}
                 layout="vertical"
-                margin={{ top: 5, right: 30, left: 200, bottom: 5 }}
+                margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="#333" />
                 <XAxis type="number" stroke="#666" />
@@ -570,7 +570,7 @@ tr:hover{background:#1a1a1a}
                   dataKey="name"
                   type="category"
                   stroke="#666"
-                  width={180}
+                  width={130}
                   tick={{ fontSize: 12 }}
                 />
                 <Tooltip content={<CustomTooltip />} />
