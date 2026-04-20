@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Trash2, Loader2, Wand2, Save } from "lucide-react";
 import type { EPO, LotItem } from "@/lib/api";
@@ -83,7 +84,10 @@ export function MultiLotModal({ isOpen, onClose, epos, bundleLabel }: MultiLotMo
     await deleteMutation.mutateAsync({ itemId: item.id, epoId: parentEpo.id });
   };
 
-  return (
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const modalContent = (
     <AnimatePresence>
       {isOpen && (
         <>
@@ -92,14 +96,14 @@ export function MultiLotModal({ isOpen, onClose, epos, bundleLabel }: MultiLotMo
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
+            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999]"
           />
           <motion.div
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
             transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="bg-[#111] border border-[#222] rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
@@ -328,4 +332,7 @@ export function MultiLotModal({ isOpen, onClose, epos, bundleLabel }: MultiLotMo
       )}
     </AnimatePresence>
   );
+
+  if (!mounted) return null;
+  return createPortal(modalContent, document.body);
 }
