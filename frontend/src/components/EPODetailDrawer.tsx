@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, Fragment } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect } from "react";
 import {
   X,
   Send,
@@ -22,11 +21,12 @@ import {
   Edit3,
   Save,
   Percent,
+  Wand2,
+  Layers,
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { updateEPO, sendFollowup } from "@/lib/api";
 import { useLotItems, useAutoSplitLotItems } from "@/hooks/useLotItems";
-import { Wand2, Layers } from "lucide-react";
 
 interface EPODetailDrawerProps {
   epo: EPO | null;
@@ -174,7 +174,25 @@ export function EPODetailDrawer({
     }
   };
 
-  if (!epo) return null;
+  // CSS transition state
+  const [visible, setVisible] = useState(false);
+  const [shouldRender, setShouldRender] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setShouldRender(true);
+      // Small delay to trigger CSS transition after mount
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => setVisible(true));
+      });
+    } else {
+      setVisible(false);
+      const timer = setTimeout(() => setShouldRender(false), 300);
+      return () => clearTimeout(timer);
+    }
+  }, [open]);
+
+  if (!epo || !shouldRender) return null;
 
   const statusConfig = STATUS_CONFIG[epo.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
@@ -187,26 +205,25 @@ export function EPODetailDrawer({
       : "text-emerald-400";
 
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+        style={{
+          opacity: visible ? 1 : 0,
+          transition: "opacity 0.3s ease",
+        }}
+        onClick={onClose}
+      />
 
-          {/* Drawer */}
-          <motion.div
-            className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#0a0a0a] border-l border-[#222] z-50 overflow-y-auto"
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
-          >
+      {/* Drawer */}
+      <div
+        className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#0a0a0a] border-l border-[#222] z-50 overflow-y-auto"
+        style={{
+          transform: visible ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
+        }}
+      >
             {/* Header */}
             <div className="sticky top-0 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-[#222] px-6 py-4 flex items-center justify-between z-10">
               <div className="flex items-center gap-3">
@@ -274,47 +291,42 @@ export function EPODetailDrawer({
                     <ChevronDown size={12} />
                   </button>
 
-                  <AnimatePresence>
-                    {showStatusMenu && (
-                      <motion.div
-                        className="absolute top-full mt-2 left-0 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-xl z-20 min-w-[160px] overflow-hidden"
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                      >
-                        {(
-                          Object.entries(STATUS_CONFIG) as [
-                            string,
-                            (typeof STATUS_CONFIG)[keyof typeof STATUS_CONFIG]
-                          ][]
-                        ).map(([key, config]) => {
-                          const Icon = config.icon;
-                          return (
-                            <button
-                              key={key}
-                              onClick={() =>
-                                handleStatusChange(key as any)
-                              }
-                              className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[#222] transition-colors ${
-                                key === epo.status
-                                  ? config.color + " font-medium"
-                                  : "text-[rgba(255,255,255,0.7)]"
-                              }`}
-                            >
-                              <Icon size={14} />
-                              {config.label}
-                              {key === epo.status && (
-                                <CheckCircle
-                                  size={12}
-                                  className="ml-auto text-emerald-400"
-                                />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  {showStatusMenu && (
+                    <div
+                      className="absolute top-full mt-2 left-0 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-xl z-20 min-w-[160px] overflow-hidden"
+                    >
+                      {(
+                        Object.entries(STATUS_CONFIG) as [
+                          string,
+                          (typeof STATUS_CONFIG)[keyof typeof STATUS_CONFIG]
+                        ][]
+                      ).map(([key, config]) => {
+                        const Icon = config.icon;
+                        return (
+                          <button
+                            key={key}
+                            onClick={() =>
+                              handleStatusChange(key as any)
+                            }
+                            className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[#222] transition-colors ${
+                              key === epo.status
+                                ? config.color + " font-medium"
+                                : "text-[rgba(255,255,255,0.7)]"
+                            }`}
+                          >
+                            <Icon size={14} />
+                            {config.label}
+                            {key === epo.status && (
+                              <CheckCircle
+                                size={12}
+                                className="ml-auto text-emerald-400"
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Follow-up Button */}
@@ -577,10 +589,8 @@ export function EPODetailDrawer({
                 </div>
               </div>
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+      </div>
+    </>
   );
 }
 
