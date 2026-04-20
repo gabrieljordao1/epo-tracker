@@ -1,15 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Loader2, HardHat, BarChart3, Users } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
-import { login, register } from "@/lib/api";
+import { login, register, getAuthToken } from "@/lib/api";
 
 export default function LoginPage() {
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [loading, setLoading] = useState(false);
+
+  // If user already has a valid token (e.g. migrating to cookie-based auth),
+  // set the cookie and redirect them back to the dashboard
+  useEffect(() => {
+    const token = getAuthToken();
+    if (token) {
+      document.cookie = "epo_auth=1; path=/; max-age=2592000; SameSite=Lax";
+      router.replace("/");
+    }
+  }, [router]);
   const [error, setError] = useState("");
 
   // Login fields
