@@ -702,11 +702,12 @@ export async function resetData(): Promise<any> {
 }
 
 // ─── Team API ────────────────────────────────────
-export async function getTeamMembers(): Promise<any> {
+export async function getTeamMembers(): Promise<any[]> {
   await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/team/members`, { headers: authHeaders() });
   if (!res.ok) throw new Error("Failed to fetch team members");
-  return res.json();
+  const data = await res.json();
+  return data.members || [];
 }
 
 // ─── Email API ───────────────────────────────────
