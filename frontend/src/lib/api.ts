@@ -591,6 +591,72 @@ export async function getProfitSummary(): Promise<{
   return res.json();
 }
 
+// ─── Lot Items API ──────────────────────────────
+export interface LotItem {
+  id: number;
+  epo_id: number;
+  lot_number: string;
+  amount: number | null;
+  description: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
+export async function getLotItems(epoId: number): Promise<LotItem[]> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/${epoId}/lot-items`, {
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to load lot items");
+  return res.json();
+}
+
+export async function createLotItem(epoId: number, item: {
+  lot_number: string;
+  amount?: number;
+  description?: string;
+  notes?: string;
+}): Promise<LotItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/${epoId}/lot-items`, {
+    method: "POST",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(item),
+  });
+  if (!res.ok) throw new Error("Failed to create lot item");
+  return res.json();
+}
+
+export async function updateLotItem(itemId: number, updates: Partial<LotItem>): Promise<LotItem> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/lot-items/${itemId}`, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error("Failed to update lot item");
+  return res.json();
+}
+
+export async function deleteLotItem(itemId: number): Promise<void> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/lot-items/${itemId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete lot item");
+}
+
+export async function autoSplitLotItems(epoId: number): Promise<LotItem[]> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/${epoId}/lot-items/auto-split`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to auto-split lot items");
+  return res.json();
+}
+
 // ─── Demo API (no auth) ─────────────────────────
 export async function simulateEmail(subject: string, body: string): Promise<any> {
   try {

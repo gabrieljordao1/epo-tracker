@@ -210,6 +210,7 @@ class EPO(Base):
     attachments = relationship("EPOAttachment", back_populates="epo", cascade="all, delete-orphan")
     approvals = relationship("EPOApproval", back_populates="epo", cascade="all, delete-orphan")
     sub_payments = relationship("SubPayment", back_populates="epo", cascade="all, delete-orphan")
+    lot_items = relationship("EPOLotItem", back_populates="epo", cascade="all, delete-orphan")
 
 
 class EPOFollowup(Base):
@@ -666,3 +667,28 @@ class SubPayment(Base):
     company = relationship("Company")
     epo = relationship("EPO", back_populates="sub_payments")
     created_by = relationship("User", foreign_keys=[created_by_id])
+
+
+# ─── Lot Items / Per-Lot Breakdown ──────────────────────────────────
+class EPOLotItem(Base):
+    """Per-lot breakdown for multi-lot EPOs.
+    When an EPO covers lots 1-4, each lot gets its own LotItem row
+    with individual amount, description, and notes.
+    """
+    __tablename__ = "epo_lot_items"
+
+    id = Column(Integer, primary_key=True, index=True)
+    epo_id = Column(Integer, ForeignKey("epos.id"), nullable=False, index=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+
+    lot_number = Column(String(50), nullable=False)
+    amount = Column(Float, nullable=True)
+    description = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    # Relationships
+    epo = relationship("EPO", back_populates="lot_items")
+    company = relationship("Company")

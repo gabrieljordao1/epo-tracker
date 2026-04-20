@@ -71,7 +71,7 @@ if _settings.SENTRY_DSN:
 from .core.database import init_db, close_db  # noqa: E402
 from .core.auth import decode_token  # noqa: E402
 from .core.rate_limit import limiter, rate_limit_exceeded_handler  # noqa: E402
-from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook, attachments, approvals, notifications, portal, billing, builder_analytics, daily_reports, punch_list, budgets, work_orders, sub_payments  # noqa: E402
+from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook, attachments, approvals, notifications, portal, billing, builder_analytics, daily_reports, punch_list, budgets, work_orders, sub_payments, lot_items  # noqa: E402
 
 settings = get_settings()
 
@@ -312,6 +312,7 @@ def create_app() -> FastAPI:
     app.include_router(budgets.router)
     app.include_router(work_orders.router)
     app.include_router(sub_payments.router)
+    app.include_router(lot_items.router)
 
     # ─── Health check ───
     @app.get("/api/health")

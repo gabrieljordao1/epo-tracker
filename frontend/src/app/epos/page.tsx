@@ -25,6 +25,19 @@ import { EPODetailDrawer } from "@/components/EPODetailDrawer";
 import { MultiLotModal } from "@/components/MultiLotModal";
 import { useRouter } from "next/navigation";
 
+// Helper: detect if a lot_number is multi-lot (range or comma-separated list)
+function isMultiLot(lotNumber: string | null | undefined): boolean {
+  if (!lotNumber) return false;
+  const s = lotNumber.trim();
+  // Range: "1-4", "53-57"
+  if (/^\d+\s*[-–]\s*\d+$/.test(s)) return true;
+  // Comma list: "21, 22, 23" or "21,22,23"
+  if (/\d+\s*,\s*\d+/.test(s)) return true;
+  // "and" list: "21 and 22" or "21, 22 and 23"
+  if (/\d+\s+and\s+\d+/i.test(s)) return true;
+  return false;
+}
+
 export default function EPOsPage() {
   const router = useRouter();
   const { supervisorId, activeUser, isBossView } = useUser();
@@ -315,11 +328,17 @@ export default function EPOsPage() {
   const handleBundleClick = (epo: EPO) => {
     const bundle = getBundle(epo);
     if (bundle && bundle.length > 1) {
-      const label = `${epo.vendor_name} - ${epo.community} (${bundle.length} lots)`;
+      // Multiple separate EPO records bundled together
+      const label = `${epo.vendor_name} — ${epo.community} (${bundle.length} lots)`;
       setSelectedBundle({ epos: bundle, label });
       setMultiLotModalOpen(true);
+    } else if (isMultiLot(epo.lot_number)) {
+      // Single EPO with a multi-lot range like "1-4"
+      const label = `${epo.vendor_name} — ${epo.community}, Lot ${epo.lot_number}`;
+      setSelectedBundle({ epos: [epo], label });
+      setMultiLotModalOpen(true);
     } else {
-      // Single EPO, show drawer
+      // Single lot EPO, show drawer
       setSelectedEPO(epo);
       setDrawerOpen(true);
     }
