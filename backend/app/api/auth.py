@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.config import get_settings
+from ..core.rate_limit import limiter
 from ..core.auth import (
     verify_password,
     get_password_hash,
@@ -38,15 +39,17 @@ settings = get_settings()
 
 
 @router.post("/register", response_model=TokenResponse)
+@limiter.limit("3/minute")
 async def register(
-    request: RegisterRequest,
+    request: Request,
+    register_request: RegisterRequest,
     session: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Register a new user. If invite_code is provided, join existing company.
     Otherwise, create a new company."""
 
     # Check if user already exists
-    query = select(User).where(User.email == request.email)
+    query = select(User).where(User.email == register_request.email)
     result = await session.execute(query)
     if result.scalars().first():
         raise HTTPException(
@@ -54,9 +57,9 @@ async def register(
             detail="Email already registered",
         )
 
-    if request.invite_code:
+    if register_request.invite_code:
         # ââ Join existing company via invite code ââ
-        query = select(Company).where(Company.invite_code == request.invite_code.strip().upper())
+        query = select(Company).where(Company.invite_code == register_request.invite_code.strip().upper())
         result = await session.execute(query)
         company = result.scalars().first()
         if not company:
@@ -66,15 +69,15 @@ async def register(
             )
     else:
         # ââ Create new company ââ
-        if not request.company_name:
+        if not register_request.company_name:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Company name is required when creating a new account.",
             )
         invite_code = secrets.token_hex(8).upper()  # 16-char hex code
         company = Company(
-            name=request.company_name,
-            industry=request.industry,
+            name=register_request.company_name,
+            industry=register_request.industry,
             plan_tier="starter",
             invite_code=invite_code,
         )
@@ -82,21 +85,21 @@ async def register(
         await session.flush()
 
     # Create user â also set work_email so the FROM-matching works
-    hashed_password = get_password_hash(request.password)
+    hashed_password = get_password_hash(register_request.password)
     # First user creating a new company is always ADMIN
-    if not request.invite_code:
+    if not register_request.invite_code:
         user_role = UserRole.ADMIN
     else:
         role_map = {"field": UserRole.FIELD, "manager": UserRole.MANAGER, "admin": UserRole.ADMIN}
-        user_role = role_map.get(request.role, UserRole.FIELD)
+        user_role = role_map.get(register_request.role, UserRole.FIELD)
 
     # Generate email verification code
     verification_code = str(secrets.randbelow(1000000)).zfill(6)
 
     user = User(
-        email=request.email,
-        work_email=request.email,  # Set work_email for EPO FROM-matching
-        full_name=request.full_name,
+        email=register_request.email,
+        work_email=register_request.email,  # Set work_email for EPO FROM-matching
+        full_name=register_request.full_name,
         hashed_password=hashed_password,
         company_id=company.id,
         role=user_role,
@@ -148,13 +151,15 @@ async def register(
 
 
 @router.post("/verify-email")
+@limiter.limit("10/minute")
 async def verify_email(
-    request: dict,
+    request: Request,
+    body: dict,
     session: AsyncSession = Depends(get_db),
 ):
     """Verify email address using the 6-digit code sent during registration."""
-    email = request.get("email", "").strip().lower()
-    code = request.get("code", "").strip()
+    email = body.get("email", "").strip().lower()
+    code = body.get("code", "").strip()
 
     if not email or not code:
         raise HTTPException(
@@ -195,7 +200,9 @@ async def verify_email(
 
 
 @router.post("/login", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def login(
+    request: Request,
     login_request: LoginRequest,
     session: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
@@ -252,13 +259,15 @@ async def get_current_user_info(
 
 
 @router.put("/profile")
+@limiter.limit("60/minute")
 async def update_profile(
-    request: dict,
+    request: Request,
+    body: dict,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Update user profile (full name)."""
-    full_name = request.get("full_name", "").strip()
+    full_name = body.get("full_name", "").strip()
     if not full_name:
         raise HTTPException(status_code=400, detail="Full name is required")
     if len(full_name) > 255:
@@ -272,8 +281,10 @@ async def update_profile(
 
 
 @router.put("/notifications")
+@limiter.limit("60/minute")
 async def update_notifications(
-    request: dict,
+    request: Request,
+    body: dict,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
@@ -293,22 +304,22 @@ async def update_notifications(
         session.add(prefs)
 
     # Update fields if provided
-    if "email_enabled" in request:
-        prefs.email_enabled = bool(request["email_enabled"])
-    if "sms_enabled" in request:
-        prefs.sms_enabled = bool(request["sms_enabled"])
-    if "push_enabled" in request:
-        prefs.push_enabled = bool(request["push_enabled"])
-    if "phone_number" in request:
-        prefs.phone_number = request["phone_number"]
-    if "notify_new_epo" in request:
-        prefs.notify_new_epo = bool(request["notify_new_epo"])
-    if "notify_status_change" in request:
-        prefs.notify_status_change = bool(request["notify_status_change"])
-    if "notify_approval_needed" in request:
-        prefs.notify_approval_needed = bool(request["notify_approval_needed"])
-    if "notify_overdue" in request:
-        prefs.notify_overdue = bool(request["notify_overdue"])
+    if "email_enabled" in body:
+        prefs.email_enabled = bool(body["email_enabled"])
+    if "sms_enabled" in body:
+        prefs.sms_enabled = bool(body["sms_enabled"])
+    if "push_enabled" in body:
+        prefs.push_enabled = bool(body["push_enabled"])
+    if "phone_number" in body:
+        prefs.phone_number = body["phone_number"]
+    if "notify_new_epo" in body:
+        prefs.notify_new_epo = bool(body["notify_new_epo"])
+    if "notify_status_change" in body:
+        prefs.notify_status_change = bool(body["notify_status_change"])
+    if "notify_approval_needed" in body:
+        prefs.notify_approval_needed = bool(body["notify_approval_needed"])
+    if "notify_overdue" in body:
+        prefs.notify_overdue = bool(body["notify_overdue"])
 
     await session.commit()
     logger.info(f"User {current_user.id} updated notification preferences")
@@ -438,24 +449,18 @@ async def get_invite_code(
 
 
 @router.post("/join-team")
+@limiter.limit("5/15minutes")
 async def join_team(
-    request: dict,
-    http_request: Request = None,
+    request: Request,
+    body: dict,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Allow an existing user to join a different company using an invite code.
     This moves the user from their current (solo) company to the invited company.
-    Rate limited to 5 attempts per 15 minutes per user to prevent brute-force."""
-    # Rate limit by user ID to prevent invite code brute-forcing
-    rate_key = f"join_team:{current_user.id}"
-    if not check_rate_limit(rate_key, max_requests=5, window_seconds=900):
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many join attempts. Please try again in 15 minutes.",
-        )
+    Rate limited to 5 attempts per 15 minutes per IP (via slowapi)."""
 
-    invite_code = request.get("invite_code", "").strip().upper()
+    invite_code = body.get("invite_code", "").strip().upper()
     if not invite_code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -567,15 +572,17 @@ def _clear_failed_logins(email: str):
 
 
 @router.post("/forgot-password")
+@limiter.limit("3/hour")
 async def forgot_password(
-    request: ForgotPasswordRequest,
+    request: Request,
+    forgot_request: ForgotPasswordRequest,
     session: AsyncSession = Depends(get_db),
 ):
     """Generate a password reset code and send via email.
-    Rate limited to 3 requests per hour per email."""
+    Rate limited to 3 requests per hour per IP (via slowapi)."""
 
-    # Rate limiting: 3 requests per hour
-    rate_limit_key = f"forgot_password:{request.email}"
+    # Additional per-email rate limiting (prevents one IP targeting multiple emails)
+    rate_limit_key = f"forgot_password:{forgot_request.email}"
     if not check_rate_limit(rate_limit_key, max_requests=3, window_seconds=3600):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -583,7 +590,7 @@ async def forgot_password(
         )
 
     # Find user by email (order by id to be deterministic if duplicates exist)
-    query = select(User).where(User.email == request.email).order_by(User.id)
+    query = select(User).where(User.email == forgot_request.email).order_by(User.id)
     result = await session.execute(query)
     user = result.scalars().first()
 
@@ -655,13 +662,15 @@ async def forgot_password(
 
 
 @router.post("/verify-reset-code")
+@limiter.limit("10/minute")
 async def verify_reset_code(
-    request: dict,
+    request: Request,
+    body: dict,
     session: AsyncSession = Depends(get_db),
 ):
     """Verify a password reset code is valid (without resetting the password)."""
-    email = (request.get("email") or "").strip().lower()
-    code = (request.get("code") or "").strip()
+    email = (body.get("email") or "").strip().lower()
+    code = (body.get("code") or "").strip()
 
     if not email or not code:
         raise HTTPException(
@@ -709,14 +718,16 @@ async def verify_reset_code(
 
 
 @router.post("/reset-password")
+@limiter.limit("5/hour")
 async def reset_password(
-    request: ResetPasswordRequest,
+    request: Request,
+    reset_req: ResetPasswordRequest,
     session: AsyncSession = Depends(get_db),
 ):
     """Reset password using email and reset code."""
 
     # Find ALL users with this email (handles duplicate accounts)
-    query = select(User).where(User.email == request.email).order_by(User.id)
+    query = select(User).where(User.email == reset_req.email).order_by(User.id)
     result = await session.execute(query)
     users = result.scalars().all()
 
@@ -748,7 +759,7 @@ async def reset_password(
     # Try to verify against each token (newest first)
     matched_token = None
     for token in reset_tokens:
-        if request.code.strip() == token.token_hash.strip():
+        if reset_req.code.strip() == token.token_hash.strip():
             matched_token = token
             break
 
@@ -761,7 +772,7 @@ async def reset_password(
     reset_token = matched_token
 
     # Validate password strength
-    is_valid, error_msg = validate_password_strength(request.new_password)
+    is_valid, error_msg = validate_password_strength(reset_req.new_password)
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -769,7 +780,7 @@ async def reset_password(
         )
 
     # Update password on ALL accounts with this email (handles duplicates)
-    new_hash = get_password_hash(request.new_password)
+    new_hash = get_password_hash(reset_req.new_password)
     for u in users:
         u.hashed_password = new_hash
     reset_token.used = True
@@ -793,22 +804,24 @@ async def reset_password(
 
 
 @router.post("/change-password")
+@limiter.limit("5/hour")
 async def change_password(
-    request: ChangePasswordRequest,
+    request: Request,
+    change_req: ChangePasswordRequest,
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
     """Change password for authenticated user."""
 
     # Verify current password
-    if not verify_password(request.current_password, current_user.hashed_password or ""):
+    if not verify_password(change_req.current_password, current_user.hashed_password or ""):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Current password is incorrect.",
         )
 
     # Validate new password strength
-    is_valid, error_msg = validate_password_strength(request.new_password)
+    is_valid, error_msg = validate_password_strength(change_req.new_password)
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -816,14 +829,14 @@ async def change_password(
         )
 
     # Prevent using the same password
-    if verify_password(request.new_password, current_user.hashed_password or ""):
+    if verify_password(change_req.new_password, current_user.hashed_password or ""):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="New password must be different from current password.",
         )
 
     # Update password
-    current_user.hashed_password = get_password_hash(request.new_password)
+    current_user.hashed_password = get_password_hash(change_req.new_password)
     await session.commit()
 
     return {
@@ -833,14 +846,16 @@ async def change_password(
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute")
 async def refresh_tokens(
-    request: RefreshTokenRequest,
+    request: Request,
+    refresh_req: RefreshTokenRequest,
     session: AsyncSession = Depends(get_db),
 ):
     """Refresh access token using refresh token."""
 
     # Decode refresh token
-    payload = decode_token(request.refresh_token)
+    payload = decode_token(refresh_req.refresh_token)
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

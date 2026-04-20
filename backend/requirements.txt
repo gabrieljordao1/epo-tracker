@@ -29,6 +29,9 @@ google-api-python-client>=2.114.0
 # Billing
 stripe>=8.0.0
 
+# Rate Limiting
+slowapi>=0.1.9
+
 # Utilities
 python-dotenv>=1.0.0
 bleach>=6.1.0

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
+from ..core.rate_limit import limiter
 from ..core.security import audit_log
 from ..models.models import EPO, VendorAction, Company, EPOStatus
 
@@ -27,6 +28,7 @@ def generate_vendor_token() -> str:
 
 
 @router.get("/epo/{token}")
+@limiter.limit("20/minute")
 async def get_epo_by_token(
     token: str,
     request: Request,
@@ -97,6 +99,7 @@ async def get_epo_by_token(
 
 
 @router.post("/epo/{token}/confirm")
+@limiter.limit("5/minute")
 async def vendor_confirm_epo(
     token: str,
     request: Request,
@@ -166,6 +169,7 @@ async def vendor_confirm_epo(
 
 
 @router.post("/epo/{token}/dispute")
+@limiter.limit("5/minute")
 async def vendor_dispute_epo(
     token: str,
     request: Request,
@@ -230,8 +234,10 @@ async def vendor_dispute_epo(
 
 
 @router.get("/epo/{token}/history")
+@limiter.limit("20/minute")
 async def get_epo_vendor_history(
     token: str,
+    request: Request,
     session: AsyncSession = Depends(get_db),
 ):
     """Get the action history for a vendor-facing EPO."""

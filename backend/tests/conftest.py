@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 from app.core.database import Base, get_db
 from app.main import create_app
 from app.core.auth import get_password_hash, create_access_token
+from app.core.rate_limit import limiter
 from app.models.models import Company, User, EPO, CommunityAssignment, UserRole, Industry, PlanTier, EPOStatus
 
 
@@ -46,7 +47,10 @@ def event_loop():
 
 @pytest.fixture(autouse=True)
 async def setup_db():
-    """Create tables before each test, drop after."""
+    """Create tables before each test, drop after.
+    Also resets rate limiter state so tests don't interfere with each other."""
+    limiter.reset()
+    limiter.enabled = False  # Disabled by default; test_rate_limit.py enables explicitly
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield

@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.auth import get_current_user
+from ..core.rate_limit import limiter
 from ..core.config import get_settings
 from ..core.database import get_db
 from ..models.models import Company, PlanTier, User, UserRole
@@ -99,7 +100,9 @@ def _require_admin(user: User):
 
 # ─── GET /api/billing/status ─────────────────────
 @router.get("/status")
+@limiter.limit("30/minute")
 async def billing_status(
+    request: Request,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
@@ -119,7 +122,9 @@ async def billing_status(
 
 # ─── POST /api/billing/checkout ──────────────────
 @router.post("/checkout")
+@limiter.limit("30/minute")
 async def create_checkout_session(
+    request: Request,
     req: CheckoutRequest,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
@@ -163,7 +168,9 @@ async def create_checkout_session(
 
 # ─── POST /api/billing/one-time ──────────────────
 @router.post("/one-time")
+@limiter.limit("30/minute")
 async def create_one_time_payment(
+    request: Request,
     req: OneTimePaymentRequest,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
@@ -202,7 +209,9 @@ async def create_one_time_payment(
 
 # ─── POST /api/billing/portal ────────────────────
 @router.post("/portal")
+@limiter.limit("30/minute")
 async def create_portal_session(
+    request: Request,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
@@ -396,7 +405,8 @@ async def _handle_invoice_paid(data: dict, session: AsyncSession):
 
 # ─── GET /api/billing/plans ──────────────────────
 @router.get("/plans")
-async def list_plans():
+@limiter.limit("30/minute")
+async def list_plans(request: Request):
     """Public endpoint: list available plans with pricing."""
     return {
         "plans": [
@@ -466,7 +476,9 @@ async def list_plans():
 
 # ─── POST /api/billing/setup-products ────────────
 @router.post("/setup-products")
+@limiter.limit("30/minute")
 async def setup_stripe_products(
+    request: Request,
     user: User = Depends(get_current_user),
 ):
     """One-time setup: create Stripe products and prices for all tiers.
@@ -552,6 +564,7 @@ async def _get_price_id(plan_id: str) -> Optional[str]:
 
 # ─── GET /api/billing/config ─────────────────────
 @router.get("/config")
-async def billing_config():
+@limiter.limit("30/minute")
+async def billing_config(request: Request):
     """Return publishable key for frontend Stripe.js initialization."""
     return {"publishable_key": settings.STRIPE_PUBLISHABLE_KEY}

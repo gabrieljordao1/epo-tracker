@@ -3,11 +3,13 @@ import time
 import uuid
 import re
 from contextlib import asynccontextmanager
-from collections import defaultdict
 
 from fastapi import FastAPI, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler as _default_429  # noqa: F401
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from .core.config import get_settings
@@ -68,6 +70,7 @@ if _settings.SENTRY_DSN:
 
 from .core.database import init_db, close_db  # noqa: E402
 from .core.auth import decode_token  # noqa: E402
+from .core.rate_limit import limiter, rate_limit_exceeded_handler  # noqa: E402
 from .api import auth, epos, demo, team, email_sync, vendor_portal, exports, activity, gmail_webhook, attachments, approvals, notifications, portal, billing, builder_analytics, daily_reports, punch_list, budgets, work_orders, sub_payments  # noqa: E402
 
 settings = get_settings()
@@ -79,58 +82,6 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger("epo_tracker")
-
-
-# ─── Rate Limiter (in-memory, simple) ──────────
-class RateLimitMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, calls_per_minute: int = 60):
-        super().__init__(app)
-        self.calls_per_minute = calls_per_minute
-        self.requests: dict = defaultdict(list)
-
-    async def dispatch(self, request: Request, call_next):
-        # Skip rate limiting for health checks and docs
-        if request.url.path in ("/api/health", "/docs", "/openapi.json", "/"):
-            return await call_next(request)
-
-        # Determine rate limit key: prefer authenticated user ID over IP
-        rate_limit_key = self._get_rate_limit_key(request)
-        now = time.time()
-        window = 60  # seconds
-
-        # Clean old entries
-        self.requests[rate_limit_key] = [
-            t for t in self.requests[rate_limit_key] if now - t < window
-        ]
-
-        if len(self.requests[rate_limit_key]) >= self.calls_per_minute:
-            key_type = "user" if rate_limit_key.startswith("user_") else "ip"
-            logger.warning(f"Rate limit exceeded for {key_type}={rate_limit_key} on {request.url.path}")
-            return Response(
-                content='{"detail":"Rate limit exceeded. Try again in a minute."}',
-                status_code=429,
-                media_type="application/json",
-            )
-
-        self.requests[rate_limit_key].append(now)
-        return await call_next(request)
-
-    def _get_rate_limit_key(self, request: Request) -> str:
-        """Get the rate limit key: prefer user ID if authenticated, fall back to IP."""
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
-            try:
-                from .core.auth import decode_token
-                token = auth_header.replace("Bearer ", "")
-                payload = decode_token(token)
-                if payload and payload.get("sub"):
-                    return f"user_{payload.get('sub')}"
-            except Exception:
-                pass
-
-        # Fall back to IP address
-        client_ip = request.client.host if request.client else "unknown"
-        return f"ip_{client_ip}"
 
 
 # ─── Request Logging Middleware ─────────────────
@@ -239,10 +190,14 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.ENVIRONMENT != "production" else None,
     )
 
+    # ─── slowapi rate limiter ───
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
     # Middleware (order matters — last added = first executed)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestLoggingMiddleware)
-    app.add_middleware(RateLimitMiddleware, calls_per_minute=settings.RATE_LIMIT_PER_MINUTE)
+    app.add_middleware(SlowAPIMiddleware)
 
     # CORS — use whitelist in production for security
     cors_origins = []
@@ -365,7 +320,7 @@ def create_app() -> FastAPI:
             "status": "healthy",
             "service": settings.APP_NAME,
             "environment": settings.ENVIRONMENT,
-            "build_marker": "v45-email-date-revenue-trend-2026-04-19",
+            "build_marker": "v46-slowapi-rate-limiting-2026-04-19",
             "ai_keys": {
                 "gemini": bool(settings.GOOGLE_AI_API_KEY),
                 "anthropic": bool(settings.ANTHROPIC_API_KEY),
