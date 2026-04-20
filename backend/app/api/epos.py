@@ -153,13 +153,19 @@ async def get_epo(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> EPODetailResponse:
-    """Get a specific EPO with followups"""
+    """Get a specific EPO with followups.
+    Field role users can only access their own EPOs.
+    """
     try:
         query = (
             select(EPO)
             .options(selectinload(EPO.followups))
             .where(and_(EPO.id == epo_id, EPO.company_id == current_user.company_id))
         )
+        # Field users can only see their own EPOs
+        if current_user.role == UserRole.FIELD:
+            query = query.where(EPO.created_by_id == current_user.id)
+
         result = await session.execute(query)
         epo = result.scalars().first()
 
@@ -187,11 +193,15 @@ async def update_epo(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> EPOResponse:
-    """Update an EPO"""
+    """Update an EPO. Field users can only update their own EPOs."""
     try:
         query = select(EPO).where(
             and_(EPO.id == epo_id, EPO.company_id == current_user.company_id)
         )
+        # Field users can only update their own EPOs
+        if current_user.role == UserRole.FIELD:
+            query = query.where(EPO.created_by_id == current_user.id)
+
         result = await session.execute(query)
         epo = result.scalars().first()
 

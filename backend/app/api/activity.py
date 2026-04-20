@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
-from ..models.models import User, EPO, EPOFollowup, EPOStatus
+from ..models.models import User, EPO, EPOFollowup, EPOStatus, UserRole
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/activity", tags=["activity"])
@@ -24,27 +24,36 @@ async def get_activity_feed(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    """Get recent activity feed for the company dashboard."""
+    """Get recent activity feed for the company dashboard.
+    Field role users only see activity for their own EPOs.
+    """
     since = datetime.utcnow() - timedelta(days=days)
     company_id = current_user.company_id
+    is_field = current_user.role == UserRole.FIELD
 
     # Get recent EPOs
+    epo_filters = [EPO.company_id == company_id, EPO.created_at >= since]
+    if is_field:
+        epo_filters.append(EPO.created_by_id == current_user.id)
+
     epo_query = select(EPO).where(
-        and_(
-            EPO.company_id == company_id,
-            EPO.created_at >= since,
-        )
+        and_(*epo_filters)
     ).order_by(EPO.created_at.desc()).limit(limit)
 
     epo_result = await session.execute(epo_query)
     recent_epos = epo_result.scalars().all()
 
-    # Get recent followups
-    followup_query = select(EPOFollowup).where(
-        and_(
-            EPOFollowup.company_id == company_id,
-            EPOFollowup.created_at >= since,
+    # Get recent followups (scope to user's EPOs for field users)
+    followup_filters = [EPOFollowup.company_id == company_id, EPOFollowup.created_at >= since]
+    if is_field:
+        # Only show followups for EPOs the field user created
+        user_epo_ids = select(EPO.id).where(
+            and_(EPO.company_id == company_id, EPO.created_by_id == current_user.id)
         )
+        followup_filters.append(EPOFollowup.epo_id.in_(user_epo_ids))
+
+    followup_query = select(EPOFollowup).where(
+        and_(*followup_filters)
     ).order_by(EPOFollowup.created_at.desc()).limit(limit)
 
     followup_result = await session.execute(followup_query)
@@ -90,25 +99,32 @@ async def get_today_stats(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    """Quick stats for today's activity."""
+    """Quick stats for today's activity.
+    Field role users only see stats for their own EPOs.
+    """
     today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     company_id = current_user.company_id
+    is_field = current_user.role == UserRole.FIELD
 
     # Today's EPOs
-    today_query = select(EPO).where(
-        and_(EPO.company_id == company_id, EPO.created_at >= today_start)
-    )
+    today_filters = [EPO.company_id == company_id, EPO.created_at >= today_start]
+    if is_field:
+        today_filters.append(EPO.created_by_id == current_user.id)
+
+    today_query = select(EPO).where(and_(*today_filters))
     today_result = await session.execute(today_query)
     today_epos = today_result.scalars().all()
 
     # Pending needing attention
-    attention_query = select(EPO).where(
-        and_(
-            EPO.company_id == company_id,
-            EPO.status == EPOStatus.PENDING,
-            EPO.days_open >= 4,
-        )
-    )
+    attention_filters = [
+        EPO.company_id == company_id,
+        EPO.status == EPOStatus.PENDING,
+        EPO.days_open >= 4,
+    ]
+    if is_field:
+        attention_filters.append(EPO.created_by_id == current_user.id)
+
+    attention_query = select(EPO).where(and_(*attention_filters))
     attention_result = await session.execute(attention_query)
     needs_attention = attention_result.scalars().all()
 

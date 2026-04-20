@@ -9,6 +9,7 @@ import {
   Settings,
   LogOut,
   DollarSign,
+  Users,
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
@@ -40,6 +41,9 @@ export function MobileNav() {
       queryClient.prefetchQuery({ queryKey: ["epos", undefined, supervisorId], queryFn: () => getEPOs(undefined, supervisorId) });
       queryClient.prefetchQuery({ queryKey: ["stats", supervisorId], queryFn: () => getStats(supervisorId) });
     },
+    "/team": () => {
+      queryClient.prefetchQuery({ queryKey: ["teamMembers"], queryFn: () => getTeamMembers() });
+    },
     "/settings": () => {
       // Settings page doesn't need prefetch
     },
@@ -49,6 +53,7 @@ export function MobileNav() {
     { href: "/", label: "Home", icon: LayoutDashboard },
     { href: "/epos", label: "EPOs", icon: FileText },
     { href: "/profit", label: "Profit", icon: DollarSign },
+    { href: "/team", label: "Team", icon: Users },
     { href: "/analytics", label: "Stats", icon: TrendingUp },
     { href: "/settings", label: "More", icon: Settings },
   ];
@@ -101,8 +106,9 @@ export function MobileNav() {
                     ? "text-green"
                     : "text-text3"
                 }`}
+                style={{ minWidth: 0 }}
               >
-                <Icon size={20} />
+                <Icon size={18} />
                 <span className="text-[10px] font-medium">{item.label}</span>
               </Link>
             );

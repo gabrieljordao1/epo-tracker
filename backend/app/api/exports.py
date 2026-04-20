@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
-from ..models.models import User, EPO, EPOStatus
+from ..models.models import User, EPO, EPOStatus, UserRole
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/exports", tags=["exports"])
@@ -30,8 +30,14 @@ async def export_epos_csv(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
-    """Export EPOs as CSV download."""
+    """Export EPOs as CSV download.
+    Field role users only export their own EPOs.
+    """
     query = select(EPO).where(EPO.company_id == current_user.company_id)
+
+    # Field users only see their own EPOs
+    if current_user.role == UserRole.FIELD:
+        query = query.where(EPO.created_by_id == current_user.id)
 
     if status_filter and status_filter != "all":
         query = query.where(EPO.status == status_filter)
