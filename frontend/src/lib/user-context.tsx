@@ -68,7 +68,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const loadTeam = async () => {
     try {
       const data = await getTeamMembers();
-      const members: TeamMember[] = data.members || [];
+      const members: TeamMember[] = Array.isArray(data) ? data : [];
       if (members.length > 0) {
         setTeamMembers(members);
         const admin = members.find((m) => m.role === "admin");
