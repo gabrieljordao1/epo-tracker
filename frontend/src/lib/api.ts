@@ -13,9 +13,17 @@ let storedRefreshToken: string | null = null;
 export function setAuthToken(token: string | null) {
   authToken = token;
   if (token) {
-    if (typeof window !== "undefined") localStorage.setItem("epo_token", token);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("epo_token", token);
+      // Set a cookie so Next.js middleware can detect auth state
+      document.cookie = "epo_auth=1; path=/; max-age=2592000; SameSite=Lax";
+    }
   } else {
-    if (typeof window !== "undefined") localStorage.removeItem("epo_token");
+    if (typeof window !== "undefined") {
+      localStorage.removeItem("epo_token");
+      // Clear the auth cookie
+      document.cookie = "epo_auth=; path=/; max-age=0";
+    }
   }
 }
 
@@ -647,9 +655,10 @@ export async function deleteLotItem(itemId: number): Promise<void> {
   if (!res.ok) throw new Error("Failed to delete lot item");
 }
 
-export async function autoSplitLotItems(epoId: number): Promise<LotItem[]> {
+export async function autoSplitLotItems(epoId: number, force = false): Promise<LotItem[]> {
   await ensureTokenValid();
-  const res = await fetch(`${API_BASE}/api/epos/${epoId}/lot-items/auto-split`, {
+  const url = `${API_BASE}/api/epos/${epoId}/lot-items/auto-split${force ? '?force=true' : ''}`;
+  const res = await fetch(url, {
     method: "POST",
     headers: authHeaders(),
   });

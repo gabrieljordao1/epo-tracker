@@ -1,16 +1,50 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { Sidebar } from "@/components/Sidebar";
 import { Topbar } from "@/components/Topbar";
 import { MobileNav } from "@/components/MobileNav";
+import { getAuthToken } from "@/lib/api";
+
+/** Routes that don't require authentication */
+const PUBLIC_ROUTES = ["/login", "/vendor", "/early-access", "/reset-password"];
 
 export function LayoutShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [authChecked, setAuthChecked] = useState(false);
+
+  const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
+
+  // Client-side auth check (backup — middleware handles the primary redirect)
+  useEffect(() => {
+    if (isPublicRoute) {
+      setAuthChecked(true);
+      return;
+    }
+    const token = getAuthToken();
+    if (!token) {
+      // Clear any stale auth cookie and redirect
+      document.cookie = "epo_auth=; path=/; max-age=0";
+      router.replace("/login");
+    } else {
+      // Sync cookie for existing sessions (users who logged in before cookie was added)
+      if (!document.cookie.includes("epo_auth")) {
+        document.cookie = "epo_auth=1; path=/; max-age=2592000; SameSite=Lax";
+      }
+      setAuthChecked(true);
+    }
+  }, [pathname, isPublicRoute, router]);
 
   // Standalone pages — no sidebar or topbar
-  if (pathname.startsWith("/vendor") || pathname.startsWith("/login") || pathname.startsWith("/early-access") || pathname.startsWith("/reset-password")) {
+  if (isPublicRoute) {
     return <>{children}</>;
+  }
+
+  // Show nothing until auth check completes (prevents flash of dashboard)
+  if (!authChecked) {
+    return null;
   }
 
   return (

@@ -1,51 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
 
+/** Routes that don't require authentication */
+const PUBLIC_ROUTES = ["/login", "/vendor", "/early-access", "/reset-password"];
+
+/** Static assets and API routes that should always pass through */
+const STATIC_ROUTES = [
+  "/_next/",
+  "/favicon.ico",
+  "/favicon.svg",
+  "/favicon-32.png",
+  "/icon-192.png",
+  "/onyx-logo.svg",
+];
+
 export function middleware(request: NextRequest) {
   const { pathname, hostname } = request.nextUrl;
 
+  // Always allow static assets
+  if (STATIC_ROUTES.some((route) => pathname.startsWith(route))) {
+    return NextResponse.next();
+  }
+
   // Determine if this is the main onyxepos.com domain
   const isMainDomain =
-    hostname === "onyxepos.com" ||
-    hostname === "www.onyxepos.com";
+    hostname === "onyxepos.com" || hostname === "www.onyxepos.com";
 
-  // If on main domain, redirect to early access page (with exceptions)
+  // If on main domain, redirect to early access page (for now)
   if (isMainDomain) {
-    // Allow these routes to pass through
-    const allowedRoutes = [
-      "/early-access",
-      "/api/waitlist",
-      "/_next/",
-      "/favicon.ico",
-      "/favicon.svg",
-      "/favicon-32.png",
-      "/icon-192.png",
-      "/onyx-logo.svg",
-    ];
-
-    const isAllowed = allowedRoutes.some(route => {
-      if (route.endsWith("/")) {
-        return pathname.startsWith(route);
-      }
-      return pathname === route;
-    });
-
+    const allowedOnMain = ["/early-access", "/api/waitlist"];
+    const isAllowed = allowedOnMain.some((route) => pathname.startsWith(route));
     if (!isAllowed) {
-      // Redirect all other routes to early access page
       const url = request.nextUrl.clone();
       url.pathname = "/early-access";
       return NextResponse.redirect(url);
     }
+    return NextResponse.next();
   }
 
-  // For all other cases (localhost, frontend-two-puce-27.vercel.app, etc.), let everything through
+  // ── Auth guard for all other domains (Vercel preview, etc.) ──
+  const isPublicRoute = PUBLIC_ROUTES.some((route) =>
+    pathname.startsWith(route)
+  );
+  if (isPublicRoute) {
+    return NextResponse.next();
+  }
+
+  // Check for auth cookie (set by setAuthToken in api.ts on login)
+  const hasAuth = request.cookies.has("epo_auth");
+  if (!hasAuth) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/login";
+    return NextResponse.redirect(url);
+  }
+
   return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    // Apply middleware to all routes except static files and API routes
-    // API routes must be excluded so Vercel rewrites can proxy them
-    // with full headers (including Authorization) intact
+    // Apply to all routes except static files and API routes
     "/((?!_next/static|_next/image|api/|favicon\\.ico|favicon\\.svg|favicon-32\\.png|icon-192\\.png|onyx-logo\\.svg).*)",
   ],
 };
