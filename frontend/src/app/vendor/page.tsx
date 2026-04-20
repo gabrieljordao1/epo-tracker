@@ -2,6 +2,7 @@
 
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle,
   AlertTriangle,
@@ -33,11 +34,8 @@ export default function VendorPortalPage() {
 function VendorContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token") || "";
+  const queryClient = useQueryClient();
 
-  const [data, setData] = useState<VendorEPO | null>(null);
-  const [history, setHistory] = useState<VendorHistory | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [confirmNumber, setConfirmNumber] = useState("");
   const [disputeNote, setDisputeNote] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
@@ -46,59 +44,60 @@ function VendorContent() {
     type: "success" | "error";
     message: string;
   } | null>(null);
-  const [submitting, setSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (!token) {
-      setError("No access token provided. Please use the link from your email.");
-      setLoading(false);
-      return;
-    }
-    loadData();
-  }, [token]);
+  // React Query hooks for vendor data
+  const epoQuery = useQuery({
+    queryKey: ["vendorEPO", token],
+    queryFn: () => (token ? getVendorEPO(token) : Promise.reject(new Error("No token"))),
+    enabled: !!token,
+  });
 
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      const [epoData, historyData] = await Promise.all([
-        getVendorEPO(token),
-        getVendorHistory(token).catch(() => null),
-      ]);
-      setData(epoData);
-      setHistory(historyData);
-    } catch (err: any) {
-      setError(err.message || "Failed to load EPO data");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const historyQuery = useQuery({
+    queryKey: ["vendorHistory", token],
+    queryFn: () => (token ? getVendorHistory(token) : Promise.reject(new Error("No token"))),
+    enabled: !!token,
+  });
 
-  const handleConfirm = async () => {
-    setSubmitting(true);
-    try {
-      const result = await vendorConfirmEPO(token, confirmNumber || undefined);
+  // Mutations
+  const confirmMutation = useMutation({
+    mutationFn: () => vendorConfirmEPO(token, confirmNumber || undefined),
+    onSuccess: (result) => {
       setActionResult({ type: "success", message: result.message });
       setShowConfirm(false);
-      await loadData();
-    } catch (err: any) {
+      queryClient.invalidateQueries({ queryKey: ["vendorEPO", token] });
+      queryClient.invalidateQueries({ queryKey: ["vendorHistory", token] });
+    },
+    onError: (err: any) => {
       setActionResult({ type: "error", message: err.message });
-    } finally {
-      setSubmitting(false);
-    }
+    },
+  });
+
+  const disputeMutation = useMutation({
+    mutationFn: () => vendorDisputeEPO(token, disputeNote || undefined),
+    onSuccess: (result) => {
+      setActionResult({ type: "success", message: result.message });
+      setShowDispute(false);
+      queryClient.invalidateQueries({ queryKey: ["vendorEPO", token] });
+      queryClient.invalidateQueries({ queryKey: ["vendorHistory", token] });
+    },
+    onError: (err: any) => {
+      setActionResult({ type: "error", message: err.message });
+    },
+  });
+
+  const data = epoQuery.data || null;
+  const history = historyQuery.data || null;
+  const loading = epoQuery.isLoading;
+  const error = !token
+    ? "No access token provided. Please use the link from your email."
+    : epoQuery.error?.message || "";
+
+  const handleConfirm = async () => {
+    confirmMutation.mutate();
   };
 
   const handleDispute = async () => {
-    setSubmitting(true);
-    try {
-      const result = await vendorDisputeEPO(token, disputeNote || undefined);
-      setActionResult({ type: "success", message: result.message });
-      setShowDispute(false);
-      await loadData();
-    } catch (err: any) {
-      setActionResult({ type: "error", message: err.message });
-    } finally {
-      setSubmitting(false);
-    }
+    disputeMutation.mutate();
   };
 
   const getStatusBadge = (status: string) => {
@@ -300,10 +299,10 @@ function VendorContent() {
             <div className="flex gap-3">
               <button
                 onClick={handleConfirm}
-                disabled={submitting}
+                disabled={confirmMutation.isPending}
                 className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-semibold rounded-lg transition-colors disabled:opacity-50"
               >
-                {submitting ? "Confirming..." : "Submit Confirmation"}
+                {confirmMutation.isPending ? "Confirming..." : "Submit Confirmation"}
               </button>
               <button
                 onClick={() => setShowConfirm(false)}
@@ -334,10 +333,10 @@ function VendorContent() {
             <div className="flex gap-3">
               <button
                 onClick={handleDispute}
-                disabled={submitting}
+                disabled={disputeMutation.isPending}
                 className="flex-1 py-3 bg-amber-500 hover:bg-amber-400 text-black font-semibold rounded-lg transition-colors disabled:opacity-50"
               >
-                {submitting ? "Submitting..." : "Submit Dispute"}
+                {disputeMutation.isPending ? "Submitting..." : "Submit Dispute"}
               </button>
               <button
                 onClick={() => setShowDispute(false)}

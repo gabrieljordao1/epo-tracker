@@ -15,16 +15,14 @@ import {
   List,
   LayoutGrid,
 } from "lucide-react";
+import { PunchItem, PunchSummary, updatePunchItem } from "@/lib/api";
 import {
-  getPunchItems,
-  getPunchSummary,
-  createPunchItem,
-  updatePunchItem,
-  completePunchItem,
-  verifyPunchItem,
-  PunchItem,
-  PunchSummary,
-} from "@/lib/api";
+  useGetPunchItems,
+  useGetPunchSummary,
+  useCreatePunchItem,
+  useCompletePunchItem,
+  useVerifyPunchItem,
+} from "@/hooks/usePunchList";
 
 const CATEGORIES = {
   drywall_damage: "Drywall Damage",
@@ -70,9 +68,6 @@ const PRIORITY_COLORS: Record<string, { dot: string; bg: string }> = {
 export default function PunchListPage() {
   const [mounted, setMounted] = useState(false);
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
-  const [items, setItems] = useState<PunchItem[]>([]);
-  const [summary, setSummary] = useState<PunchSummary | null>(null);
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
   const [selectedItem, setSelectedItem] = useState<PunchItem | null>(null);
@@ -100,76 +95,59 @@ export default function PunchListPage() {
 
   useEffect(() => {
     setMounted(true);
-    loadData();
   }, []);
 
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [itemsRes, summaryRes] = await Promise.all([
-        getPunchItems({
-          community: filters.community || undefined,
-          status: filters.status || undefined,
-          priority: filters.priority || undefined,
-          category: filters.category || undefined,
-        }),
-        getPunchSummary(),
-      ]);
-      setItems(itemsRes.items);
-      setSummary(summaryRes);
-    } catch (err) {
-      console.error("Failed to load punch list:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // React Query hooks for data fetching
+  const punchItemsQuery = useGetPunchItems({
+    community: filters.community || undefined,
+    status: filters.status || undefined,
+    priority: filters.priority || undefined,
+    category: filters.category || undefined,
+  });
 
-  useEffect(() => {
-    if (mounted) loadData();
-  }, [filters]);
+  const summaryQuery = useGetPunchSummary();
+  const createMutation = useCreatePunchItem();
+  const completeMutation = useCompletePunchItem();
+  const verifyMutation = useVerifyPunchItem();
+
+  const items = punchItemsQuery.data?.items || [];
+  const summary = summaryQuery.data || null;
+  const loading = punchItemsQuery.isLoading || summaryQuery.isLoading;
 
   const handleCreateItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    try {
-      await createPunchItem(formData);
-      setFormData({
-        community: "",
-        lot_number: "",
-        location: "",
-        title: "",
-        description: "",
-        category: "other",
-        priority: "medium",
-        reported_by: "",
-        builder_name: "",
-        due_date: "",
-        resolution_notes: "",
-      });
-      setShowModal(false);
-      loadData();
-    } catch (err) {
-      console.error("Failed to create punch item:", err);
-    }
+    createMutation.mutate(formData, {
+      onSuccess: () => {
+        setFormData({
+          community: "",
+          lot_number: "",
+          location: "",
+          title: "",
+          description: "",
+          category: "other",
+          priority: "medium",
+          reported_by: "",
+          builder_name: "",
+          due_date: "",
+          resolution_notes: "",
+        });
+        setShowModal(false);
+      },
+    });
   };
 
   const handleCompleteItem = async (itemId: number) => {
-    try {
-      await completePunchItem(itemId, {
-        resolution_notes: "Completed",
-      });
-      loadData();
-    } catch (err) {
-      console.error("Failed to complete item:", err);
-    }
+    completeMutation.mutate({
+      id: itemId,
+      data: { resolution_notes: "Completed" },
+    });
   };
 
   const handleVerifyItem = async (itemId: number, approved: boolean) => {
-    try {
-      await verifyPunchItem(itemId, approved);
-      loadData();
-    } catch (err) {
-      console.error("Failed to verify item:", err);
-    }
+    verifyMutation.mutate({
+      id: itemId,
+      approved,
+    });
   };
 
   if (!mounted) return null;
@@ -464,7 +442,7 @@ export default function PunchListPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              updatePunchItem(item.id, { status: "in_progress" }).then(() => loadData());
+                              updatePunchItem(item.id, { status: "in_progress" });
                             }}
                             className="text-xs px-2 py-1 rounded bg-amber-dim text-amber hover:bg-amber-dim transition-colors"
                           >

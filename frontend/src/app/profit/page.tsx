@@ -1,14 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
-  getProfitSummary,
-  createSubPayment,
-  deleteSubPayment,
   type EPOProfitSummary,
   type ProfitOverview,
   type SubPayment,
 } from "@/lib/api";
+import { useProfitSummary, useCreateSubPayment, useDeleteSubPayment, useUpdateSubPayment } from "@/hooks/useProfit";
 import {
   DollarSign,
   TrendingUp,
@@ -20,6 +18,9 @@ import {
   Loader2,
   Search,
 } from "lucide-react";
+import { useEffect } from "react";
+import { MultiLotModal } from "@/components/MultiLotModal";
+import type { EPO } from "@/lib/api";
 
 const TRADES = [
   "Drywaller",
@@ -39,10 +40,6 @@ function fmt(n: number) {
 }
 
 export default function ProfitTrackerPage() {
-  const [mounted, setMounted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [overview, setOverview] = useState<ProfitOverview | null>(null);
-  const [epos, setEpos] = useState<EPOProfitSummary[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [addingTo, setAddingTo] = useState<number | null>(null);
   const [search, setSearch] = useState("");
@@ -54,27 +51,20 @@ export default function ProfitTrackerPage() {
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+  const [multiLotModalOpen, setMultiLotModalOpen] = useState(false);
+  const [selectedBundle, setSelectedBundle] = useState<{ epos: EPO[]; label: string } | null>(null);
 
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  // Fetch data with hooks
+  const { data: profitData, isLoading } = useProfitSummary();
+  const overview = profitData?.overview || null;
+  const epos = profitData?.epos || [];
 
-  const load = async () => {
-    try {
-      const data = await getProfitSummary();
-      setOverview(data.overview);
-      setEpos(data.epos);
-    } catch (err) {
-      console.error("Failed to load profit summary", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Mutation hooks
+  const createMutation = useCreateSubPayment();
+  const deleteMutation = useDeleteSubPayment();
+  const updateMutation = useUpdateSubPayment();
 
-  useEffect(() => {
-    if (!mounted) return;
-    load();
-  }, [mounted]);
+  const loading = isLoading;
 
   const resetForm = () => {
     setSubName("");
@@ -96,7 +86,7 @@ export default function ProfitTrackerPage() {
 
     setSaving(true);
     try {
-      await createSubPayment({
+      await createMutation.mutateAsync({
         epo_id: epoId,
         sub_name: subName.trim(),
         sub_trade: subTrade,
@@ -106,7 +96,6 @@ export default function ProfitTrackerPage() {
       });
       resetForm();
       setAddingTo(null);
-      await load();
     } catch (err: any) {
       alert(`Failed to add payment: ${err.message}`);
     } finally {
@@ -117,10 +106,59 @@ export default function ProfitTrackerPage() {
   const handleDelete = async (paymentId: number) => {
     if (!confirm("Delete this sub payment?")) return;
     try {
-      await deleteSubPayment(paymentId);
-      await load();
+      await deleteMutation.mutateAsync(paymentId);
     } catch (err: any) {
       alert(`Failed to delete: ${err.message}`);
+    }
+  };
+
+  // Helper function to detect if an EPO is part of a multi-lot bundle
+  const getBundle = (targetEpo: EPOProfitSummary) => {
+    const bundleEpos = filteredEpos.filter((epo) => {
+      if (epo.epo_id === targetEpo.epo_id) return true;
+      // Match vendor, community, and creation time within 1 hour
+      const timeDiff = Math.abs(
+        new Date(epo.created_at).getTime() - new Date(targetEpo.created_at).getTime()
+      );
+      return (
+        epo.vendor_name === targetEpo.vendor_name &&
+        epo.community === targetEpo.community &&
+        timeDiff <= 60 * 60 * 1000 // 1 hour
+      );
+    });
+    return bundleEpos.length > 1 ? bundleEpos : null;
+  };
+
+  // Convert EPOProfitSummary to EPO for modal display
+  const convertToEPO = (profitEpo: EPOProfitSummary): EPO => ({
+    id: profitEpo.epo_id,
+    vendor_name: profitEpo.vendor_name,
+    vendor_email: "",
+    community: profitEpo.community,
+    lot_number: profitEpo.lot_number,
+    description: profitEpo.description,
+    amount: profitEpo.epo_amount,
+    status: (profitEpo.status as any) || "pending",
+    confirmation_number: null,
+    days_open: 0,
+    needs_review: false,
+    confidence_score: 1,
+    parse_model: "",
+    synced_from_email: false,
+    email_date: null,
+    created_at: profitEpo.created_at,
+  });
+
+  const handleBundleClick = (epo: EPOProfitSummary) => {
+    const bundle = getBundle(epo);
+    if (bundle && bundle.length > 1) {
+      const label = `${epo.vendor_name} - ${epo.community} (${bundle.length} lots)`;
+      const convertedEpos = bundle.map(convertToEPO);
+      setSelectedBundle({ epos: convertedEpos, label });
+      setMultiLotModalOpen(true);
+    } else {
+      // Single EPO, just expand it
+      setExpandedId(epo.epo_id);
     }
   };
 
@@ -138,7 +176,7 @@ export default function ProfitTrackerPage() {
     return matchesSearch && matchesFilter;
   });
 
-  if (!mounted || loading) {
+  if (loading) {
     return (
       <div className="min-h-screen bg-[#0a0a0a] p-8 flex items-center justify-center">
         <Loader2 className="animate-spin text-text2" size={32} />
@@ -268,7 +306,7 @@ export default function ProfitTrackerPage() {
             >
               {/* Header row */}
               <button
-                onClick={() => setExpandedId(expanded ? null : epo.epo_id)}
+                onClick={() => handleBundleClick(epo)}
                 className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface transition-colors text-left"
               >
                 {expanded ? (
@@ -335,7 +373,7 @@ export default function ProfitTrackerPage() {
                       <div className="text-xs text-text3 font-medium">
                         Sub Payments ({epo.payments.length})
                       </div>
-                      {epo.payments.map((p) => (
+                      {epo.payments.map((p: any) => (
                         <div
                           key={p.id}
                           className="flex items-center gap-3 bg-surface rounded-md px-3 py-2"
@@ -446,6 +484,19 @@ export default function ProfitTrackerPage() {
           );
         })}
       </div>
+
+      {/* Multi-Lot Modal */}
+      {selectedBundle && (
+        <MultiLotModal
+          isOpen={multiLotModalOpen}
+          onClose={() => {
+            setMultiLotModalOpen(false);
+            setSelectedBundle(null);
+          }}
+          epos={selectedBundle.epos}
+          bundleLabel={selectedBundle.label}
+        />
+      )}
     </div>
   );
 }

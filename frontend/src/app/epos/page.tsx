@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { getEPOs, getStats, sendFollowup, downloadCSV, batchFollowup, updateEPO, backfillEPOAmounts, syncRecentGmail } from "@/lib/api";
+import { downloadCSV } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
+import { useEPOs, useStats, useSendFollowup, useBatchFollowup, useBackfillEPOAmounts, useSyncRecentGmail, useUpdateEPO } from "@/hooks/useEPOs";
 import {
   AlertCircle,
   Plus,
@@ -21,17 +22,16 @@ import {
 import type { EPO } from "@/lib/api";
 import { AddEPOModal } from "@/components/AddEPOModal";
 import { EPODetailDrawer } from "@/components/EPODetailDrawer";
+import { MultiLotModal } from "@/components/MultiLotModal";
 import { useRouter } from "next/navigation";
 
 export default function EPOsPage() {
   const router = useRouter();
   const { supervisorId, activeUser, isBossView } = useUser();
-  const [epos, setEpos] = useState<EPO[]>([]);
   const [filter, setFilter] = useState<
     "all" | "pending" | "confirmed" | "denied" | "discount"
   >("all");
   const [search, setSearch] = useState("");
-  const [stats, setStats] = useState({ total: 0 });
   const [followingUp, setFollowingUp] = useState<number | null>(null);
   const [followupResult, setFollowupResult] = useState<{
     id: number;
@@ -44,7 +44,6 @@ export default function EPOsPage() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [hasGmailConnected, setHasGmailConnected] = useState<boolean | null>(null);
   const [needsReconnect, setNeedsReconnect] = useState<boolean>(false);
-  const [loading, setLoading] = useState(true);
   const [selectedEPO, setSelectedEPO] = useState<EPO | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
@@ -55,18 +54,52 @@ export default function EPOsPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [backfillResult, setBackfillResult] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [multiLotModalOpen, setMultiLotModalOpen] = useState(false);
+  const [selectedBundle, setSelectedBundle] = useState<{ epos: EPO[]; label: string } | null>(null);
+
+  // Fetch data with hooks
+  const { data: epos = [], isLoading: loading, refetch: refetchEPOs } = useEPOs({ supervisorId });
+  const { data: stats = { total: 0 } } = useStats(supervisorId);
+
+  // Mutation hooks
+  const sendFollowupMutation = useSendFollowup();
+  const batchFollowupMutation = useBatchFollowup();
+  const backfillMutation = useBackfillEPOAmounts();
+  const syncMutation = useSyncRecentGmail();
+  const updateMutation = useUpdateEPO();
+
+  // Check if user has Gmail connected
+  const checkGmail = async () => {
+    try {
+      const resp = await fetch("/api/email/status", {
+        headers: { Authorization: `Bearer ${localStorage.getItem("epo_token") || ""}` },
+      });
+      if (resp.ok) {
+        const data = await resp.json();
+        setHasGmailConnected(data.active_connections > 0);
+        setNeedsReconnect(!!data.needs_reconnect);
+      }
+    } catch {
+      setHasGmailConnected(null);
+    }
+  };
+
+  // Check if user has Gmail connected
+  useEffect(() => {
+    checkGmail();
+  }, []);
 
   const handleSyncRecent = async () => {
     if (!confirm("Pull the last 14 days of emails from Gmail and process any missed EPOs? This may take 1-3 minutes.")) return;
     setSyncing(true);
     setBackfillResult(null);
     try {
-      const result = await syncRecentGmail(14);
+      const result = await syncMutation.mutateAsync(14);
       setBackfillResult(
         `Synced: ${result.new_epos_created} new EPOs, ${result.replies_processed} replies, ` +
         `${result.skipped_already_ingested} already had (fetched ${result.total_fetched} total)`
       );
-      await loadData();
+      refetchEPOs();
     } catch (err: any) {
       setBackfillResult(`Sync error: ${err.message || "Failed"}`);
     } finally {
@@ -79,56 +112,18 @@ export default function EPOsPage() {
     setBackfilling(true);
     setBackfillResult(null);
     try {
-      const result = await backfillEPOAmounts();
+      const result = await backfillMutation.mutateAsync();
       setBackfillResult(
         `Recovered ${result.updated_total} of ${result.total_checked} EPOs ` +
         `(regex: ${result.updated_regex}, AI: ${result.updated_ai}, Gmail refetch: ${result.updated_gmail_refetch})`
       );
-      await loadData();
+      refetchEPOs();
     } catch (err: any) {
       setBackfillResult(`Error: ${err.message || "Failed"}`);
     } finally {
       setBackfilling(false);
     }
   };
-
-  const loadData = async () => {
-    try {
-      const [eposData, statsData] = await Promise.all([
-        getEPOs(undefined, supervisorId),
-        getStats(supervisorId),
-      ]);
-      setEpos(eposData);
-      setStats(statsData);
-    } catch (err) {
-      console.error("Failed to load EPOs:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Check if user has Gmail connected
-  useEffect(() => {
-    const checkGmail = async () => {
-      try {
-        const resp = await fetch("/api/email/status", {
-          headers: { Authorization: `Bearer ${localStorage.getItem("epo_token") || ""}` },
-        });
-        if (resp.ok) {
-          const data = await resp.json();
-          setHasGmailConnected(data.active_connections > 0);
-          setNeedsReconnect(!!data.needs_reconnect);
-        }
-      } catch {
-        setHasGmailConnected(null);
-      }
-    };
-    checkGmail();
-  }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [supervisorId]);
 
   // Listen for command palette "new EPO" event
   useEffect(() => {
@@ -141,7 +136,7 @@ export default function EPOsPage() {
     setFollowingUp(epoId);
     setFollowupResult(null);
     try {
-      const result = await sendFollowup(epoId);
+      const result = await sendFollowupMutation.mutateAsync(epoId);
       setFollowupResult({
         id: epoId,
         msg: result.message || "Follow-up sent",
@@ -164,7 +159,7 @@ export default function EPOsPage() {
     setBatchSending(true);
     setBatchResult(null);
     try {
-      const result = await batchFollowup();
+      const result = await batchFollowupMutation.mutateAsync();
       setBatchResult(result.message || `Sent ${result.sent} follow-ups`);
       setTimeout(() => setBatchResult(null), 5000);
     } catch (err: any) {
@@ -210,11 +205,11 @@ export default function EPOsPage() {
     try {
       await Promise.all(
         Array.from(selectedIds).map((id) =>
-          updateEPO(id, { status: newStatus } as any)
+          updateMutation.mutateAsync({ id, updates: { status: newStatus } as any })
         )
       );
       setSelectedIds(new Set());
-      loadData();
+      refetchEPOs();
     } catch (err) {
       console.error("Bulk update failed:", err);
     } finally {
@@ -298,6 +293,37 @@ export default function EPOsPage() {
   const needsFollowupCount = epos.filter(
     (e) => e.status === "pending" && (e.days_open || 0) >= 4
   ).length;
+
+  // Helper function to detect if an EPO is part of a multi-lot bundle
+  // Bundles are detected by matching vendor_name + community + created_at (within 1 hour)
+  const getBundle = (targetEpo: EPO) => {
+    const bundleEpos = filteredEpos.filter((epo) => {
+      if (epo.id === targetEpo.id) return true;
+      // Match vendor, community, and creation time within 1 hour
+      const timeDiff = Math.abs(
+        new Date(epo.created_at).getTime() - new Date(targetEpo.created_at).getTime()
+      );
+      return (
+        epo.vendor_name === targetEpo.vendor_name &&
+        epo.community === targetEpo.community &&
+        timeDiff <= 60 * 60 * 1000 // 1 hour
+      );
+    });
+    return bundleEpos.length > 1 ? bundleEpos : null;
+  };
+
+  const handleBundleClick = (epo: EPO) => {
+    const bundle = getBundle(epo);
+    if (bundle && bundle.length > 1) {
+      const label = `${epo.vendor_name} - ${epo.community} (${bundle.length} lots)`;
+      setSelectedBundle({ epos: bundle, label });
+      setMultiLotModalOpen(true);
+    } else {
+      // Single EPO, show drawer
+      setSelectedEPO(epo);
+      setDrawerOpen(true);
+    }
+  };
 
   return (
     <div className="p-4 md:p-8 space-y-4 md:space-y-6">
@@ -531,7 +557,7 @@ export default function EPOsPage() {
               <tr
                 key={epo.id}
                 className="border-b border-card-border hover:bg-surface/50 transition-colors cursor-pointer"
-                onClick={() => { setSelectedEPO(epo); setDrawerOpen(true); }}
+                onClick={() => handleBundleClick(epo)}
               >
                 <td className="px-3 py-4" onClick={(e) => e.stopPropagation()}>
                   <input
@@ -672,7 +698,7 @@ export default function EPOsPage() {
       ) : (
       <div className="md:hidden space-y-3">
         {filteredEpos.map((epo) => (
-          <div key={epo.id} className="card p-4 space-y-3 cursor-pointer" onClick={() => { setSelectedEPO(epo); setDrawerOpen(true); }}>
+          <div key={epo.id} className="card p-4 space-y-3 cursor-pointer" onClick={() => handleBundleClick(epo)}>
             {/* Top row: builder + status */}
             <div className="flex items-start justify-between">
               <div>
@@ -758,7 +784,7 @@ export default function EPOsPage() {
       <AddEPOModal
         open={showAddModal}
         onClose={() => setShowAddModal(false)}
-        onCreated={() => loadData()}
+        onCreated={() => refetchEPOs()}
       />
 
       {/* EPO Detail Drawer */}
@@ -766,8 +792,21 @@ export default function EPOsPage() {
         epo={selectedEPO}
         open={drawerOpen}
         onClose={() => { setDrawerOpen(false); setSelectedEPO(null); }}
-        onUpdated={() => { loadData(); }}
+        onUpdated={() => { refetchEPOs(); }}
       />
+
+      {/* Multi-Lot Modal */}
+      {selectedBundle && (
+        <MultiLotModal
+          isOpen={multiLotModalOpen}
+          onClose={() => {
+            setMultiLotModalOpen(false);
+            setSelectedBundle(null);
+          }}
+          epos={selectedBundle.epos}
+          bundleLabel={selectedBundle.label}
+        />
+      )}
 
       {/* Follow-up Alert with Batch Action */}
       {needsFollowupCount > 0 && (

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   PieChart,
   Pie,
@@ -16,8 +16,9 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { getEPOs, getStats, downloadCSV, getExportSummary } from "@/lib/api";
+import { downloadCSV, getExportSummary } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
+import { useStats, useEPOs } from "@/hooks/useEPOs";
 import type { EPO, Stats } from "@/lib/api";
 import {
   TrendingUp,
@@ -95,154 +96,135 @@ function Skeleton() {
 export default function AnalyticsPage() {
   const { supervisorId, activeUser, isBossView } = useUser();
 
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [epos, setEPOs] = useState<EPO[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: stats = null, isLoading } = useStats(supervisorId);
+  const { data: epos = [], isLoading: eposLoading } = useEPOs({
+    supervisorId,
+  });
+
   const [exporting, setExporting] = useState(false);
   const [exportDays, setExportDays] = useState(30);
 
+  // Compute loading state
+  const loading = isLoading || eposLoading;
+
   // Processed chart data
-  const [statusData, setStatusData] = useState<ChartData[]>([]);
-  const [monthlyData, setMonthlyData] = useState<ChartData[]>([]);
-  const [vendorData, setVendorData] = useState<ChartData[]>([]);
-  const [communityData, setCommunityData] = useState<ChartData[]>([]);
-  const [vendorStats, setVendorStats] = useState<VendorStats[]>([]);
-  const [overdueEPOs, setOverdueEPOs] = useState<OverdueEPO[]>([]);
-
-  useEffect(() => {
-    const loadData = async () => {
-      try {
-        setLoading(true);
-
-        // Load stats and EPOs
-        const [statsData, eposData] = await Promise.all([
-          getStats(supervisorId),
-          getEPOs(undefined, supervisorId),
-        ]);
-
-        setStats(statsData);
-        setEPOs(eposData);
-
-        // Process status breakdown
-        if (eposData.length > 0) {
-          const statusBreakdown = {
-            confirmed: eposData.filter((e) => e.status === "confirmed").length,
-            pending: eposData.filter((e) => e.status === "pending").length,
-            denied: eposData.filter((e) => e.status === "denied").length,
-            discount: eposData.filter((e) => e.status === "discount").length,
-          };
-
-          setStatusData([
-            { name: "Confirmed", value: statusBreakdown.confirmed },
-            { name: "Pending", value: statusBreakdown.pending },
-            { name: "Denied", value: statusBreakdown.denied },
-            { name: "Discount", value: statusBreakdown.discount },
-          ]);
-
-          // Process monthly trend
-          const monthlyMap: Record<string, number> = {};
-          eposData.forEach((e) => {
-            const date = new Date(e.created_at);
-            const monthKey = date.toLocaleDateString("en-US", {
-              year: "numeric",
-              month: "short",
-            });
-            monthlyMap[monthKey] = (monthlyMap[monthKey] || 0) + 1;
-          });
-
-          const sortedMonths = Object.entries(monthlyMap)
-            .sort((a, b) => {
-              const dateA = new Date(a[0]);
-              const dateB = new Date(b[0]);
-              return dateA.getTime() - dateB.getTime();
-            })
-            .slice(-12);
-
-          setMonthlyData(
-            sortedMonths.map(([month, count]) => ({
-              name: month,
-              count,
-            }))
-          );
-
-          // Process vendor data
-          const vendorMap: Record<
-            string,
-            { count: number; amount: number }
-          > = {};
-          eposData.forEach((e) => {
-            const vendor = e.vendor_name || "Unknown";
-            if (!vendorMap[vendor]) {
-              vendorMap[vendor] = { count: 0, amount: 0 };
-            }
-            vendorMap[vendor].count++;
-            vendorMap[vendor].amount += e.amount || 0;
-          });
-
-          const topVendors = Object.entries(vendorMap)
-            .map(([name, data]) => ({
-              name,
-              count: data.count,
-              amount: data.amount,
-            }))
-            .sort((a, b) => b.count - a.count)
-            .slice(0, 8);
-
-          setVendorData(topVendors);
-
-          // Vendor statistics for table
-          setVendorStats(
-            Object.entries(vendorMap)
-              .map(([name, data]) => ({
-                vendor: name,
-                totalValue: data.amount,
-                epoCount: data.count,
-                avgAmount: Math.round(data.amount / data.count),
-              }))
-              .sort((a, b) => b.totalValue - a.totalValue)
-              .slice(0, 10)
-          );
-
-          // Process community data
-          const communityMap: Record<string, number> = {};
-          eposData.forEach((e) => {
-            const community = e.community || "Unknown";
-            communityMap[community] = (communityMap[community] || 0) + 1;
-          });
-
-          setCommunityData(
-            Object.entries(communityMap)
-              .map(([name, count]) => ({
-                name,
-                count,
-              }))
-              .sort((a, b) => b.count - a.count)
-          );
-
-          // Overdue EPOs (more than 30 days open)
-          const overdue = eposData
-            .filter((e) => e.days_open > 30 && e.status === "pending")
-            .map((e) => ({
-              vendor: e.vendor_name || "Unknown",
-              community: e.community || "Unknown",
-              daysOpen: e.days_open,
-              amount: e.amount || 0,
-              status: e.status,
-            }))
-            .sort((a, b) => b.daysOpen - a.daysOpen)
-            .slice(0, 10);
-
-          setOverdueEPOs(overdue);
-        }
-      } catch (error) {
-        console.error("Failed to load analytics data:", error);
-      } finally {
-        setLoading(false);
-      }
+  const statusData: ChartData[] = (() => {
+    if (!epos.length) return [];
+    const statusBreakdown = {
+      confirmed: epos.filter((e) => e.status === "confirmed").length,
+      pending: epos.filter((e) => e.status === "pending").length,
+      denied: epos.filter((e) => e.status === "denied").length,
+      discount: epos.filter((e) => e.status === "discount").length,
     };
+    return [
+      { name: "Confirmed", value: statusBreakdown.confirmed },
+      { name: "Pending", value: statusBreakdown.pending },
+      { name: "Denied", value: statusBreakdown.denied },
+      { name: "Discount", value: statusBreakdown.discount },
+    ];
+  })();
 
-    loadData();
-  }, [supervisorId]);
+  const monthlyData: ChartData[] = (() => {
+    if (!epos.length) return [];
+    const monthlyMap: Record<string, number> = {};
+    epos.forEach((e) => {
+      const date = new Date(e.created_at);
+      const monthKey = date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+      });
+      monthlyMap[monthKey] = (monthlyMap[monthKey] || 0) + 1;
+    });
+
+    const sortedMonths = Object.entries(monthlyMap)
+      .sort((a, b) => {
+        const dateA = new Date(a[0]);
+        const dateB = new Date(b[0]);
+        return dateA.getTime() - dateB.getTime();
+      })
+      .slice(-12);
+
+    return sortedMonths.map(([month, count]) => ({
+      name: month,
+      count,
+    }));
+  })();
+
+  const vendorData: ChartData[] = (() => {
+    if (!epos.length) return [];
+    const vendorMap: Record<string, { count: number; amount: number }> = {};
+    epos.forEach((e) => {
+      const vendor = e.vendor_name || "Unknown";
+      if (!vendorMap[vendor]) {
+        vendorMap[vendor] = { count: 0, amount: 0 };
+      }
+      vendorMap[vendor].count++;
+      vendorMap[vendor].amount += e.amount || 0;
+    });
+
+    return Object.entries(vendorMap)
+      .map(([name, data]) => ({
+        name,
+        count: data.count,
+        amount: data.amount,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+  })();
+
+  const vendorStats: VendorStats[] = (() => {
+    if (!epos.length) return [];
+    const vendorMap: Record<string, { count: number; amount: number }> = {};
+    epos.forEach((e) => {
+      const vendor = e.vendor_name || "Unknown";
+      if (!vendorMap[vendor]) {
+        vendorMap[vendor] = { count: 0, amount: 0 };
+      }
+      vendorMap[vendor].count++;
+      vendorMap[vendor].amount += e.amount || 0;
+    });
+
+    return Object.entries(vendorMap)
+      .map(([name, data]) => ({
+        vendor: name,
+        totalValue: data.amount,
+        epoCount: data.count,
+        avgAmount: Math.round(data.amount / data.count),
+      }))
+      .sort((a, b) => b.totalValue - a.totalValue)
+      .slice(0, 10);
+  })();
+
+  const communityData: ChartData[] = (() => {
+    if (!epos.length) return [];
+    const communityMap: Record<string, number> = {};
+    epos.forEach((e) => {
+      const community = e.community || "Unknown";
+      communityMap[community] = (communityMap[community] || 0) + 1;
+    });
+
+    return Object.entries(communityMap)
+      .map(([name, count]) => ({
+        name,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count);
+  })();
+
+  const overdueEPOs: OverdueEPO[] = (() => {
+    if (!epos.length) return [];
+    return epos
+      .filter((e) => e.days_open > 30 && e.status === "pending")
+      .map((e) => ({
+        vendor: e.vendor_name || "Unknown",
+        community: e.community || "Unknown",
+        daysOpen: e.days_open,
+        amount: e.amount || 0,
+        status: e.status,
+      }))
+      .sort((a, b) => b.daysOpen - a.daysOpen)
+      .slice(0, 10);
+  })();
 
   const handleExportCSV = async () => {
     try {

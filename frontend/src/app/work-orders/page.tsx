@@ -20,8 +20,13 @@ import {
   ArrowLeft,
   ArrowRight,
 } from "lucide-react";
-import { WorkOrder, WorkOrderSummary, getWorkOrders, getWorkOrderSummary, getWeekSchedule } from "@/lib/api";
+import { WorkOrder, WorkOrderSummary } from "@/lib/api";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import {
+  useGetWorkOrders,
+  useGetWorkOrderSummary,
+  useGetWeekSchedule,
+} from "@/hooks/useWorkOrders";
 
 const WORK_TYPES = {
   drywall_hang: "Drywall Hang",
@@ -56,9 +61,6 @@ const STATUSES = {
 export default function WorkOrdersPage() {
   const [mounted, setMounted] = useState(false);
   const [view, setView] = useState<"list" | "schedule">("list");
-  const [orders, setOrders] = useState<WorkOrder[]>([]);
-  const [summary, setSummary] = useState<WorkOrderSummary | null>(null);
-  const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [filters, setFilters] = useState({
@@ -69,53 +71,27 @@ export default function WorkOrdersPage() {
     assigned_to_id: "",
   });
   const [currentWeek, setCurrentWeek] = useState(getWeekStart(new Date()));
-  const [weekSchedule, setWeekSchedule] = useState<{ [key: string]: WorkOrder[] }>({});
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Fetch work orders
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        const [ordersData, summaryData] = await Promise.all([
-          getWorkOrders({
-            community: filters.community || undefined,
-            status: filters.status || undefined,
-            priority: filters.priority || undefined,
-            work_type: filters.work_type || undefined,
-          }),
-          getWorkOrderSummary(),
-        ]);
-        setOrders(ordersData.orders || []);
-        setSummary(summaryData);
-      } catch (error) {
-        console.error("Failed to fetch work orders:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  // React Query hooks
+  const workOrdersQuery = useGetWorkOrders({
+    community: filters.community || undefined,
+    status: filters.status || undefined,
+    priority: filters.priority || undefined,
+    work_type: filters.work_type || undefined,
+  });
 
-    fetchData();
-  }, [filters]);
+  const summaryQuery = useGetWorkOrderSummary();
 
-  // Fetch week schedule
-  useEffect(() => {
-    const fetchSchedule = async () => {
-      try {
-        const data = await getWeekSchedule(currentWeek);
-        setWeekSchedule(data || {});
-      } catch (error) {
-        console.error("Failed to fetch week schedule:", error);
-      }
-    };
+  const scheduleQuery = useGetWeekSchedule(view === "schedule" ? currentWeek : undefined);
 
-    if (view === "schedule") {
-      fetchSchedule();
-    }
-  }, [view, currentWeek]);
+  const orders = workOrdersQuery.data?.orders || [];
+  const summary = summaryQuery.data || null;
+  const weekSchedule = scheduleQuery.data || {};
+  const loading = workOrdersQuery.isLoading || summaryQuery.isLoading;
 
   if (!mounted || loading) {
     return (

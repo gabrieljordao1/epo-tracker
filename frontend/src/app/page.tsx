@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AreaChart,
@@ -26,15 +26,12 @@ import {
   FileText,
 } from "lucide-react";
 import {
-  getStats,
-  getEPOs,
-  getActivityFeed,
-  getTodayStats,
   downloadCSV,
-  batchFollowup,
 } from "@/lib/api";
 import type { ActivityItem } from "@/lib/api";
 import { useUser } from "@/lib/user-context";
+import { useGetStats, useGetEPOs, useActivityFeed, useTodayStats } from "@/hooks/useDashboard";
+import { useBatchFollowup } from "@/hooks/useEPOs";
 
 const stagger = {
   hidden: {},
@@ -51,7 +48,11 @@ const fadeUp = {
 
 export default function Dashboard() {
   const { supervisorId, activeUser, isBossView } = useUser();
-  const [stats, setStats] = useState<any>({
+  const [exporting, setExporting] = useState(false);
+  const [batchSending, setBatchSending] = useState(false);
+  const [batchResult, setBatchResult] = useState<string | null>(null);
+
+  const { data: stats = {
     total: 0,
     capture_rate: 0,
     total_value: 0,
@@ -61,33 +62,18 @@ export default function Dashboard() {
     denied: 0,
     discount: 0,
     avg_amount: 0,
-  });
-  const [epos, setEpos] = useState<any[]>([]);
-  const [activity, setActivity] = useState<ActivityItem[]>([]);
-  const [todayStats, setTodayStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [exporting, setExporting] = useState(false);
-  const [batchSending, setBatchSending] = useState(false);
-  const [batchResult, setBatchResult] = useState<string | null>(null);
+  }, isLoading: statsLoading } = useGetStats(supervisorId);
 
-  const loadData = async () => {
-    setLoading(true);
-    const [statsData, eposData, activityData, todayData] = await Promise.all([
-      getStats(supervisorId),
-      getEPOs(undefined, supervisorId),
-      getActivityFeed(10, 7),
-      getTodayStats(),
-    ]);
-    setStats(statsData);
-    setEpos(eposData);
-    setActivity(activityData.feed);
-    setTodayStats(todayData);
-    setLoading(false);
-  };
+  const { data: epos = [], isLoading: eposLoading } = useGetEPOs(undefined, supervisorId);
 
-  useEffect(() => {
-    loadData();
-  }, [supervisorId]);
+  const { data: activityData, isLoading: activityLoading } = useActivityFeed(10, 7);
+  const activity = activityData?.feed || [];
+
+  const { data: todayStats } = useTodayStats();
+
+  const batchFollowupMutation = useBatchFollowup();
+
+  const loading = statsLoading || eposLoading || activityLoading;
 
   const handleExportCSV = async () => {
     setExporting(true);
@@ -104,7 +90,7 @@ export default function Dashboard() {
     setBatchSending(true);
     setBatchResult(null);
     try {
-      const result = await batchFollowup();
+      const result = await batchFollowupMutation.mutateAsync();
       setBatchResult(result.message || `Sent ${result.sent} follow-ups`);
       setTimeout(() => setBatchResult(null), 5000);
     } catch (err: any) {
@@ -326,8 +312,8 @@ export default function Dashboard() {
         <MetricCard
           label="Total EPOs"
           value={stats.total.toString()}
-          change={stats.followUpChange}
-          isPositive={(stats.followUpChange || 0) >= 0}
+          change={(stats as any).followUpChange || 0}
+          isPositive={((stats as any).followUpChange || 0) >= 0}
           icon={<FileText className="w-6 h-6 md:w-7 md:h-7 text-blue-400" />}
           color="text-blue-400"
           subtitle={`${stats.confirmed || 0} confirmed`}
@@ -335,8 +321,8 @@ export default function Dashboard() {
         <MetricCard
           label="Capture Rate"
           value={`${stats.capture_rate}%`}
-          change={stats.captureRateChange}
-          isPositive={(stats.captureRateChange || 0) >= 0}
+          change={(stats as any).captureRateChange || 0}
+          isPositive={((stats as any).captureRateChange || 0) >= 0}
           icon={<TrendingUp className="w-6 h-6 md:w-7 md:h-7 text-emerald-400" />}
           color="text-emerald-400"
           subtitle={`${stats.confirmed || 0} of ${stats.total || 0} confirmed`}
@@ -348,8 +334,8 @@ export default function Dashboard() {
               ? (stats.total_value / 1000).toFixed(1) + "K"
               : stats.total_value.toFixed(0)
           }`}
-          change={stats.valueChange}
-          isPositive={(stats.valueChange || 0) >= 0}
+          change={(stats as any).valueChange || 0}
+          isPositive={((stats as any).valueChange || 0) >= 0}
           icon={<DollarSign className="w-6 h-6 md:w-7 md:h-7 text-amber-400" />}
           color="text-amber-400"
           subtitle={`${stats.total || 0} total EPOs`}

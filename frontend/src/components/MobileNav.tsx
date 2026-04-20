@@ -12,14 +12,38 @@ import {
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
-import { logout } from "@/lib/api";
+import { logout, getStats, getEPOs, getProfitSummary, getTodayStats, getActivityFeed, getDailyReportSummary, getTeamMembers } from "@/lib/api";
+import { queryClient } from "@/lib/query-client";
 
 export function MobileNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, activeUser, isDemoMode } = useUser();
+  const { currentUser, activeUser, isDemoMode, supervisorId } = useUser();
   const displayUser = activeUser || currentUser;
   const displayName = displayUser?.full_name || "User";
+
+  // Prefetch map: href -> prefetch functions
+  const prefetchMap: Record<string, () => void> = {
+    "/": () => {
+      queryClient.prefetchQuery({ queryKey: ["stats", supervisorId], queryFn: () => getStats(supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["epos", undefined, supervisorId], queryFn: () => getEPOs(undefined, supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["todayStats"], queryFn: () => getTodayStats() });
+    },
+    "/epos": () => {
+      queryClient.prefetchQuery({ queryKey: ["epos", undefined, supervisorId], queryFn: () => getEPOs(undefined, supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["stats", supervisorId], queryFn: () => getStats(supervisorId) });
+    },
+    "/profit": () => {
+      queryClient.prefetchQuery({ queryKey: ["profitSummary"], queryFn: () => getProfitSummary() });
+    },
+    "/analytics": () => {
+      queryClient.prefetchQuery({ queryKey: ["epos", undefined, supervisorId], queryFn: () => getEPOs(undefined, supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["stats", supervisorId], queryFn: () => getStats(supervisorId) });
+    },
+    "/settings": () => {
+      // Settings page doesn't need prefetch
+    },
+  };
 
   const navItems = [
     { href: "/", label: "Home", icon: LayoutDashboard },
@@ -66,6 +90,12 @@ export function MobileNav() {
               <Link
                 key={item.href}
                 href={item.href}
+                onMouseEnter={() => {
+                  const prefetch = prefetchMap[item.href];
+                  if (prefetch) {
+                    prefetch();
+                  }
+                }}
                 className={`flex flex-col items-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-[56px] ${
                   active
                     ? "text-green"

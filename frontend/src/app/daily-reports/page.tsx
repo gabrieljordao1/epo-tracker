@@ -1,18 +1,17 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useCallback } from "react";
+import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { type DailyReport, type DailyReportSummary } from "@/lib/api";
 import {
-  getDailyReports,
-  getDailyReportSummary,
-  getDailyReport,
-  createDailyReport,
-  updateDailyReport,
-  submitDailyReport,
-  deleteDailyReport,
-  type DailyReport,
-  type DailyReportSummary,
-} from "@/lib/api";
+  useGetDailyReports,
+  useGetDailyReportSummary,
+  useCreateDailyReport,
+  useUpdateDailyReport,
+  useSubmitDailyReport,
+  useDeleteDailyReport,
+} from "@/hooks/useDailyReports";
 import {
   Plus,
   BarChart3,
@@ -146,10 +145,6 @@ function SummaryCard({
 
 // ─── Main Page Component ────────────────────────
 export default function DailyReportsPage() {
-  const [mounted, setMounted] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [summary, setSummary] = useState<DailyReportSummary | null>(null);
-  const [reports, setReports] = useState<DailyReport[]>([]);
   const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingReport, setEditingReport] = useState<DailyReport | null>(null);
@@ -177,39 +172,24 @@ export default function DailyReportsPage() {
     safety_incidents: false,
   });
 
-  // Load data
-  useEffect(() => {
-    setMounted(true);
-    fetchData();
-  }, []);
+  // Hook queries
+  const { data: summaryData, isLoading: summaryLoading } = useGetDailyReportSummary();
+  const { data: reportsData, isLoading: reportsLoading } = useGetDailyReports({
+    community: communityFilter || undefined,
+    status: statusFilter !== "all" ? statusFilter : undefined,
+    date_from: dateFromFilter || undefined,
+    date_to: dateToFilter || undefined,
+  });
 
-  const fetchData = useCallback(async () => {
-    try {
-      setLoading(true);
-      const [summaryData, reportsData] = await Promise.all([
-        getDailyReportSummary(),
-        getDailyReports({
-          community: communityFilter || undefined,
-          status: statusFilter !== "all" ? statusFilter : undefined,
-          date_from: dateFromFilter || undefined,
-          date_to: dateToFilter || undefined,
-        }),
-      ]);
-      setSummary(summaryData);
-      setReports(reportsData.reports);
-    } catch (error) {
-      console.error("Failed to load daily reports:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [communityFilter, statusFilter, dateFromFilter, dateToFilter]);
+  // Mutations
+  const createMutation = useCreateDailyReport();
+  const updateMutation = useUpdateDailyReport();
+  const submitMutation = useSubmitDailyReport();
+  const deleteMutation = useDeleteDailyReport();
 
-  // Refetch when filters change
-  useEffect(() => {
-    if (mounted) {
-      fetchData();
-    }
-  }, [communityFilter, statusFilter, dateFromFilter, dateToFilter, fetchData]);
+  const summary = summaryData || null;
+  const reports = reportsData?.reports || [];
+  const loading = summaryLoading || reportsLoading;
 
   const handleCreateNew = () => {
     setEditingReport(null);
@@ -238,12 +218,14 @@ export default function DailyReportsPage() {
   const handleSaveAsDraft = async () => {
     try {
       if (editingReport) {
-        await updateDailyReport(editingReport.id, formData);
+        await updateMutation.mutateAsync({
+          id: editingReport.id,
+          data: formData,
+        });
       } else {
-        await createDailyReport({ ...formData, status: "draft" });
+        await createMutation.mutateAsync({ ...formData, status: "draft" });
       }
       setIsModalOpen(false);
-      fetchData();
     } catch (error) {
       console.error("Failed to save report:", error);
     }
@@ -252,17 +234,19 @@ export default function DailyReportsPage() {
   const handleSubmit = async () => {
     try {
       if (editingReport) {
-        await updateDailyReport(editingReport.id, formData);
-        await submitDailyReport(editingReport.id);
+        await updateMutation.mutateAsync({
+          id: editingReport.id,
+          data: formData,
+        });
+        await submitMutation.mutateAsync(editingReport.id);
       } else {
-        const report = await createDailyReport({
+        const report = await createMutation.mutateAsync({
           ...formData,
           status: "draft",
         });
-        await submitDailyReport(report.id);
+        await submitMutation.mutateAsync(report.id);
       }
       setIsModalOpen(false);
-      fetchData();
     } catch (error) {
       console.error("Failed to submit report:", error);
     }
@@ -271,14 +255,11 @@ export default function DailyReportsPage() {
   const handleDelete = async (id: number) => {
     if (!confirm("Delete this report?")) return;
     try {
-      await deleteDailyReport(id);
-      fetchData();
+      await deleteMutation.mutateAsync(id);
     } catch (error) {
       console.error("Failed to delete report:", error);
     }
   };
-
-  if (!mounted) return null;
 
   return (
     <div className="flex-1 min-h-screen overflow-auto">

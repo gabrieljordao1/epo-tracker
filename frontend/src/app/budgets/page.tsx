@@ -25,13 +25,15 @@ import {
   Cell,
 } from "recharts";
 import {
-  getBudgetOverview,
-  getBudgetTrends,
-  createBudget,
   CommunityBudget,
   BudgetOverview,
   BudgetTrendMonth,
 } from "@/lib/api";
+import {
+  useGetBudgetOverview,
+  useGetBudgetTrends,
+  useCreateBudget,
+} from "@/hooks/useBudgets";
 
 // Stat Card Component
 function StatCard({
@@ -378,34 +380,38 @@ function CreateBudgetModal({
     equipment_budget: "",
     notes: "",
   });
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+
+  const createMutation = useCreateBudget();
+  const [formLoading, setFormLoading] = useState(false);
+  const [formError, setFormError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError("");
+    setFormLoading(true);
+    setFormError("");
 
-    try {
-      const data = {
-        community: formData.community,
-        budget_amount: parseFloat(formData.budget_amount),
-        period_start: formData.period_start,
-        period_end: formData.period_end,
-        labor_budget: formData.labor_budget ? parseFloat(formData.labor_budget) : null,
-        materials_budget: formData.materials_budget ? parseFloat(formData.materials_budget) : null,
-        equipment_budget: formData.equipment_budget ? parseFloat(formData.equipment_budget) : null,
-        notes: formData.notes || null,
-        is_active: true,
-      };
+    const data = {
+      community: formData.community,
+      budget_amount: parseFloat(formData.budget_amount),
+      period_start: formData.period_start,
+      period_end: formData.period_end,
+      labor_budget: formData.labor_budget ? parseFloat(formData.labor_budget) : null,
+      materials_budget: formData.materials_budget ? parseFloat(formData.materials_budget) : null,
+      equipment_budget: formData.equipment_budget ? parseFloat(formData.equipment_budget) : null,
+      notes: formData.notes || null,
+      is_active: true,
+    };
 
-      await createBudget(data);
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create budget");
-    } finally {
-      setLoading(false);
-    }
+    createMutation.mutate(data, {
+      onSuccess: () => {
+        setFormLoading(false);
+        onSuccess();
+      },
+      onError: (err) => {
+        setFormError(err instanceof Error ? err.message : "Failed to create budget");
+        setFormLoading(false);
+      },
+    });
   };
 
   return (
@@ -442,9 +448,9 @@ function CreateBudgetModal({
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
-            {error && (
+            {formError && (
               <div className="p-3 bg-red-dim border border-red-bdr rounded-lg text-sm text-red">
-                {error}
+                {formError}
               </div>
             )}
 
@@ -563,11 +569,11 @@ function CreateBudgetModal({
             <div className="pt-2">
               <button
                 type="submit"
-                disabled={loading}
+                disabled={formLoading}
                 className="w-full px-4 py-3 bg-green hover:bg-green disabled:opacity-50 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2"
               >
                 <Plus size={18} />
-                {loading ? "Creating..." : "Create Budget"}
+                {formLoading ? "Creating..." : "Create Budget"}
               </button>
             </div>
           </form>
@@ -580,55 +586,26 @@ function CreateBudgetModal({
 // Main Page
 export default function BudgetsPage() {
   const [mounted, setMounted] = useState(false);
-  const [overview, setOverview] = useState<BudgetOverview | null>(null);
-  const [trends, setTrends] = useState<BudgetTrendMonth[]>([]);
   const [selectedCommunity, setSelectedCommunity] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   // Hydration guard
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Load overview
-  useEffect(() => {
-    loadOverview();
-  }, []);
+  // React Query hooks
+  const overviewQuery = useGetBudgetOverview();
+  const trendsQuery = useGetBudgetTrends(selectedCommunity || "");
+  const createMutation = useCreateBudget();
 
-  // Load trends when community is selected
-  useEffect(() => {
-    if (selectedCommunity) {
-      loadTrends(selectedCommunity);
-    }
-  }, [selectedCommunity]);
-
-  const loadOverview = async () => {
-    try {
-      setLoading(true);
-      setError("");
-      const data = await getBudgetOverview();
-      setOverview(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load budgets");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadTrends = async (community: string) => {
-    try {
-      const data = await getBudgetTrends(community);
-      setTrends(data);
-    } catch (err) {
-      console.error("Failed to load trends:", err);
-    }
-  };
+  const overview = overviewQuery.data || null;
+  const trends = trendsQuery.data || [];
+  const loading = overviewQuery.isLoading;
+  const error = overviewQuery.error?.message || "";
 
   const handleSuccess = () => {
     setShowCreateModal(false);
-    loadOverview();
   };
 
   const allCommunities = useMemo(() => {
@@ -787,7 +764,6 @@ export default function BudgetsPage() {
         trends={trends}
         onClose={() => {
           setSelectedCommunity(null);
-          setTrends([]);
         }}
       />
 

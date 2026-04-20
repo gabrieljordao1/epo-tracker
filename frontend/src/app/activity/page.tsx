@@ -2,8 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { getActivityFeed, getEPOs } from "@/lib/api";
+import { getEPOs } from "@/lib/api";
 import type { ActivityItem, EPO } from "@/lib/api";
+import { useActivityFeed } from "@/hooks/useActivity";
 import {
   Activity,
   Mail,
@@ -208,8 +209,6 @@ const EmptyState = () => (
 );
 
 export default function ActivityPage() {
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(7);
   const [typeFilter, setTypeFilter] = useState("all");
@@ -218,43 +217,28 @@ export default function ActivityPage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // Load activities
+  // Fetch activities with hook
+  const { data: activityData, isLoading: loading, refetch, error: hookError } = useActivityFeed(100, days);
+  const activities = activityData?.feed || [];
+
+  // Load activities callback for manual refresh
   const loadActivities = useCallback(async () => {
     try {
       setError(null);
-      const feed = await getActivityFeed(100, days);
-
-      if (feed && Array.isArray(feed)) {
-        setActivities(feed);
-      } else {
-        // Fallback: construct from EPOs if API fails
-        const epos = await getEPOs();
-        if (epos && Array.isArray(epos)) {
-          const fallbackActivities: ActivityItem[] = epos.map((epo: EPO) => ({
-            type: "epo_created",
-            timestamp: epo.created_at || new Date().toISOString(),
-            title: `EPO Created — ${epo.vendor_name}, ${epo.community}`,
-            description: `New EPO created for lot ${epo.lot_number}`,
-            status: epo.status,
-            epo_id: epo.id,
-            icon: "bell",
-          }));
-          setActivities(fallbackActivities);
-        }
-      }
+      await refetch();
       setLastRefresh(new Date());
     } catch (err) {
       setError("Failed to load activity feed");
       console.error("Activity feed error:", err);
-    } finally {
-      setLoading(false);
     }
-  }, [days]);
+  }, [refetch]);
 
-  // Initial load
+  // Set hook error if it occurs
   useEffect(() => {
-    loadActivities();
-  }, [loadActivities]);
+    if (hookError) {
+      setError("Failed to load activity feed");
+    }
+  }, [hookError]);
 
   // Auto-refresh
   useEffect(() => {

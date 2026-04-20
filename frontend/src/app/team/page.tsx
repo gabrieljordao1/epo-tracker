@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import React from "react";
 import { Users, ChevronRight, AlertTriangle, CheckCircle, Copy, Check, Trophy, Medal, ArrowUp, UserPlus, Zap, Crown } from "lucide-react";
+import { useTeamMembers } from "@/hooks/useTeam";
 
 const API_BASE = typeof window !== "undefined" ? "" : (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000");
 
@@ -37,7 +39,7 @@ const rankColors = [
 ];
 
 export default function TeamPage() {
-  const [members, setMembers] = useState<TeamMember[]>([]);
+  const { data: members = [], isLoading } = useTeamMembers();
   const [selectedMember, setSelectedMember] = useState<TeamMember | null>(null);
   const [memberEpos, setMemberEpos] = useState<any[]>([]);
   const [inviteCode, setInviteCode] = useState<string | null>(null);
@@ -49,17 +51,12 @@ export default function TeamPage() {
   const [joinError, setJoinError] = useState("");
   const [joinSuccess, setJoinSuccess] = useState("");
 
-  useEffect(() => {
+  // Fetch invite code, company name, and Gmail status on mount
+  React.useEffect(() => {
     const token = typeof window !== "undefined" ? localStorage.getItem("epo_token") : null;
     if (!token) return;
 
     const headers = { Authorization: `Bearer ${token}` };
-
-    // Fetch team members (include all roles — admins are company owners and should appear)
-    fetch(`${API_BASE}/api/team/members`, { headers })
-      .then((r) => r.json())
-      .then((d) => setMembers(d.members || []))
-      .catch(() => setMembers([]));
 
     // Fetch invite code + company name
     fetch(`${API_BASE}/api/auth/invite-code`, { headers })
@@ -136,7 +133,7 @@ export default function TeamPage() {
   };
 
   // Leaderboard: rank by capture rate, then by total EPOs as tiebreaker
-  const ranked = [...members]
+  const ranked = [...(members || [])]
     .filter((m) => (m.stats?.total ?? 0) > 0)
     .sort((a, b) => {
       const bRate = b.stats?.capture_rate ?? 0;
@@ -175,7 +172,7 @@ export default function TeamPage() {
       )}
 
       {/* ═══ Join Team — always available (collapsible) ═══ */}
-      {members.length <= 1 && (
+      {(members || []).length <= 1 && (
         <div className="card p-5 bg-surface space-y-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: "rgba(144,191,249,0.12)", border: "1px solid rgba(144,191,249,0.25)" }}>
@@ -331,13 +328,13 @@ export default function TeamPage() {
       )}
 
       {/* Members with 0 EPOs — not ranked */}
-      {members.filter((m) => (m.stats?.total ?? 0) === 0).length > 0 && (
+      {(members || []).filter((m: TeamMember) => (m.stats?.total ?? 0) === 0).length > 0 && (
         <div className="card p-4">
           <div className="text-xs text-text3 uppercase tracking-wide mb-3">Not yet ranked (0 EPOs)</div>
           <div className="flex flex-wrap gap-2">
-            {members
-              .filter((m) => (m.stats?.total ?? 0) === 0)
-              .map((m) => (
+            {(members || [])
+              .filter((m: TeamMember) => (m.stats?.total ?? 0) === 0)
+              .map((m: TeamMember) => (
                 <div
                   key={m.id}
                   className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs"
@@ -347,7 +344,7 @@ export default function TeamPage() {
                     className="w-5 h-5 rounded flex items-center justify-center text-[10px] font-semibold"
                     style={{ background: "rgba(255,255,255,0.08)", color: "rgba(255,255,255,0.4)" }}
                   >
-                    {(m.full_name || "?").split(" ").map((n) => n[0] || "").join("")}
+                    {(m.full_name || "?").split(" ").map((n: string) => n[0] || "").join("")}
                   </div>
                   <span className="text-text2">{m.full_name}</span>
                 </div>
@@ -427,7 +424,7 @@ export default function TeamPage() {
       )}
 
       {/* Empty state */}
-      {!selectedMember && members.length === 0 && hasGmail !== null && (
+      {!selectedMember && (members || []).length === 0 && hasGmail !== null && (
         <div className="card p-12 text-center">
           <Users size={32} className="mx-auto mb-3 text-text3" />
           <p className="text-text2 text-sm">

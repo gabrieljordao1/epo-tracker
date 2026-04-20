@@ -19,12 +19,13 @@ import {
 } from "lucide-react";
 import { OnyxLogo } from "@/components/OnyxLogo";
 import { useUser } from "@/lib/user-context";
-import { logout, getAuthToken } from "@/lib/api";
+import { logout, getAuthToken, getStats, getEPOs, getProfitSummary, getTodayStats, getActivityFeed, getDailyReportSummary, getTeamMembers } from "@/lib/api";
+import { queryClient } from "@/lib/query-client";
 
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { currentUser, activeUser, isBossView, isDemoMode } = useUser();
+  const { currentUser, activeUser, isBossView, isDemoMode, supervisorId } = useUser();
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -32,6 +33,35 @@ export function Sidebar() {
   const displayName = displayUser?.full_name || "Gabriel Jordao";
   const displayCompany = (displayUser as any)?.company_name || "Onyx";
   const initials = displayName.split(" ").map((n) => n[0]).join("");
+
+  // Prefetch map: href -> prefetch functions
+  const prefetchMap: Record<string, () => void> = {
+    "/": () => {
+      queryClient.prefetchQuery({ queryKey: ["stats", supervisorId], queryFn: () => getStats(supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["epos", undefined, supervisorId], queryFn: () => getEPOs(undefined, supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["todayStats"], queryFn: () => getTodayStats() });
+    },
+    "/epos": () => {
+      queryClient.prefetchQuery({ queryKey: ["epos", undefined, supervisorId], queryFn: () => getEPOs(undefined, supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["stats", supervisorId], queryFn: () => getStats(supervisorId) });
+    },
+    "/profit": () => {
+      queryClient.prefetchQuery({ queryKey: ["profitSummary"], queryFn: () => getProfitSummary() });
+    },
+    "/analytics": () => {
+      queryClient.prefetchQuery({ queryKey: ["epos", undefined, supervisorId], queryFn: () => getEPOs(undefined, supervisorId) });
+      queryClient.prefetchQuery({ queryKey: ["stats", supervisorId], queryFn: () => getStats(supervisorId) });
+    },
+    "/activity": () => {
+      queryClient.prefetchQuery({ queryKey: ["activity", 100, 7], queryFn: () => getActivityFeed(100, 7) });
+    },
+    "/daily-reports": () => {
+      queryClient.prefetchQuery({ queryKey: ["dailyReportSummary"], queryFn: () => getDailyReportSummary() });
+    },
+    "/team": () => {
+      queryClient.prefetchQuery({ queryKey: ["teamMembers"], queryFn: () => getTeamMembers() });
+    },
+  };
 
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -75,6 +105,12 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
+              onMouseEnter={() => {
+                const prefetch = prefetchMap[item.href];
+                if (prefetch) {
+                  prefetch();
+                }
+              }}
               className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all ${
                 active
                   ? "bg-surface text-text1"

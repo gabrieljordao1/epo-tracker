@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart,
@@ -11,7 +11,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { getBuilderScores, getCommunityScores, getTrends } from "@/lib/api";
+import { useBuilderScores, useCommunityScores, useTrends } from "@/hooks/useAnalytics";
 import type { BuilderScore, CommunityScore, TrendWeek } from "@/lib/api";
 import {
   TrendingUp,
@@ -41,59 +41,20 @@ interface ExpandedDetails {
 
 export default function BuildersPage() {
   const [mounted, setMounted] = useState(false);
-  const [builders, setBuilders] = useState<BuilderScore[]>([]);
-  const [communities, setCommunities] = useState<CommunityScore[]>([]);
-  const [trends, setTrends] = useState<TrendWeek[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [days, setDays] = useState(90);
   const [sortBy, setSortBy] = useState<SortField>("value");
   const [expandedBuilder, setExpandedBuilder] = useState<string | null>(null);
   const [expandedDetails, setExpandedDetails] = useState<Record<string, ExpandedDetails>>({});
 
-  // Hydration guard — prevent SSR/client mismatch
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  const { data: builders = [], isLoading: buildersLoading } = useBuilderScores({ sortBy, days });
+  const { data: communities = [], isLoading: communitiesLoading } = useCommunityScores({ days });
+  const { data: trends = [], isLoading: trendsLoading } = useTrends({ weeks: Math.ceil(days / 7) });
 
-  // Load data on mount and when days or sortBy changes
-  useEffect(() => {
-    if (!mounted) return;
-    loadData();
-  }, [mounted, days, sortBy]);
-
-  const loadData = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      // Use Promise.allSettled so partial failures don't break everything
-      const [buildersResult, communitiesResult, trendsResult] = await Promise.allSettled([
-        getBuilderScores(sortBy, days),
-        getCommunityScores(days),
-        getTrends(Math.ceil(days / 7)),  // Convert days to weeks for trends API
-      ]);
-
-      if (buildersResult.status === "fulfilled") setBuilders(buildersResult.value || []);
-      if (communitiesResult.status === "fulfilled") setCommunities(communitiesResult.value || []);
-      if (trendsResult.status === "fulfilled") setTrends(trendsResult.value || []);
-
-      // Only show error if ALL requests failed
-      const allFailed = [buildersResult, communitiesResult, trendsResult].every(r => r.status === "rejected");
-      if (allFailed) {
-        setError("Failed to load builder data. Please try again.");
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Failed to load builder data"
-      );
-      console.error("Error loading builder data:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loading = buildersLoading || communitiesLoading || trendsLoading;
+  const error: string | null = null;
 
   // Sort builders based on selected field
-  const sortedBuilders = [...builders].sort((a, b) => {
+  const sortedBuilders = [...(builders || [])].sort((a, b) => {
     switch (sortBy) {
       case "value":
         return (b.total_value || 0) - (a.total_value || 0);
@@ -109,19 +70,19 @@ export default function BuildersPage() {
   });
 
   // Calculate summary metrics
-  const totalBuilders = builders.length;
-  const bestCaptureRate = builders.reduce(
+  const totalBuilders = (builders || []).length;
+  const bestCaptureRate = (builders || []).reduce(
     (max, b) => (b.capture_rate > max.capture_rate ? b : max),
-    builders[0] || { vendor_name: "—", capture_rate: 0 }
+    { vendor_name: "—", capture_rate: 0 } as BuilderScore
   );
-  const fastestResponse = builders.reduce(
+  const fastestResponse = (builders || []).reduce(
     (min, b) =>
       (b.avg_response_days ?? Infinity) < (min.avg_response_days ?? Infinity) ? b : min,
-    builders[0] || { vendor_name: "—", avg_response_days: 0 }
+    { vendor_name: "—", avg_response_days: 0 } as BuilderScore
   );
-  const highestValue = builders.reduce(
+  const highestValue = (builders || []).reduce(
     (max, b) => (b.total_value > max.total_value ? b : max),
-    builders[0] || { vendor_name: "—", total_value: 0 }
+    { vendor_name: "—", total_value: 0 } as BuilderScore
   );
 
   // Helper functions for formatting
@@ -194,18 +155,6 @@ export default function BuildersPage() {
     setExpandedBuilder(builderName);
   };
 
-  // Hydration guard — render minimal shell during SSR to avoid mismatch
-  if (!mounted) {
-    return (
-      <div className="min-h-screen bg-bg p-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="text-emerald-400 text-sm mb-8">← Back to Analytics</div>
-          <h1 className="text-4xl font-bold text-white mb-2">Builder Scorecards</h1>
-          <p className="text-gray-400">Track builder performance and response patterns</p>
-        </div>
-      </div>
-    );
-  }
 
   if (error) {
     return (
