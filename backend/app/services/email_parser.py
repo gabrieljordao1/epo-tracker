@@ -370,12 +370,21 @@ def _expand_lot_list(lots_str: str) -> list:
         part = part.strip()
         if not part:
             continue
-        # Range like "1-9" or "10-20"
-        m = re.match(r"^(\d+)\s*-\s*(\d+)$", part)
+        # Numeric range like "1-9" or "10-20"
+        m = re.match(r"^(\d+)\s*[-–]\s*(\d+)$", part)
         if m:
             a, b = int(m.group(1)), int(m.group(2))
             if 1 <= a <= b <= 200:
                 lots.extend(str(i) for i in range(a, b + 1))
+            continue
+        # Alphanumeric range like "2a-2c" (same base number, letter suffix)
+        alpha_m = re.match(r"^(\d+)([a-z])\s*[-–]\s*\1([a-z])$", part)
+        if alpha_m:
+            base = alpha_m.group(1)
+            start_l = alpha_m.group(2)
+            end_l = alpha_m.group(3)
+            if start_l <= end_l:
+                lots.extend(f"{base}{chr(c)}" for c in range(ord(start_l), ord(end_l) + 1))
             continue
         # Plain number/alphanumeric lot (1, 2a, etc.)
         if re.match(r"^\d+[a-z]?$", part):
@@ -480,18 +489,29 @@ def _extract_total_amount(body: str, subject: str = "") -> Optional[float]:
         except ValueError:
             pass
 
-    # 3. per lot × count from subject
+    # 3. per lot × count from subject or body
     if re.search(r"per\s+lot", clean, re.IGNORECASE):
         # Extract the per-lot amount
         per_m = re.search(
-            r"epo\s+of\s+\$?\s*([\d,]+(?:\.\d{1,2})?)\s*(?:per\s+lot)?",
+            r"(?:epo\s+(?:of|for)\s+)?\$?\s*([\d,]+(?:\.\d{1,2})?)\s*per\s+lot",
             clean,
             re.IGNORECASE,
         )
         if per_m:
             try:
                 per_lot = float(per_m.group(1).replace(",", ""))
+                # First try: count lots from subject line
                 _first, count, _range = _extract_lots_from_subject(subject)
+                # Second try: count lots from body text (e.g. "lots 2b and 2c")
+                if count <= 1:
+                    body_lots_m = re.search(
+                        r"lots?\s+([0-9][\w,\s\-&]*?(?:(?:\s*,\s*|\s+and\s+|\s+&\s+)\d+[\w]*)*)\s+[A-Za-z]",
+                        clean,
+                        re.IGNORECASE,
+                    )
+                    if body_lots_m:
+                        body_lots = _expand_lot_list(body_lots_m.group(1).strip())
+                        count = len(body_lots) if body_lots else count
                 if per_lot > 0 and count > 1:
                     return _capped(per_lot * count)
             except ValueError:
@@ -517,11 +537,17 @@ def _extract_tiered_per_lot_amounts(body: str) -> Dict[str, float]:
     clean = re.sub(r"\s+", " ", clean)
 
     out: Dict[str, float] = {}
-    # Pattern: "<amt> per lot for lots <lots-expr>"
-    # <lots-expr> can be: 1-9, 10-20, 1,2,3, 2a and 2b, etc.
+
+    # Strategy: find "$X per lot" amounts, then find nearby "lots <list>" and
+    # expand the lot list. This avoids a single monolithic regex that breaks
+    # on alphanumeric lots like "2b and 2c".
+
+    # Step 1: Find all "$X per lot ... lots <expr>" patterns
+    # The lot list is everything between "lots " and the first word that
+    # clearly isn't a lot designator (not a digit, comma, and, &, or dash).
     pattern = re.compile(
         r"\$?\s*([\d,]+(?:\.\d{1,2})?)\s*per\s+lot\s*(?:,\s*|for\s+)?lots?\s+"
-        r"([0-9][\w,\s\-&]*?)(?=\s*(?:=|\$|\.|,|\n|and\s+\$?\d|$|\s{2,}))",
+        r"([\d][\w,\s\-&]+)",
         re.IGNORECASE,
     )
     for m in pattern.finditer(clean):
@@ -529,12 +555,26 @@ def _extract_tiered_per_lot_amounts(body: str) -> Dict[str, float]:
             amt = float(m.group(1).replace(",", ""))
         except ValueError:
             continue
-        lots_expr = m.group(2).strip(" ,.;-")
+        # The capture may include trailing non-lot text — truncate at the
+        # first word that doesn't look like a lot designator.
+        raw_lots = m.group(2).strip()
+        # Split into tokens, keep only lot-like ones (digits, alphanumeric lot ids,
+        # range separators). Stop at the first clearly non-lot word.
+        truncated = []
+        for token in re.split(r"(\s+|,)", raw_lots):
+            token = token.strip()
+            if not token or token == ",":
+                continue
+            # Lot-like: "2b", "14", "2a-2c", "1-9", "and", "&"
+            if re.match(r"^(\d+[a-z]?|\d+[a-z]?\s*[-–]\s*\d+[a-z]?|and|&)$", token, re.IGNORECASE):
+                truncated.append(token)
+            else:
+                break  # Hit a non-lot word like "at", "Anderson", "please"
+        lots_expr = " ".join(truncated)
         expanded = _expand_lot_list(lots_expr)
         if not expanded or amt <= 0:
             continue
         for lot in expanded:
-            # First match wins (email order) — don't let later tiers overwrite
             if lot not in out:
                 out[lot] = amt
     return out
@@ -543,10 +583,12 @@ def _extract_tiered_per_lot_amounts(body: str) -> Dict[str, float]:
 def _extract_individual_lot_amounts(body: str) -> Dict[str, float]:
     """Parse per-lot breakdowns with individual totals.
 
-    Handles patterns like:
+    Handles patterns like (in priority order):
       Lot 1- please submit an epo of 800 ... total= $1,150
-      Lot 2- ... total= $900
-      Lot 3- ... total= $1350
+      Lot 2 - $900 for sand and repaint
+      Lot 3: $1350
+      Lot 4 $500
+      Lot 1- please submit an epo of $1,150 to patch and paint
 
     Returns: {'1': 1150.0, '2': 900.0, '3': 1350.0}
     """
@@ -558,12 +600,13 @@ def _extract_individual_lot_amounts(body: str) -> Dict[str, float]:
     clean = re.sub(r"\s+", " ", clean)
 
     out: Dict[str, float] = {}
-    # Match: "Lot <id>" followed eventually by "total= $<amt>"
-    pattern = re.compile(
+
+    # Pattern 1: "Lot <id>" ... "total= $<amt>" (most reliable — explicit total)
+    pattern1 = re.compile(
         r"lot\s+(\d+[\w]?)\s*[-:–—]\s*.*?total\s*[:=]?\s*\$?\s*([\d,]+(?:\.\d{1,2})?)",
         re.IGNORECASE,
     )
-    for m in pattern.finditer(clean):
+    for m in pattern1.finditer(clean):
         lot_id = m.group(1).lower().strip()
         try:
             amt = float(m.group(2).replace(",", ""))
@@ -571,6 +614,61 @@ def _extract_individual_lot_amounts(body: str) -> Dict[str, float]:
             continue
         if amt > 0 and lot_id not in out:
             out[lot_id] = amt
+
+    if out:
+        return out
+
+    # Pattern 2: "Lot <id>" followed by "epo of $<amt>" or "epo for $<amt>"
+    # e.g. "Lot 1- please submit an epo of $1,150 to patch and paint"
+    pattern2 = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—]\s*.*?(?:epo|extra)\s+(?:of|for)\s+\$?\s*([\d,]+(?:\.\d{1,2})?)",
+        re.IGNORECASE,
+    )
+    for m in pattern2.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        try:
+            amt = float(m.group(2).replace(",", ""))
+        except ValueError:
+            continue
+        if amt > 0 and lot_id not in out:
+            out[lot_id] = amt
+
+    if out:
+        return out
+
+    # Pattern 3: "Lot <id>" immediately followed by "$<amt>"
+    # e.g. "Lot 1 - $1,150 - patch and paint" or "Lot 1: $1,150"
+    pattern3 = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—,\s]+\$\s*([\d,]+(?:\.\d{1,2})?)",
+        re.IGNORECASE,
+    )
+    for m in pattern3.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        try:
+            amt = float(m.group(2).replace(",", ""))
+        except ValueError:
+            continue
+        if amt > 0 and lot_id not in out:
+            out[lot_id] = amt
+
+    if out:
+        return out
+
+    # Pattern 4: "Lot <id>" then within ~150 chars, first dollar amount
+    # e.g. "Lot 1 patch and paint all repairs $1,150"
+    pattern4 = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—]\s*[^$]{0,150}?\$\s*([\d,]+(?:\.\d{1,2})?)",
+        re.IGNORECASE,
+    )
+    for m in pattern4.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        try:
+            amt = float(m.group(2).replace(",", ""))
+        except ValueError:
+            continue
+        if amt > 0 and lot_id not in out:
+            out[lot_id] = amt
+
     return out
 
 
@@ -580,6 +678,8 @@ def _extract_individual_lot_descriptions(body: str) -> Dict[str, str]:
     Handles patterns like:
       Lot 1- please submit an epo of $800 to Patch and paint all repairs + repaint ... total= $1,150
       Lot 2- please submit an epo of $600 to Sand and repaint damaged walls ... total= $900
+      Lot 3 - $1,200 - Texture and paint ceilings
+      Lot 4: Patch drywall and repaint ($500)
 
     Returns: {'1': 'Patch and paint all repairs + repaint', '2': 'Sand and repaint damaged walls'}
     """
@@ -591,10 +691,14 @@ def _extract_individual_lot_descriptions(body: str) -> Dict[str, str]:
     clean = re.sub(r"\s+", " ", clean)
 
     out: Dict[str, str] = {}
-    # Match: "Lot <id>- ... submit epo of $X to [WORK] ... total="
+
+    # NOTE: All patterns use LOOKAHEAD (?=...) for the boundary so finditer
+    # doesn't consume "Lot N" text needed by the next match.
+
+    # Pattern 1: "Lot <id>- ... submit epo of $X to [WORK] ... total="
     pattern = re.compile(
         r"lot\s+(\d+[\w]?)\s*[-:–—]\s*(?:please\s+)?(?:submit\s+(?:an?\s+)?(?:epo|extra)\s+(?:of\s+)?\$?[\d,\.]*\s+(?:to\s+(?:get\s+)?|for\s+))"
-        r"(?P<work>[A-Za-z][^=\n$]{5,}?)(?:\s*total\s*[:=]|\s*=\s*\$|\s*\$[\d,]+|\s+lot\s+\d)",
+        r"(?P<work>[A-Za-z][^=\n$]{5,}?)(?=\s*total\s*[:=]|\s*=\s*\$|\s*\$[\d,]+|\s+lot\s+\d|\s*$)",
         re.IGNORECASE,
     )
     for m in pattern.finditer(clean):
@@ -604,25 +708,64 @@ def _extract_individual_lot_descriptions(body: str) -> Dict[str, str]:
             work = work[0].upper() + work[1:]
             out[lot_id] = work[:300]
 
-    # Fallback: "Lot N- [work text]... total="  (no "submit epo" prefix)
-    if not out:
-        pattern2 = re.compile(
-            r"lot\s+(\d+[\w]?)\s*[-:–—]\s*(?P<work>[A-Z][^=\n$]{10,}?)(?:\s*total\s*[:=]|\s*=\s*\$|\s*\$[\d,]+)",
-            re.IGNORECASE,
-        )
-        for m in pattern2.finditer(clean):
-            lot_id = m.group(1).lower().strip()
-            work = m.group("work").strip().rstrip(".,;: +")
-            # Filter out things that start with "please submit" etc.
-            if work and len(work) > 8 and lot_id not in out:
-                # Strip "please submit an epo of $X to" prefix if present
-                sub = re.sub(
-                    r'^(?:please\s+)?submit\s+(?:an?\s+)?(?:epo|extra)\s+(?:of\s+)?\$?[\d,\.]*\s+(?:to\s+(?:get\s+)?|for\s+)',
-                    '', work, flags=re.IGNORECASE
-                ).strip()
-                if sub and len(sub) > 5:
-                    sub = sub[0].upper() + sub[1:]
-                    out[lot_id] = sub[:300]
+    if out:
+        return out
+
+    # Pattern 2: "Lot N- [text]... total=" or "Lot N- [text]... $X" (no "submit epo" prefix)
+    pattern2 = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—]\s*(?P<work>[A-Z][^=\n$]{10,}?)(?=\s*total\s*[:=]|\s*=\s*\$|\s*\$[\d,]+|\s+lot\s+\d|\s*$)",
+        re.IGNORECASE,
+    )
+    for m in pattern2.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        work = m.group("work").strip().rstrip(".,;: +")
+        if work and len(work) > 8 and lot_id not in out:
+            # Strip "please submit an epo of $X to" prefix if present
+            sub = re.sub(
+                r'^(?:please\s+)?submit\s+(?:an?\s+)?(?:epo|extra)\s+(?:of\s+)?\$?[\d,\.]*\s+(?:to\s+(?:get\s+)?|for\s+)',
+                '', work, flags=re.IGNORECASE
+            ).strip()
+            if sub and len(sub) > 5:
+                sub = sub[0].upper() + sub[1:]
+                out[lot_id] = sub[:300]
+
+    if out:
+        return out
+
+    # Pattern 3: "Lot N - $X - [description]" or "Lot N - $X for [description]"
+    pattern3 = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—]\s*\$[\d,]+(?:\.\d{1,2})?\s*[-–—:,]?\s*(?:for\s+|to\s+)?(?P<work>[A-Za-z][^$\n]{5,}?)(?=\s+lot\s+\d|\s*$|\s{2,})",
+        re.IGNORECASE,
+    )
+    for m in pattern3.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        work = m.group("work").strip().rstrip(".,;: +")
+        if work and len(work) > 5 and lot_id not in out:
+            work = work[0].upper() + work[1:]
+            out[lot_id] = work[:300]
+
+    if out:
+        return out
+
+    # Pattern 4: "Lot N - [description text up to next Lot or end]"
+    # Grab everything between "Lot N-" and the next "Lot M" or end,
+    # then strip out any dollar amounts to get just the description
+    pattern4 = re.compile(
+        r"lot\s+(\d+[\w]?)\s*[-:–—]\s*(?P<text>.{10,}?)(?=\s+lot\s+\d|\s*$)",
+        re.IGNORECASE,
+    )
+    for m in pattern4.finditer(clean):
+        lot_id = m.group(1).lower().strip()
+        text = m.group("text").strip()
+        # Remove dollar amounts and "total=" fragments
+        desc = re.sub(r'\$\s*[\d,]+(?:\.\d{1,2})?', '', text)
+        desc = re.sub(r'total\s*[:=]?\s*', '', desc, flags=re.IGNORECASE)
+        desc = re.sub(r'(?:please\s+)?submit\s+(?:an?\s+)?(?:epo|extra)\s+(?:of\s+)?', '', desc, flags=re.IGNORECASE)
+        desc = re.sub(r'\b(?:to|for)\s+$', '', desc.strip(), flags=re.IGNORECASE)
+        desc = desc.strip().rstrip(".,;: +-–—")
+        if desc and len(desc) > 5 and lot_id not in out:
+            desc = desc[0].upper() + desc[1:]
+            out[lot_id] = desc[:300]
 
     return out
 

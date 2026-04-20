@@ -18,6 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.database import get_db
 from ..core.auth import get_current_user
 from ..models.models import EPO, EPOLotItem, User
+from ..services.email_parser import (
+    _extract_tiered_per_lot_amounts,
+    _extract_individual_lot_amounts,
+    _extract_individual_lot_descriptions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +192,7 @@ def _parse_lot_range(lot_string: str) -> List[str]:
     """
     lots = []
 
-    # Handle ranges like "1-4"
+    # Handle numeric ranges like "1-4"
     range_match = re.match(r'^(\d+)\s*-\s*(\d+)$', lot_string.strip())
     if range_match:
         start = int(range_match.group(1))
@@ -195,9 +200,19 @@ def _parse_lot_range(lot_string: str) -> List[str]:
         lots = [str(i) for i in range(start, end + 1)]
         return lots
 
-    # Handle comma/and-separated lists like "21, 22 and 23" or "1,2,3"
+    # Handle alphanumeric ranges like "2a-2c" (same base number, letter suffix)
+    alpha_range = re.match(r'^(\d+)([a-z])\s*[-–]\s*\1([a-z])$', lot_string.strip(), re.IGNORECASE)
+    if alpha_range:
+        base = alpha_range.group(1)
+        start_letter = alpha_range.group(2).lower()
+        end_letter = alpha_range.group(3).lower()
+        if start_letter <= end_letter:
+            lots = [f"{base}{chr(c)}" for c in range(ord(start_letter), ord(end_letter) + 1)]
+            return lots
+
+    # Handle comma/and-separated lists like "21, 22 and 23" or "2b and 2c"
     # Replace "and" with comma for uniform splitting
-    normalized = lot_string.replace(" and ", ",").replace(" or ", ",")
+    normalized = lot_string.replace(" and ", ",").replace(" or ", ",").replace(" & ", ",")
     parts = [p.strip() for p in normalized.split(",")]
     lots = [p for p in parts if p]
 
@@ -207,6 +222,7 @@ def _parse_lot_range(lot_string: str) -> List[str]:
 @router.post("/{epo_id}/lot-items/auto-split")
 async def auto_split_lot_items(
     epo_id: int,
+    force: bool = Query(False, description="Delete existing lot items and re-split"),
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ):
@@ -236,10 +252,16 @@ async def auto_split_lot_items(
     )
     existing_items = existing_result.scalars().all()
     if existing_items:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Lot items already exist for this EPO",
-        )
+        if not force:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Lot items already exist for this EPO. Use ?force=true to re-split.",
+            )
+        # Delete existing lot items so we can re-split with updated parsing
+        for item in existing_items:
+            await session.delete(item)
+        await session.flush()
+        logger.info(f"EPO {epo_id}: deleted {len(existing_items)} existing lot items for re-split")
 
     # Parse lot_number
     if not epo.lot_number:
@@ -255,18 +277,81 @@ async def auto_split_lot_items(
             detail="Could not parse lot numbers from EPO lot_number field",
         )
 
-    # Calculate per-lot amount
+    # Try to extract per-lot amounts from the raw email body
     epo_amount = float(epo.amount or 0)
-    per_lot_amount = epo_amount / len(lot_numbers) if lot_numbers else 0
+    email_body = epo.raw_email_body or ""
+    per_lot_amounts: dict = {}
+    per_lot_descriptions: dict = {}
+    pricing_source = "even_split"
+
+    if email_body:
+        # Try individual lot amounts first (most specific: "Lot 1 ... total= $1,150")
+        per_lot_amounts = _extract_individual_lot_amounts(email_body)
+        if per_lot_amounts:
+            pricing_source = "email_individual"
+            logger.info(f"EPO {epo_id}: found individual lot amounts from email: {per_lot_amounts}")
+        else:
+            # Try tiered pricing ("$400 per lot for lots 1-9")
+            per_lot_amounts = _extract_tiered_per_lot_amounts(email_body)
+            if per_lot_amounts:
+                pricing_source = "email_tiered"
+                logger.info(f"EPO {epo_id}: found tiered lot amounts from email: {per_lot_amounts}")
+
+        # Try to get per-lot descriptions
+        per_lot_descriptions = _extract_individual_lot_descriptions(email_body)
+
+    # Detect "per lot" language — if present, the EPO amount IS the per-lot amount
+    # (don't divide it further). This catches cases where the tiered regex couldn't
+    # parse the exact lot list but the email clearly states "$X per lot".
+    clean_body = re.sub(r"<[^>]+>", " ", email_body)
+    clean_body = re.sub(r"\s+", " ", clean_body)
+    has_per_lot_language = bool(re.search(r"per\s+lot", clean_body, re.IGNORECASE))
+
+    if not per_lot_amounts and has_per_lot_language:
+        # Extract the explicit per-lot dollar amount from the email
+        per_lot_match = re.search(
+            r"(?:epo\s+(?:of|for)\s+)?\$?\s*([\d,]+(?:\.\d{1,2})?)\s*per\s+lot",
+            clean_body,
+            re.IGNORECASE,
+        )
+        if per_lot_match:
+            try:
+                per_lot_val = float(per_lot_match.group(1).replace(",", ""))
+                if per_lot_val > 0:
+                    pricing_source = "per_lot_language"
+                    per_lot_amounts = {lot: per_lot_val for lot in lot_numbers}
+                    logger.info(f"EPO {epo_id}: detected 'per lot' language, using ${per_lot_val} for each lot")
+            except ValueError:
+                pass
+
+    # If per-lot pricing was detected and the parent EPO's amount looks like
+    # a per-lot amount (not the total), correct it to the actual total.
+    if per_lot_amounts and pricing_source in ("per_lot_language", "email_tiered"):
+        correct_total = sum(per_lot_amounts.get(lot, 0) for lot in lot_numbers)
+        if correct_total > 0 and abs(epo_amount - correct_total) > 0.01:
+            logger.info(
+                f"EPO {epo_id}: updating parent amount from ${epo_amount:.2f} "
+                f"to ${correct_total:.2f} (sum of per-lot amounts)"
+            )
+            epo.amount = correct_total
+            epo_amount = correct_total
+
+    # Fall back to even split if no email-based pricing found
+    even_amount = epo_amount / len(lot_numbers) if lot_numbers else 0
 
     # Create lot items
     created_items = []
     for lot_number in lot_numbers:
+        # Use email-parsed amount if available, otherwise even split
+        lot_amount = per_lot_amounts.get(lot_number, even_amount)
+        lot_desc = per_lot_descriptions.get(lot_number, None)
+
         lot_item = EPOLotItem(
             epo_id=epo_id,
             company_id=current_user.company_id,
             lot_number=lot_number,
-            amount=per_lot_amount,
+            amount=lot_amount,
+            description=lot_desc,
         )
         session.add(lot_item)
         created_items.append(lot_item)
@@ -282,8 +367,48 @@ async def auto_split_lot_items(
         "epo_id": epo_id,
         "total_amount": epo_amount,
         "lot_count": len(lot_numbers),
-        "per_lot_amount": per_lot_amount,
+        "pricing_source": pricing_source,
         "lots_created": [
             EPOLotItemResponse.model_validate(item) for item in created_items
         ],
+    }
+
+
+@router.get("/{epo_id}/lot-items/debug-parse")
+async def debug_lot_parse(
+    epo_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """
+    Debug endpoint: show what the email parser would extract from this EPO's
+    raw_email_body WITHOUT creating any lot items.
+    """
+    epo_result = await session.execute(
+        select(EPO).where(
+            and_(EPO.id == epo_id, EPO.company_id == current_user.company_id)
+        )
+    )
+    epo = epo_result.scalars().first()
+    if not epo:
+        raise HTTPException(status_code=404, detail="EPO not found")
+
+    email_body = epo.raw_email_body or ""
+    lot_numbers = _parse_lot_range(epo.lot_number or "")
+
+    individual_amounts = _extract_individual_lot_amounts(email_body) if email_body else {}
+    tiered_amounts = _extract_tiered_per_lot_amounts(email_body) if email_body else {}
+    descriptions = _extract_individual_lot_descriptions(email_body) if email_body else {}
+
+    return {
+        "epo_id": epo_id,
+        "lot_number_field": epo.lot_number,
+        "parsed_lot_numbers": lot_numbers,
+        "epo_amount": float(epo.amount or 0),
+        "has_raw_email_body": bool(email_body),
+        "raw_email_body_length": len(email_body),
+        "raw_email_body_preview": email_body[:2000] if email_body else None,
+        "individual_amounts": individual_amounts,
+        "tiered_amounts": tiered_amounts,
+        "descriptions": descriptions,
     }

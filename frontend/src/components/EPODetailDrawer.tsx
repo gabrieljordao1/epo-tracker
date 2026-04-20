@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, Fragment } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect } from "react";
 import {
   X,
   Send,
@@ -22,15 +21,32 @@ import {
   Edit3,
   Save,
   Percent,
+  Wand2,
+  Layers,
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
 import { updateEPO, sendFollowup } from "@/lib/api";
+import { useLotItems, useAutoSplitLotItems } from "@/hooks/useLotItems";
 
 interface EPODetailDrawerProps {
   epo: EPO | null;
   open: boolean;
   onClose: () => void;
   onUpdated: () => void;
+}
+
+function isMultiLot(lotNumber: string | null | undefined): boolean {
+  if (!lotNumber) return false;
+  const s = lotNumber.trim();
+  // Numeric ranges: "1-4", "10–20"
+  if (/^\d+\s*[-–]\s*\d+$/.test(s)) return true;
+  // Comma-separated (numeric or alphanumeric): "1,2,3" or "2b, 2c"
+  if (/\w+\s*,\s*\w+/.test(s)) return true;
+  // "and"-separated (numeric or alphanumeric): "1 and 2" or "2b and 2c"
+  if (/\w+\s+and\s+\w+/i.test(s)) return true;
+  // Alphanumeric ranges: "2a-2c"
+  if (/^\d+[a-z]\s*[-–]\s*\d+[a-z]$/i.test(s)) return true;
+  return false;
 }
 
 const STATUS_CONFIG = {
@@ -163,7 +179,24 @@ export function EPODetailDrawer({
     }
   };
 
-  if (!epo) return null;
+  // Simple visibility state for CSS transitions.
+  // `open` controls mounting; `visible` triggers the slide-in after a frame.
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      // Double-rAF: mount first frame off-screen, then animate in
+      const id = requestAnimationFrame(() => {
+        requestAnimationFrame(() => setVisible(true));
+      });
+      return () => cancelAnimationFrame(id);
+    } else {
+      setVisible(false);
+    }
+  }, [open]);
+
+  // Always render when open or when animating out (visible lingers briefly)
+  if (!epo || !open) return null;
 
   const statusConfig = STATUS_CONFIG[epo.status] || STATUS_CONFIG.pending;
   const StatusIcon = statusConfig.icon;
@@ -176,26 +209,25 @@ export function EPODetailDrawer({
       : "text-emerald-400";
 
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-          />
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+        style={{
+          opacity: visible ? 1 : 0,
+          transition: "opacity 0.3s ease",
+        }}
+        onClick={onClose}
+      />
 
-          {/* Drawer */}
-          <motion.div
-            className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#0a0a0a] border-l border-[#222] z-50 overflow-y-auto"
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", damping: 30, stiffness: 300 }}
-          >
+      {/* Drawer */}
+      <div
+        className="fixed right-0 top-0 h-full w-full max-w-lg bg-[#0a0a0a] border-l border-[#222] z-50 overflow-y-auto"
+        style={{
+          transform: visible ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)",
+        }}
+      >
             {/* Header */}
             <div className="sticky top-0 bg-[#0a0a0a]/95 backdrop-blur-md border-b border-[#222] px-6 py-4 flex items-center justify-between z-10">
               <div className="flex items-center gap-3">
@@ -263,47 +295,42 @@ export function EPODetailDrawer({
                     <ChevronDown size={12} />
                   </button>
 
-                  <AnimatePresence>
-                    {showStatusMenu && (
-                      <motion.div
-                        className="absolute top-full mt-2 left-0 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-xl z-20 min-w-[160px] overflow-hidden"
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                      >
-                        {(
-                          Object.entries(STATUS_CONFIG) as [
-                            string,
-                            (typeof STATUS_CONFIG)[keyof typeof STATUS_CONFIG]
-                          ][]
-                        ).map(([key, config]) => {
-                          const Icon = config.icon;
-                          return (
-                            <button
-                              key={key}
-                              onClick={() =>
-                                handleStatusChange(key as any)
-                              }
-                              className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[#222] transition-colors ${
-                                key === epo.status
-                                  ? config.color + " font-medium"
-                                  : "text-[rgba(255,255,255,0.7)]"
-                              }`}
-                            >
-                              <Icon size={14} />
-                              {config.label}
-                              {key === epo.status && (
-                                <CheckCircle
-                                  size={12}
-                                  className="ml-auto text-emerald-400"
-                                />
-                              )}
-                            </button>
-                          );
-                        })}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  {showStatusMenu && (
+                    <div
+                      className="absolute top-full mt-2 left-0 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-xl z-20 min-w-[160px] overflow-hidden"
+                    >
+                      {(
+                        Object.entries(STATUS_CONFIG) as [
+                          string,
+                          (typeof STATUS_CONFIG)[keyof typeof STATUS_CONFIG]
+                        ][]
+                      ).map(([key, config]) => {
+                        const Icon = config.icon;
+                        return (
+                          <button
+                            key={key}
+                            onClick={() =>
+                              handleStatusChange(key as any)
+                            }
+                            className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-[#222] transition-colors ${
+                              key === epo.status
+                                ? config.color + " font-medium"
+                                : "text-[rgba(255,255,255,0.7)]"
+                            }`}
+                          >
+                            <Icon size={14} />
+                            {config.label}
+                            {key === epo.status && (
+                              <CheckCircle
+                                size={12}
+                                className="ml-auto text-emerald-400"
+                              />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Follow-up Button */}
@@ -407,6 +434,11 @@ export function EPODetailDrawer({
                   </p>
                 )}
               </div>
+
+              {/* Per-Lot Breakdown (only for multi-lot EPOs) */}
+              {isMultiLot(epo.lot_number) && (
+                <LotBreakdownDrawer epoId={epo.id} totalAmount={epo.amount} />
+              )}
 
               {/* Timeline */}
               <div className="bg-[#111] rounded-lg p-4 border border-[#222]">
@@ -561,14 +593,103 @@ export function EPODetailDrawer({
                 </div>
               </div>
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+      </div>
+    </>
   );
 }
 
 /* ── Sub Components ──────────────────────────────────── */
+
+function LotBreakdownDrawer({ epoId, totalAmount }: { epoId: number; totalAmount: number | null }) {
+  const { data: lotItems = [], isLoading } = useLotItems(epoId);
+  const autoSplitMutation = useAutoSplitLotItems();
+
+  const handleAutoSplit = async (force = false) => {
+    await autoSplitMutation.mutateAsync({ epoId, force });
+  };
+
+  const totalLotAmount = lotItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  const isBalanced = totalAmount != null && Math.abs(totalLotAmount - totalAmount) < 0.01;
+
+  return (
+    <div className="bg-[#111] rounded-lg p-4 border border-[#222]">
+      <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+        <Layers size={14} className="text-[rgba(255,255,255,0.4)]" />
+        Per-Lot Breakdown
+      </h3>
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-[rgba(255,255,255,0.4)] text-sm py-2">
+          <Loader2 size={14} className="animate-spin" /> Loading…
+        </div>
+      ) : lotItems.length === 0 ? (
+        <div className="text-center py-3">
+          <p className="text-[rgba(255,255,255,0.4)] text-sm mb-3">No per-lot breakdown yet</p>
+          <button
+            onClick={() => handleAutoSplit(false)}
+            disabled={autoSplitMutation.isPending}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-emerald-400/10 border border-emerald-400/30 text-emerald-400 hover:bg-emerald-400/20 transition-colors disabled:opacity-50"
+          >
+            {autoSplitMutation.isPending ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <Wand2 size={14} />
+            )}
+            Auto-Split from Lot Range
+          </button>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {lotItems.map((item) => (
+            <div key={item.id} className="flex items-center justify-between bg-[#0a0a0a] rounded-lg px-3 py-2 border border-[#1a1a1a]">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs bg-blue-400/15 text-blue-400 px-2 py-0.5 rounded">
+                  Lot {item.lot_number}
+                </span>
+                {item.description && (
+                  <span className="text-xs text-[rgba(255,255,255,0.5)] truncate max-w-[150px]">{item.description}</span>
+                )}
+              </div>
+              <span className="font-mono text-sm text-emerald-400">
+                {item.amount != null
+                  ? `$${item.amount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                  : "—"}
+              </span>
+            </div>
+          ))}
+          {/* Re-parse button */}
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={() => handleAutoSplit(true)}
+              disabled={autoSplitMutation.isPending}
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded text-xs text-[rgba(255,255,255,0.4)] hover:text-emerald-400 hover:bg-emerald-400/10 transition-colors disabled:opacity-50"
+              title="Re-parse per-lot amounts from the original email"
+            >
+              {autoSplitMutation.isPending ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <Wand2 size={12} />
+              )}
+              Re-parse from Email
+            </button>
+          </div>
+          {/* Total row */}
+          <div className="flex items-center justify-between pt-2 border-t border-[#222]">
+            <span className="text-xs text-[rgba(255,255,255,0.4)]">Lot Items Total</span>
+            <span className={`font-mono text-sm font-medium ${isBalanced ? 'text-emerald-400' : 'text-amber-400'}`}>
+              ${totalLotAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {!isBalanced && totalAmount != null && (
+                <span className="text-xs text-amber-400/60 ml-1">
+                  (EPO: ${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                </span>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DetailField({
   icon,
