@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Plus, Trash2, Loader2, Wand2, Save } from "lucide-react";
 import type { EPO, LotItem } from "@/lib/api";
 import { useLotItems, useCreateLotItem, useUpdateLotItem, useDeleteLotItem, useAutoSplitLotItems } from "@/hooks/useLotItems";
@@ -83,25 +83,37 @@ export function MultiLotModal({ isOpen, onClose, epos, bundleLabel }: MultiLotMo
     await deleteMutation.mutateAsync({ itemId: item.id, epoId: parentEpo.id });
   };
 
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            transition={{ type: "spring", damping: 20, stiffness: 300 }}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
+  const [mounted, setMounted] = useState(false);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  useEffect(() => {
+    if (isOpen) {
+      // Trigger CSS transition on next frame
+      requestAnimationFrame(() => requestAnimationFrame(() => setVisible(true)));
+    } else {
+      setVisible(false);
+    }
+  }, [isOpen]);
+
+  if (!isOpen) return null;
+
+  const modalContent = (
+    <>
+      {/* Backdrop */}
+      <div
+        onClick={onClose}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] transition-opacity duration-200"
+        style={{ opacity: visible ? 1 : 0 }}
+      />
+      {/* Modal */}
+      <div
+        className="fixed inset-0 z-[9999] flex items-center justify-center p-4 transition-all duration-200"
+        style={{
+          opacity: visible ? 1 : 0,
+          transform: visible ? "scale(1) translateY(0)" : "scale(0.95) translateY(20px)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
             <div className="bg-[#111] border border-[#222] rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
               {/* Header */}
               <div className="flex items-center justify-between p-6 border-b border-[#222]">
@@ -323,9 +335,10 @@ export function MultiLotModal({ isOpen, onClose, epos, bundleLabel }: MultiLotMo
                 </div>
               </div>
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+      </div>
+    </>
   );
+
+  if (!mounted) return null;
+  return createPortal(modalContent, document.body);
 }
