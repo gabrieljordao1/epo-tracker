@@ -48,6 +48,9 @@ async def register(
     """Register a new user. If invite_code is provided, join existing company.
     Otherwise, create a new company."""
 
+    # Normalize email to lowercase
+    register_request.email = register_request.email.strip().lower()
+
     # Check if user already exists
     query = select(User).where(User.email == register_request.email)
     result = await session.execute(query)
@@ -211,7 +214,7 @@ async def login(
     # Check for account lockout due to too many failed attempts
     _check_login_lockout(login_request.email)
 
-    query = select(User).where(User.email == login_request.email)
+    query = select(User).where(User.email == login_request.email.strip().lower())
     result = await session.execute(query)
     user = result.scalars().first()
 
@@ -589,8 +592,9 @@ async def forgot_password(
             detail="Too many password reset requests. Please try again in 1 hour.",
         )
 
-    # Find user by email (order by id to be deterministic if duplicates exist)
-    query = select(User).where(User.email == forgot_request.email).order_by(User.id)
+    # Find user by email (case-insensitive, order by id to be deterministic if duplicates exist)
+    normalized_email = forgot_request.email.strip().lower()
+    query = select(User).where(User.email == normalized_email).order_by(User.id)
     result = await session.execute(query)
     user = result.scalars().first()
 
@@ -740,7 +744,7 @@ async def reset_password(
     """Reset password using email and reset code."""
 
     # Find ALL users with this email (handles duplicate accounts)
-    query = select(User).where(User.email == reset_req.email).order_by(User.id)
+    query = select(User).where(User.email == reset_req.email.strip().lower()).order_by(User.id)
     result = await session.execute(query)
     users = result.scalars().all()
 
