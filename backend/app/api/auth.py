@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import resend
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
@@ -52,7 +52,7 @@ async def register(
     register_request.email = register_request.email.strip().lower()
 
     # Check if user already exists
-    query = select(User).where(User.email == register_request.email)
+    query = select(User).where(func.lower(User.email) == register_request.email)
     result = await session.execute(query)
     if result.scalars().first():
         raise HTTPException(
@@ -170,7 +170,7 @@ async def verify_email(
             detail="Email and verification code are required.",
         )
 
-    query = select(User).where(User.email == email)
+    query = select(User).where(func.lower(User.email) == email)
     result = await session.execute(query)
     user = result.scalars().first()
 
@@ -214,7 +214,7 @@ async def login(
     # Check for account lockout due to too many failed attempts
     _check_login_lockout(login_request.email)
 
-    query = select(User).where(User.email == login_request.email.strip().lower())
+    query = select(User).where(func.lower(User.email) == login_request.email.strip().lower())
     result = await session.execute(query)
     user = result.scalars().first()
 
@@ -594,7 +594,7 @@ async def forgot_password(
 
     # Find user by email (case-insensitive, order by id to be deterministic if duplicates exist)
     normalized_email = forgot_request.email.strip().lower()
-    query = select(User).where(User.email == normalized_email).order_by(User.id)
+    query = select(User).where(func.lower(User.email) == normalized_email).order_by(User.id)
     result = await session.execute(query)
     user = result.scalars().first()
 
@@ -695,8 +695,8 @@ async def verify_reset_code(
             detail="Email and code are required.",
         )
 
-    # Find all users with this email
-    query = select(User).where(User.email == email).order_by(User.id)
+    # Find all users with this email (case-insensitive)
+    query = select(User).where(func.lower(User.email) == email).order_by(User.id)
     result = await session.execute(query)
     users = result.scalars().all()
 
@@ -744,7 +744,7 @@ async def reset_password(
     """Reset password using email and reset code."""
 
     # Find ALL users with this email (handles duplicate accounts)
-    query = select(User).where(User.email == reset_req.email.strip().lower()).order_by(User.id)
+    query = select(User).where(func.lower(User.email) == reset_req.email.strip().lower()).order_by(User.id)
     result = await session.execute(query)
     users = result.scalars().all()
 
@@ -945,9 +945,9 @@ async def admin_reset_user_password(
             detail="Only admins can reset other users' passwords.",
         )
 
-    # Find the target user in the same company
+    # Find the target user in the same company (case-insensitive)
     query = select(User).where(
-        User.email == body.user_email.strip().lower(),
+        func.lower(User.email) == body.user_email.strip().lower(),
         User.company_id == current_user.company_id,
     )
     result = await session.execute(query)
