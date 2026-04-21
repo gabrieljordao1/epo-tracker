@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext, useState, useEffect, ReactNode } from "react";
-import { getTeamMembers, getAuthToken } from "./api";
+import { getTeamMembers, getMe, getAuthToken } from "./api";
 
 export interface TeamMember {
   id: number;
@@ -67,13 +67,37 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const loadTeam = async () => {
     try {
+      // First, identify the actual logged-in user via /api/auth/me
+      const me = await getMe();
       const data = await getTeamMembers();
       const members: TeamMember[] = Array.isArray(data) ? data : [];
       if (members.length > 0) {
         setTeamMembers(members);
-        const admin = members.find((m) => m.role === "admin");
-        if (admin) setCurrentUser(admin);
-        setIsDemoMode(!getAuthToken());
+        // Find the logged-in user in the team list (match by id or email)
+        const loggedInMember = members.find(
+          (m) => m.id === me.id || m.email === me.email
+        );
+        if (loggedInMember) {
+          setCurrentUser(loggedInMember);
+          // Field users should always see only their own data
+          if (loggedInMember.role === "field") {
+            setActiveUser(loggedInMember);
+          }
+        } else {
+          // Fallback: use the /me response directly
+          const fallbackMember: TeamMember = {
+            id: me.id,
+            full_name: me.full_name,
+            email: me.email,
+            role: me.role,
+            communities: [],
+          };
+          setCurrentUser(fallbackMember);
+          if (me.role === "field") {
+            setActiveUser(fallbackMember);
+          }
+        }
+        setIsDemoMode(false);
       } else {
         throw new Error("No members");
       }
