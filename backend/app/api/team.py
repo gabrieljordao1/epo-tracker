@@ -31,34 +31,7 @@ async def get_team_members(
     - FIELD: See team members' names only (no email, stats, or health info)
     """
     try:
-        # Check authorization
-        if current_user.role == UserRole.FIELD:
-            # FIELD users can only see names, not email or stats
-            company_id = current_user.company_id
-            result = await session.execute(
-                select(User).where(User.is_active.is_(True), User.company_id == company_id)
-            )
-            users = result.scalars().all()
-
-            members = [
-                {
-                    "id": user.id,
-                    "full_name": user.full_name,
-                    "role": user.role.value if hasattr(user.role, 'value') else user.role,
-                }
-                for user in users
-            ]
-
-            audit_log(
-                event_type="team_members_viewed",
-                user_id=str(current_user.id),
-                email=current_user.email,
-                status="success",
-                details={"role": "field", "members_count": len(members)}
-            )
-            return {"members": members, "total": len(members)}
-
-        # ADMIN/MANAGER: See full details
+        # All roles see full team stats (field managers need to see team performance)
         company_id = current_user.company_id
         result = await session.execute(
             select(User).where(User.is_active.is_(True), User.company_id == company_id)

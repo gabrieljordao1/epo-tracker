@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import get_db
 from ..core.auth import get_current_user
-from ..models.models import EPO, SubPayment, User
+from ..models.models import EPO, SubPayment, User, CommunityAssignment, UserRole
 
 logger = logging.getLogger(__name__)
 
@@ -206,10 +206,32 @@ async def profit_summary(
     Returns overview totals + per-EPO breakdown with net profit calculation:
     net_profit = epo.amount - sum(sub_payments.amount)
     """
-    # Load all EPOs with their sub payments
+    # Build EPO query — scoped by role
+    company_id = current_user.company_id
+    epo_query = select(EPO).where(EPO.company_id == company_id)
+
+    if current_user.role == UserRole.FIELD:
+        # Field users: only EPOs in their assigned communities, or created by them
+        assign_result = await session.execute(
+            select(CommunityAssignment.community_name).where(
+                CommunityAssignment.supervisor_id == current_user.id,
+                CommunityAssignment.company_id == company_id,
+            )
+        )
+        communities = [row[0] for row in assign_result.all()]
+        if communities:
+            from sqlalchemy import or_
+            epo_query = epo_query.where(
+                or_(
+                    EPO.community.in_(communities),
+                    EPO.created_by_id == current_user.id,
+                )
+            )
+        else:
+            epo_query = epo_query.where(EPO.created_by_id == current_user.id)
+
     epo_result = await session.execute(
-        select(EPO)
-        .where(EPO.company_id == current_user.company_id)
+        epo_query
         .options(selectinload(EPO.sub_payments))
         .order_by(EPO.created_at.desc())
     )
