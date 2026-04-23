@@ -251,6 +251,69 @@ async def update_epo(
         )
 
 
+@router.delete("/{epo_id}")
+async def delete_epo(
+    epo_id: int,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+):
+    """Delete an EPO. Admin/Manager only."""
+    try:
+        if current_user.role == UserRole.FIELD:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins/managers can delete EPOs",
+            )
+
+        query = select(EPO).where(
+            and_(EPO.id == epo_id, EPO.company_id == current_user.company_id)
+        )
+        result = await session.execute(query)
+        epo = result.scalars().first()
+        if not epo:
+            raise HTTPException(status_code=404, detail="EPO not found")
+
+        # Delete dependent rows first (FK constraints)
+        from ..models.models import EPOFollowup, EPOAttachment, EPOApproval, SubPayment
+        from ..models.models import VendorAction
+        for model in [EPOFollowup, VendorAction, EPOAttachment, EPOApproval, SubPayment]:
+            dep_q = select(model).where(model.epo_id == epo_id)
+            dep_result = await session.execute(dep_q)
+            for dep in dep_result.scalars().all():
+                await session.delete(dep)
+
+        # Also delete lot items if they exist
+        try:
+            from ..models.models import EPOLotItem
+            lot_q = select(EPOLotItem).where(EPOLotItem.epo_id == epo_id)
+            lot_result = await session.execute(lot_q)
+            for lot_item in lot_result.scalars().all():
+                await session.delete(lot_item)
+        except Exception:
+            pass
+
+        await session.delete(epo)
+        await session.commit()
+
+        audit_log(
+            event_type="epo_deleted",
+            user_id=str(current_user.id),
+            email=current_user.email,
+            status="success",
+            details={"epo_id": epo_id, "vendor": epo.vendor_name, "lot": epo.lot_number},
+        )
+        logger.info(f"EPO #{epo_id} deleted by {current_user.email}")
+        return {"deleted": True, "epo_id": epo_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting EPO {epo_id}: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete EPO",
+        )
+
+
 @router.get("/stats/dashboard", response_model=DashboardStats)
 async def get_dashboard_stats(
     current_user: User = Depends(get_current_user),

@@ -25,7 +25,7 @@ import {
   Layers,
 } from "lucide-react";
 import type { EPO } from "@/lib/api";
-import { updateEPO, sendFollowup } from "@/lib/api";
+import { updateEPO, sendFollowup, deleteEPO } from "@/lib/api";
 import { useLotItems, useAutoSplitLotItems } from "@/hooks/useLotItems";
 
 interface EPODetailDrawerProps {
@@ -88,6 +88,7 @@ export function EPODetailDrawer({
 }: EPODetailDrawerProps) {
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [followingUp, setFollowingUp] = useState(false);
   const [followupMsg, setFollowupMsg] = useState<string | null>(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
@@ -247,6 +248,30 @@ export function EPODetailDrawer({
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={async () => {
+                    if (!epo || !confirm(`Delete this EPO? (${epo.vendor_name} - Lot ${epo.lot_number})`)) return;
+                    setDeleting(true);
+                    try {
+                      await deleteEPO(epo.id);
+                      onUpdated();
+                      onClose();
+                    } catch (err: any) {
+                      alert("Failed to delete: " + err.message);
+                    } finally {
+                      setDeleting(false);
+                    }
+                  }}
+                  disabled={deleting}
+                  className="p-2 hover:bg-red-400/10 rounded-lg transition-colors"
+                  title="Delete EPO"
+                >
+                  {deleting ? (
+                    <Loader2 size={16} className="text-red-400 animate-spin" />
+                  ) : (
+                    <XCircle size={16} className="text-red-400/60 hover:text-red-400" />
+                  )}
+                </button>
                 {!editing ? (
                   <button
                     onClick={() => setEditing(true)}

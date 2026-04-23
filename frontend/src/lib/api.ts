@@ -447,6 +447,15 @@ export async function updateEPO(id: number, updates: Partial<EPO>): Promise<EPO>
   return res.json();
 }
 
+export async function deleteEPO(id: number): Promise<void> {
+  await ensureTokenValid();
+  const res = await fetch(`${API_BASE}/api/epos/${id}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!res.ok) throw new Error("Failed to delete EPO");
+}
+
 export async function createEPO(epo: Partial<EPO>): Promise<EPO> {
   await ensureTokenValid();
   const res = await fetch(`${API_BASE}/api/epos`, {
