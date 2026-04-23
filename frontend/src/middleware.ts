@@ -21,23 +21,7 @@ export function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Determine if this is the main onyxepos.com domain
-  const isMainDomain =
-    hostname === "onyxepos.com" || hostname === "www.onyxepos.com";
-
-  // If on main domain, redirect to early access page (for now)
-  if (isMainDomain) {
-    const allowedOnMain = ["/early-access", "/api/waitlist"];
-    const isAllowed = allowedOnMain.some((route) => pathname.startsWith(route));
-    if (!isAllowed) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/early-access";
-      return NextResponse.redirect(url);
-    }
-    return NextResponse.next();
-  }
-
-  // ── Auth guard for all other domains (Vercel preview, etc.) ──
+  // ── Auth guard for all domains ──
   const isPublicRoute = PUBLIC_ROUTES.some((route) =>
     pathname.startsWith(route)
   );
