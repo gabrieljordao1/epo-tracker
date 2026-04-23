@@ -385,15 +385,10 @@ async def _run_safe_migrations():
         UPDATE epos SET email_date = created_at
         WHERE email_date IS NULL;
         """,
-        # ── v46: Deactivate duplicate Gabriel Jordao account (stancilservices.com) ──
-        # The v-early migration targeted 'gabriel@stancilservices.com' but the
-        # actual duplicate is 'gabriel.jordao@stancilservices.com' (id=8).
+        # ── v46: Reactivate all Gabriel accounts (v45 wrongly deactivated one) ──
         """
-        UPDATE users SET is_active = false
-        WHERE email = 'gabriel.jordao@stancilservices.com'
-          AND EXISTS (
-              SELECT 1 FROM users WHERE email = 'gabriel.jordao0217@gmail.com'
-          );
+        UPDATE users SET is_active = true
+        WHERE LOWER(email) LIKE '%gabriel%' AND is_active = false;
         """,
     ]
 
